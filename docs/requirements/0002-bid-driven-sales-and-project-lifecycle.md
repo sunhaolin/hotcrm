@@ -71,6 +71,21 @@ to an application that does not exist yet, whose chartering is a maintainer
 decision". See **Why the D bucket is a scope question** for what that settles
 and what it does not.
 
+### 2026-09-14 — Q1 follow-on: the platform is wanted
+
+> 项管平台是需要的。
+
+So the D-bucket work is **confirmed needed**, not deferred. D still means "not in
+this repo" — that is unchanged and is not a judgement about the work's value.
+What it now unlocks is the **chartering brief** below: the object model, the seam
+to HotCRM, and the decisions that must be made before a line of it is written.
+
+It also settles HotCRM's own obligation. `opportunity_number` was a B item
+resting on an unanswered question; with the PSA platform confirmed greenfield
+**and** confirmed wanted, it is the seam's only anchor — nothing on the PSA side
+can reference a deal without it. It is the one piece of these 40 steps that can
+start in this repo today, and it depends on none of the five remaining questions.
+
 ## Standard product analysis
 
 ### Finding 1 — the spec covers two systems, and says so in its own `系统路径` column
@@ -228,6 +243,91 @@ In rough size this is a **second application of HotCRM's own magnitude** —
 comparable object count, heavier on multi-tier approval and period-based
 calculation, lighter on UI. It is not an increment to this repo.
 
+#### Chartering brief
+
+Material for whoever charters the application. Object names below carry no
+prefix on purpose — choosing one is decision 4.
+
+**Object model draft**, read off the steps:
+
+| Object | Carries | Steps |
+| --- | --- | --- |
+| `presales_project` | The CRM opportunity reference, name/alias, project type, 业务分类, planned dates, expected contract, 信息安全类别, approval state | 15–20 |
+| `delivery_project` | The approved presales project it descends from, 实施/核算成本中心, 对应部门, security class, 开工确认单 attachments | 21–26 |
+| `project_role` | Junction — project × user × role (客户经理 / 项目经理 / 项目总监 / 项目 QA / 资源报价负责人 / 分包 TS 填写人 / 各级 QA) | 17, 24 |
+| `cost_center` | 成本中心 master data, both 实施 and 核算 | 23 |
+| `rate_card` | 岗位级别 × 费率标准 — what the labour estimate and the labour plan both read | 18, 28 |
+| `cost_plan` | The Bizcase baseline total, version, state | 27, 32 |
+| `labor_cost_line` | 岗位级别, 费率, 工时, 人数 | 18, 28 |
+| `service_cost_line` | 服务名称, 单价, 人数, 工期 | 18, 29 |
+| `procurement_cost_line` | 采购品类, 数量, 单价 | 18, 30 |
+| `expense_cost_line` | 差旅 / 报销 budget | 18, 31 |
+| `cost_month` | The monthly decomposition of a labour or service line | 28, 29 |
+| `budget_adjustment` | 调整原因, 差异分析, and its approval | 32 |
+| `timesheet` | Person × project × month, state | 33, 34 |
+| `timesheet_line` | The day/hours detail | 33 |
+| `travel_cost` | Project-booked travel actuals and their receipt reference | 35 |
+
+Plus the datasets and dashboards for steps 37–40, which read all of the above and
+are therefore last by construction, not by priority.
+
+**What the platform already provides — ⛔ do not re-author it.** Scope rule 1
+cuts both ways: a platform gap is filed upstream, and platform capability is not
+rebuilt in an app.
+
+- `sys_business_unit` / `sys_business_unit_member` — the 事业部 → 事业本部 →
+  事业群 hierarchy the five-tier approval chain walks is **org structure the
+  platform owns**.
+- `sys_position` / `sys_user_position` — the approval bench (成本中心负责人,
+  Bizcase 审核岗, …), declared the way HotCRM declares its own positions.
+- Approval nodes, attachments (`enable.files`), record feeds, field history.
+- ⚠️ And per semantics rule 10, `organization_id` is **injected**: that business
+  org hierarchy is not the tenant dimension. Same trap as 签约主体 on the CRM
+  side, and worth stating twice because this app would meet it in every approval.
+
+**The seam to HotCRM** — the one coupling, and it has two shapes:
+
+- **(i) Loose.** PSA stores the opportunity *code* and reads HotCRM over
+  REST/ObjectQL. Two applications, independently installable and releasable. The
+  cost is no referential integrity, which is precisely why the code must be
+  stable and unique.
+- **(ii) Co-installed.** Both apps on the same ObjectStack organization, PSA
+  holding a real lookup to `crm_opportunity`. Referential integrity for free;
+  couples install and release.
+
+This choice reaches the reporting joins and the 商机 → 售前 gate, so it is made
+first, not discovered later. Either shape needs `opportunity_number`.
+
+**Four decisions before a line is written:**
+
+1. **The seam** — (i) or (ii) above.
+2. **The shape of 按月分解 (steps 28–29).** The hardest modelling call here. A
+   child row per line per month makes 预算执行率 and 基线 vs 实际 (step 39) a
+   straight aggregation; a wide twelve-column shape is quicker to draw and wrong
+   by January. It determines the whole reporting layer, so settle it before the
+   cost-plan objects are drawn.
+3. **The overrun gate (step 36).** 「成本超预算时限制工时填报」 is a
+   **cross-object transition gate**: a timesheet write must read the project's
+   accumulated actuals against its budget, which no CEL predicate can do — a
+   predicate only reads the record under write — so it is a hook. Exactly the
+   same class as the CRM-side 客户分类 gate, and the two should share a shape.
+   Decide too, under semantics rule 8, whether an overrun blocks outright or
+   warns until a person confirms; the spec's 限制 reads as a block.
+4. **The naming prefix.** HotCRM writes `crm_` out everywhere, so that the name
+   in source equals the name at runtime, in the DB, in the REST URL and in the
+   docs. The PSA app picks its own once and writes it out the same way.
+
+**Phasing** — the spec's own dependency chain supplies it; each stage is gated on
+the one above:
+
+1. 售前立项 + 角色 + 成本测算 + 五级审批 (15–20) — nothing downstream exists
+   without it, and it is the stage that consumes the CRM seam.
+2. 交付立项 (21–26) — gated on an approved presales project.
+3. 成本计划 (27–32) — baselined on the approved Bizcase total.
+4. 成本执行 (33–36) — needs a plan to measure against, and carries both external
+   integrations.
+5. 项目报表 (37–40) — reads everything above.
+
 ## Product response
 
 ### Already supported — configuration and documentation only (A)
@@ -304,7 +404,9 @@ Non-negotiable per AGENTS.md, and they are a real share of the effort:
 ## Acceptance
 
 This record is Triaged, not built. It is satisfied when the open questions above
-all carry an answer (Q1 does, as of 2026-09-14; five remain) and each accepted
-item has been cut into its own build record (`0003-…` onward) carrying its own
-disposition, metadata list and acceptance. Nothing enters `src/` on the strength
-of this record alone, and nothing in the D bucket enters it at all.
+all carry an answer (Q1 does, in two parts, as of 2026-09-14; five remain) and
+each accepted item has been cut into its own build record (`0003-…` onward)
+carrying its own disposition, metadata list and acceptance. Nothing enters `src/`
+on the strength of this record alone, and nothing in the D bucket enters it at
+all — the chartering brief above is material for a **separate** application, not
+a plan for this one.
