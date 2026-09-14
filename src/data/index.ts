@@ -33,6 +33,10 @@ import {
 } from './service.seed';
 import { campaigns, campaignMembersFromLeads, campaignMembersFromContacts } from './marketing.seed';
 import { contracts, quotes, quoteLineItems, forecasts } from './revenue.seed';
+import {
+  psaAccounts, psaContacts, psaLeads, psaOpportunities,
+  presalesProjects, deliveryProjects, costPlanLines, timesheets, travelCosts,
+} from './psa.seed';
 
 /**
  * Ownership and CRM positions are NOT seeded here — they can't be.
@@ -85,6 +89,16 @@ export const CrmSeedData = [
   quoteLineItems,
   forecasts,
   knowledgeArticles,
+  // Demo golden path (epic #2 / T9) — parents before children.
+  psaAccounts,
+  psaContacts,
+  psaLeads,
+  psaOpportunities,
+  presalesProjects,
+  deliveryProjects,
+  costPlanLines,
+  timesheets,
+  travelCosts,
 ];
 
 // ─────────────────────────────────────── the SaaS / multi-org composition ──
