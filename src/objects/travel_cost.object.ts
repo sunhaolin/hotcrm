@@ -5,8 +5,8 @@ import { ObjectSchema, Field } from '@objectstack/spec/data';
 /** 差旅成本 — step 35: a travel actual booked to a delivery project against a receipt (epic #2 / T4). */
 export const TravelCost = ObjectSchema.create({
   name: 'crm_travel_cost',
-  label: 'Travel Cost',
-  pluralLabel: 'Travel Costs',
+  label: '差旅成本',
+  pluralLabel: '差旅成本',
   icon: 'plane',
   description: 'A travel expense booked to a delivery project, referenced to its reimbursement receipt',
   sharingModel: 'controlled_by_parent',

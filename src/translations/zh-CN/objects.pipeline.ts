@@ -340,6 +340,7 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       classification: { label: '分类' },
       campaign: { label: '营销活动' },
       notes: { label: '备注与下一步' },
+      team: { label: '铁三角' },
       // opportunity.view.ts 表单区块名称 (#1100)
       overview: { label: '概览' },
       forecast: { label: '预测' },

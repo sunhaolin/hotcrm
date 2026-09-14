@@ -55,6 +55,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
     'error.load_failed': 'Failed to load data',
   },
   dashboards: {
+    project_cost_dashboard: {
+      label: 'Project Cost',
+      description: 'Budget baseline vs planned vs actual cost across delivery projects',
+      widgets: {
+        total_budget: { title: 'Total Budget', description: 'Sum of approved budget baselines' },
+        total_labor_actual: { title: 'Labor Actual', description: 'Approved timesheet cost' },
+        total_travel_actual: { title: 'Travel Actual', description: 'Travel cost booked to projects' },
+        active_projects: { title: 'Active Projects', description: 'Delivery projects currently in flight' },
+        plan_vs_actual_by_project: { title: 'Budget vs Actual by Project', description: 'Baseline, planned and labor actual per delivery project' },
+        burn_by_project: { title: 'Budget Burn by Project', description: 'Baseline, actuals and burn per project' },
+      },
+    },
     sales_activity_dashboard: {
       label: 'Sales Activity',
       description: 'Who is talking to customers, how often, and which accounts have gone quiet',

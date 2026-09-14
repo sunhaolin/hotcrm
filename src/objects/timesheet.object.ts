@@ -12,8 +12,8 @@ import { APPROVAL_STATUS_OPTIONS } from './_psa-picklists';
  */
 export const Timesheet = ObjectSchema.create({
   name: 'crm_timesheet',
-  label: 'Timesheet',
-  pluralLabel: 'Timesheets',
+  label: '工时表',
+  pluralLabel: '工时表',
   icon: 'clock',
   description: 'Monthly hours a person books to a delivery project, approved by the project manager',
   sharingModel: 'controlled_by_parent',

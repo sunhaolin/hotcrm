@@ -96,6 +96,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
     'error.load_failed': '数据加载失败',
   },
   dashboards: {
+    project_cost_dashboard: {
+      label: '项目成本',
+      description: '各交付项目的预算基线、计划与实际成本',
+      widgets: {
+        total_budget: { title: '总预算', description: '已审批预算基线合计' },
+        total_labor_actual: { title: '人工实际', description: '已审批工时的人工成本' },
+        total_travel_actual: { title: '差旅实际', description: '归集到项目的差旅费用' },
+        active_projects: { title: '进行中项目', description: '当前进行中的交付项目数' },
+        plan_vs_actual_by_project: { title: '各项目预算 vs 实际', description: '每个交付项目的基线、计划与人工实际' },
+        burn_by_project: { title: '各项目预算消耗', description: '每个项目的基线、实际与消耗率' },
+      },
+    },
     sales_activity_dashboard: {
       label: '销售活动',
       description: '谁在和客户沟通、频率如何，以及哪些客户已经沉默',
@@ -195,6 +207,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
   // the console substitutes on the raw key, so a translated token resolves to
   // nothing and the header renders blank.
   datasets: {
+    project_cost_metrics: {
+      label: '项目成本指标',
+      description: '各交付项目的预算基线、计划与实际成本',
+      dimensions: {
+        project: { label: '项目' }, status: { label: '项目状态' }, impl_cost_center: { label: '实施成本中心' },
+        department: { label: '对应部门' }, account: { label: '客户' }, planned_end: { label: '计划结束' },
+      },
+      measures: {
+        project_count: { label: '项目数' }, baseline_total: { label: '预算基线' }, planned_total: { label: '计划总额' },
+        labor_total: { label: '人工实际' }, travel_total: { label: '差旅实际' }, active_count: { label: '进行中项目' }, burn_ratio: { label: '预算消耗' },
+      },
+    },
     account_metrics: {
       label: '客户指标',
       description: '按行业与类型统计客户数量的语义层',

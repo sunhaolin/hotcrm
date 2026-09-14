@@ -12,8 +12,8 @@ import { APPROVAL_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS, BUSINESS_CATEGORY_OPTION
  */
 export const PresalesProject = ObjectSchema.create({
   name: 'crm_presales_project',
-  label: 'Presales Project',
-  pluralLabel: 'Presales Projects',
+  label: '售前项目',
+  pluralLabel: '售前项目',
   icon: 'lightbulb',
   description: 'A presales project opened against an approved opportunity: roles, cost estimate, quote and margin',
   sharingModel: 'private',

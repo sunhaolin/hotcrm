@@ -14,8 +14,8 @@ import { APPROVAL_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS, BUSINESS_CATEGORY_OPTION
  */
 export const DeliveryProject = ObjectSchema.create({
   name: 'crm_delivery_project',
-  label: 'Delivery Project',
-  pluralLabel: 'Delivery Projects',
+  label: '交付项目',
+  pluralLabel: '交付项目',
   icon: 'hammer',
   description: 'A delivery project opened from an approved presales project: cost centres, roles, budget baseline and cost rollups',
   sharingModel: 'private',

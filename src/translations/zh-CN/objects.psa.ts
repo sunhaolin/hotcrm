@@ -54,6 +54,14 @@ export const psa: Record<string, ObjectTranslationData> = {
       description: { label: '项目背景' },
     },
     _views: { all_presales_projects: { label: '全部售前项目' } },
+    _sections: {
+      basic: { label: '项目信息' },
+      roles: { label: '项目角色' },
+      cost_estimate: { label: '成本测算与报价' },
+      security: { label: '信息安全' },
+      approval: { label: '审批' },
+      notes: { label: '项目背景' },
+    },
   },
   crm_delivery_project: {
     label: '交付项目',
@@ -92,6 +100,14 @@ export const psa: Record<string, ObjectTranslationData> = {
       ...approval,
     },
     _views: { all_delivery_projects: { label: '全部交付项目' } },
+    _sections: {
+      basic: { label: '项目信息' },
+      org: { label: '成本中心与部门' },
+      roles: { label: '项目角色' },
+      budget: { label: '预算与实际' },
+      security: { label: '信息安全' },
+      approval: { label: '审批' },
+    },
   },
   crm_cost_plan_line: {
     label: '成本计划行',
@@ -108,6 +124,9 @@ export const psa: Record<string, ObjectTranslationData> = {
       notes: { label: '备注' },
     },
     _views: { all_cost_plan_lines: { label: '全部成本计划行' } },
+    _sections: {
+      basic: { label: '成本计划行' },
+    },
   },
   crm_timesheet: {
     label: '工时表',
@@ -126,6 +145,10 @@ export const psa: Record<string, ObjectTranslationData> = {
       ...approval,
     },
     _views: { all_timesheets: { label: '全部工时表' } },
+    _sections: {
+      basic: { label: '工时表' },
+      approval: { label: '审批' },
+    },
   },
   crm_travel_cost: {
     label: '差旅成本',
@@ -141,5 +164,8 @@ export const psa: Record<string, ObjectTranslationData> = {
       description: { label: '说明' },
     },
     _views: { all_travel_costs: { label: '全部差旅成本' } },
+    _sections: {
+      basic: { label: '差旅成本' },
+    },
   },
 };

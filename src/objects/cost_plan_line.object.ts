@@ -6,8 +6,8 @@ import { COST_CATEGORY_OPTIONS } from './_psa-picklists';
 /** 成本计划行 — steps 28–31: one planned amount per category per month (epic #2 / T4). */
 export const CostPlanLine = ObjectSchema.create({
   name: 'crm_cost_plan_line',
-  label: 'Cost Plan Line',
-  pluralLabel: 'Cost Plan Lines',
+  label: '成本计划行',
+  pluralLabel: '成本计划行',
   icon: 'list',
   description: 'One planned cost amount for a delivery project, by category and month',
   sharingModel: 'controlled_by_parent',

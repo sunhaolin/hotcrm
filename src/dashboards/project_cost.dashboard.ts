@@ -48,11 +48,11 @@ export const ProjectCostDashboard: Dashboard = {
       chartConfig: {
         type: 'bar', showLegend: true, showDataLabels: true,
         colors: ['#4169E1', '#10B981', '#F97316'],
-        xAxis: { field: 'project', title: 'Project', showGridLines: false, logarithmic: false },
+        xAxis: { field: 'project', title: '项目', showGridLines: false, logarithmic: false },
         yAxis: [
-          { field: 'baseline_total', title: 'Baseline', showGridLines: true, logarithmic: false },
-          { field: 'planned_total', title: 'Planned', showGridLines: true, logarithmic: false },
-          { field: 'labor_total', title: 'Labor Actual', showGridLines: true, logarithmic: false },
+          { field: 'baseline_total', title: '预算基线', showGridLines: true, logarithmic: false },
+          { field: 'planned_total', title: '计划总额', showGridLines: true, logarithmic: false },
+          { field: 'labor_total', title: '人工实际', showGridLines: true, logarithmic: false },
         ],
       },
     },
@@ -63,11 +63,11 @@ export const ProjectCostDashboard: Dashboard = {
       layout: { x: 0, y: 7, w: 12, h: 4 },
       options: {
         columns: [
-          { header: 'Project', accessorKey: 'project' },
-          { header: 'Baseline', accessorKey: 'baseline_total', format: '0,0' },
-          { header: 'Labor Actual', accessorKey: 'labor_total', format: '0,0' },
-          { header: 'Travel Actual', accessorKey: 'travel_total', format: '0,0' },
-          { header: 'Labor Burn', accessorKey: 'burn_ratio', format: '0%' },
+          { header: '项目', accessorKey: 'project' },
+          { header: '预算基线', accessorKey: 'baseline_total', format: '0,0' },
+          { header: '人工实际', accessorKey: 'labor_total', format: '0,0' },
+          { header: '差旅实际', accessorKey: 'travel_total', format: '0,0' },
+          { header: '人工消耗率', accessorKey: 'burn_ratio', format: '0%' },
         ],
         sortBy: 'burn_ratio', sortOrder: 'desc', limit: 10,
       },

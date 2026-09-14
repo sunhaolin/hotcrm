@@ -54,6 +54,14 @@ export const psa: Record<string, ObjectTranslationData> = {
       description: { label: 'Project Background' },
     },
     _views: { all_presales_projects: { label: 'All Presales Projects' } },
+    _sections: {
+      basic: { label: 'Project Information' },
+      roles: { label: 'Project Roles' },
+      cost_estimate: { label: 'Cost Estimate & Quote' },
+      security: { label: 'Information Security' },
+      approval: { label: 'Approval' },
+      notes: { label: 'Background' },
+    },
   },
   crm_delivery_project: {
     label: 'Delivery Project',
@@ -92,6 +100,14 @@ export const psa: Record<string, ObjectTranslationData> = {
       ...approval,
     },
     _views: { all_delivery_projects: { label: 'All Delivery Projects' } },
+    _sections: {
+      basic: { label: 'Project Information' },
+      org: { label: 'Cost Centre & Department' },
+      roles: { label: 'Project Roles' },
+      budget: { label: 'Budget & Actuals' },
+      security: { label: 'Information Security' },
+      approval: { label: 'Approval' },
+    },
   },
   crm_cost_plan_line: {
     label: 'Cost Plan Line',
@@ -108,6 +124,9 @@ export const psa: Record<string, ObjectTranslationData> = {
       notes: { label: 'Notes' },
     },
     _views: { all_cost_plan_lines: { label: 'All Cost Plan Lines' } },
+    _sections: {
+      basic: { label: 'Cost Plan Line' },
+    },
   },
   crm_timesheet: {
     label: 'Timesheet',
@@ -126,6 +145,10 @@ export const psa: Record<string, ObjectTranslationData> = {
       ...approval,
     },
     _views: { all_timesheets: { label: 'All Timesheets' } },
+    _sections: {
+      basic: { label: 'Timesheet' },
+      approval: { label: 'Approval' },
+    },
   },
   crm_travel_cost: {
     label: 'Travel Cost',
@@ -141,5 +164,8 @@ export const psa: Record<string, ObjectTranslationData> = {
       description: { label: 'Description' },
     },
     _views: { all_travel_costs: { label: 'All Travel Costs' } },
+    _sections: {
+      basic: { label: 'Travel Cost' },
+    },
   },
 };

@@ -34,7 +34,7 @@ import {
 import { campaigns, campaignMembersFromLeads, campaignMembersFromContacts } from './marketing.seed';
 import { contracts, quotes, quoteLineItems, forecasts } from './revenue.seed';
 import {
-  psaAccounts, psaContacts, psaLeads, psaOpportunities,
+  psaAccounts, psaContacts, psaLeads, psaOpportunities, psaTasks, psaEvents,
   presalesProjects, deliveryProjects, costPlanLines, timesheets, travelCosts,
 } from './psa.seed';
 
@@ -67,33 +67,16 @@ import {
 
 /** All CRM seed datasets */
 export const CrmSeedData = [
-  accounts,
-  contacts,
-  leads,
-  opportunities,
-  products,
-  opportunityLineItems,
-  tasks,
-  cases,
-  // Events come after the five objects their `related_to_*` lookups resolve
-  // against (accounts, contacts, leads, opportunities, cases); the attendee
-  // junctions come after the events they hang off.
-  events,
-  eventAttendeesFromContacts,
-  eventAttendeesFromLeads,
-  campaigns,
-  campaignMembersFromLeads,
-  campaignMembersFromContacts,
-  contracts,
-  quotes,
-  quoteLineItems,
-  forecasts,
-  knowledgeArticles,
-  // Demo golden path (epic #2 / T9) — parents before children.
+  // Demo composition (epic #2): the Chinese golden path ONLY. The standard
+  // English demo book (Acme, Globex, …) is deliberately not registered on this
+  // branch so every list the customer sees is Chinese. Restore the full list
+  // from `main` if this composition is ever reused outside the demo.
   psaAccounts,
   psaContacts,
   psaLeads,
   psaOpportunities,
+  psaTasks,
+  psaEvents,
   presalesProjects,
   deliveryProjects,
   costPlanLines,

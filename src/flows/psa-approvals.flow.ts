@@ -30,17 +30,17 @@ const SUBMITTED: Record<Spec['statusField'], ReturnType<typeof P>> = {
 const approvalFlow = (s: Spec): Flow => ({
   name: s.name,
   label: s.label,
-  description: `One-tier approval for ${s.noun}: opened when the record is submitted (demo, epic #2).`,
+  description: `${s.noun}一级审批：记录提交后开启（demo, epic #2）。`,
   type: 'record_change',
   status: 'active',
   runAs: 'system',
   variables: [{ name: 'recordId', type: 'text', isInput: true, isOutput: false }],
   nodes: [
-    { id: 'start', type: 'start', label: 'Start',
+    { id: 'start', type: 'start', label: '开始',
       config: { objectName: s.objectName, triggerType: 'record-after-update', condition: SUBMITTED[s.statusField] } },
-    { id: 'get_record', type: 'get_record', label: `Get ${s.noun}`,
+    { id: 'get_record', type: 'get_record', label: `读取${s.noun}`,
       config: { objectName: s.objectName, filter: { id: '{record.id}' }, outputVariable: 'rec' } },
-    { id: 'review', type: 'approval', label: `${s.label} Review`,
+    { id: 'review', type: 'approval', label: `${s.label}`,
       config: {
         // Demo (epic decision 3): the org owner is the dev admin, so every
         // request lands in one 待我审批. The `approver` position is kept on
@@ -51,17 +51,17 @@ const approvalFlow = (s: Spec): Flow => ({
         lockRecord: true,
         approvalStatusField: s.statusField,
       } },
-    { id: 'mark_approved', type: 'update_record', label: 'Mark Approved',
+    { id: 'mark_approved', type: 'update_record', label: '标记为已审批',
       config: { objectName: s.objectName, filter: { id: '{record.id}' }, fields: { [s.statusField]: 'approved', [s.dateField]: '{NOW()}' } } },
-    { id: 'notify_approved', type: 'notify', label: 'Notify Owner — Approved',
+    { id: 'notify_approved', type: 'notify', label: '通知负责人 — 已通过',
       config: { recipients: ['{rec.owner_id}'], channels: ['inbox', 'email'], topic: `${s.name}_approved`,
-        title: `${s.noun} approved`, message: `Your ${s.noun} has been approved.`, actionUrl: `/${s.objectName}/{record.id}` } },
-    { id: 'mark_rejected', type: 'update_record', label: 'Mark Rejected',
+        title: `${s.noun}已审批通过`, message: `您提交的${s.noun}已审批通过。`, actionUrl: `/${s.objectName}/{record.id}` } },
+    { id: 'mark_rejected', type: 'update_record', label: '标记为已驳回',
       config: { objectName: s.objectName, filter: { id: '{record.id}' }, fields: { [s.statusField]: 'rejected' } } },
-    { id: 'notify_rejected', type: 'notify', label: 'Notify Owner — Rejected',
+    { id: 'notify_rejected', type: 'notify', label: '通知负责人 — 已驳回',
       config: { recipients: ['{rec.owner_id}'], channels: ['inbox', 'email'], severity: 'warning', topic: `${s.name}_rejected`,
-        title: `${s.noun} rejected`, message: `Your ${s.noun} was not approved. Review and resubmit.`, actionUrl: `/${s.objectName}/{record.id}` } },
-    { id: 'end', type: 'end', label: 'End' },
+        title: `${s.noun}已驳回`, message: `您提交的${s.noun}未通过审批，请修改后重新提交。`, actionUrl: `/${s.objectName}/{record.id}` } },
+    { id: 'end', type: 'end', label: '结束' },
   ],
   edges: [
     { id: 'e1', source: 'start', target: 'get_record', type: 'default' },
@@ -75,12 +75,12 @@ const approvalFlow = (s: Spec): Flow => ({
   ],
 });
 
-export const AccountApprovalFlow: Flow = approvalFlow({ name: 'account_approval', label: 'Account Approval', objectName: 'crm_account', approver: 'sales_director', statusField: 'approval_status', dateField: 'approved_date', noun: 'account' });
-export const LeadApprovalFlow: Flow = approvalFlow({ name: 'lead_approval', label: 'Lead Approval', objectName: 'crm_lead', approver: 'sales_director', statusField: 'approval_status', dateField: 'approved_date', noun: 'lead' });
-export const OpportunityInitiationFlow: Flow = approvalFlow({ name: 'opportunity_initiation', label: 'Opportunity Initiation', objectName: 'crm_opportunity', approver: 'executive', statusField: 'initiation_status', dateField: 'initiated_date', noun: 'opportunity initiation' });
-export const PresalesProjectApprovalFlow: Flow = approvalFlow({ name: 'presales_project_approval', label: 'Presales Project Approval', objectName: 'crm_presales_project', approver: 'executive', statusField: 'approval_status', dateField: 'approved_date', noun: 'presales project' });
-export const DeliveryProjectApprovalFlow: Flow = approvalFlow({ name: 'delivery_project_approval', label: 'Delivery Project Approval', objectName: 'crm_delivery_project', approver: 'executive', statusField: 'approval_status', dateField: 'approved_date', noun: 'delivery project' });
-export const TimesheetApprovalFlow: Flow = approvalFlow({ name: 'timesheet_approval', label: 'Timesheet Approval', objectName: 'crm_timesheet', approver: 'sales_manager', statusField: 'approval_status', dateField: 'approved_date', noun: 'timesheet' });
+export const AccountApprovalFlow: Flow = approvalFlow({ name: 'account_approval', label: '客户审批', objectName: 'crm_account', approver: 'sales_director', statusField: 'approval_status', dateField: 'approved_date', noun: '客户' });
+export const LeadApprovalFlow: Flow = approvalFlow({ name: 'lead_approval', label: '线索审批', objectName: 'crm_lead', approver: 'sales_director', statusField: 'approval_status', dateField: 'approved_date', noun: '线索' });
+export const OpportunityInitiationFlow: Flow = approvalFlow({ name: 'opportunity_initiation', label: '商机立项审批', objectName: 'crm_opportunity', approver: 'executive', statusField: 'initiation_status', dateField: 'initiated_date', noun: '商机立项' });
+export const PresalesProjectApprovalFlow: Flow = approvalFlow({ name: 'presales_project_approval', label: '售前立项审批', objectName: 'crm_presales_project', approver: 'executive', statusField: 'approval_status', dateField: 'approved_date', noun: '售前项目' });
+export const DeliveryProjectApprovalFlow: Flow = approvalFlow({ name: 'delivery_project_approval', label: '交付立项审批', objectName: 'crm_delivery_project', approver: 'executive', statusField: 'approval_status', dateField: 'approved_date', noun: '交付项目' });
+export const TimesheetApprovalFlow: Flow = approvalFlow({ name: 'timesheet_approval', label: '工时审批', objectName: 'crm_timesheet', approver: 'sales_manager', statusField: 'approval_status', dateField: 'approved_date', noun: '工时表' });
 
 export const psaApprovalFlows: Flow[] = [
   AccountApprovalFlow, LeadApprovalFlow, OpportunityInitiationFlow,
