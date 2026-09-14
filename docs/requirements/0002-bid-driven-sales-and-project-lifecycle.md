@@ -3,7 +3,7 @@
 - **Status**: Triaged
 - **Source**: Enterprise IT-services customer (systems integrator, bid/tender-driven B2B) — spreadsheet `CRM____.xlsx`, Sheet1, 40 rows
 - **Raised**: 2026-09-14
-- **Disposition**: **Mixed — triaged per step, see the table below.** The single largest finding is a **scope boundary the customer's own spec draws**: steps 15–40 are **D (out of scope for HotCRM)** — the spec's `系统路径` column places them on a separate `项管平台` (PSA) system. Steps 1–14 are the CRM scope and triage to A / B / C individually.
+- **Disposition**: **Mixed — triaged per step, see the table below.** The single largest finding is a **scope boundary the customer's own spec draws**: steps 15–40 are **D (out of scope for HotCRM)** — the spec's `系统路径` column places them on a separate `项管平台` (PSA) system, which the customer has since confirmed **does not exist yet** (see *Answers received*). Steps 1–14 are the CRM scope and triage to A / B / C individually.
 - **Traceability**: this record only. Build-level records are to be cut per area once the customer confirms the open questions below; nothing is implemented yet.
 
 ## Raw requirement (verbatim)
@@ -55,6 +55,21 @@
 | 项目报表管理 | 38 | 项目财务数据查询 | 财务 / 项目岗 | 财务人员 / 项目经理 | 财务负责人 | 项管平台→项目报表→财务数据查询 | 查询项目合同额、总成本、毛利率、开票金额、收款金额等财务指标。 |
 | 项目报表管理 | 39 | 项目成本跟踪监控 | 成本 / 管理岗 | 成本管理员 | 财务负责人 | 项管平台→项目报表→成本跟踪查询 | 监控预算执行率、成本消耗进度，对比基线与实际成本差异。 |
 | 项目报表管理 | 40 | 项目合同与订单查询 | 商务 / 项目岗 | 商务人员 | 商务负责人 | 项管平台→项目报表→合同订单查询 | 查询销售合同、采购合同、订单执行情况。 |
+
+## Answers received
+
+Answers to the open questions at the foot of this record, logged as they arrive.
+These are customer input, not analysis; the triage is re-read against each one.
+
+### 2026-09-14 — Q1: `项管平台` does not exist yet
+
+> 项管平台不是已有系统。
+
+This rules out future (a) below. Steps 16–40 stay **D for this repo** — what
+changes is the reason. It is no longer "pending an answer"; it is now "belongs
+to an application that does not exist yet, whose chartering is a maintainer
+decision". See **Why the D bucket is a scope question** for what that settles
+and what it does not.
 
 ## Standard product analysis
 
@@ -172,15 +187,46 @@ enhancement into core `src/` · **C** = customer overlay package, never core ·
 
 ### Why the D bucket is a scope question, not a refusal
 
-Two futures, and the customer has to pick one:
+Two futures were on the table. **Q1's answer rules out the first.**
 
-- **(a) `项管平台` already exists as a separate system** → HotCRM's whole obligation
-  is step 15's integration point, which is the B item above.
-- **(b) They want it built on ObjectStack** → it is a **separate metadata
-  application**, not HotCRM's `src/`. That is a maintainer-level decision under
-  AGENTS.md's scope chapter, not a seat's call.
+- ~~**(a) `项管平台` already exists as a separate system**~~ → ruled out
+  2026-09-14. Had it held, HotCRM's whole obligation would have been step 15's
+  integration point.
+- **(b) It has to be built** → it is a **separate metadata application**, not
+  HotCRM's `src/`. `objectstack.manifest.json` declares exactly one app
+  (`manifestId: app.objectstack.hotcrm`), so a PSA domain means a second
+  manifest and its own `src/` tree, not a wing of this one. Chartering it is a
+  maintainer-level decision under AGENTS.md's scope chapter, ⛔ not a seat's call.
 
-Either way it does not land in this repo's `src/` without a ruling.
+So steps 16–40 stay **D for HotCRM**, and the work does not disappear — it moves.
+What it would take is sketched below so that decision is made against a size
+rather than a shrug.
+
+#### What the PSA application would have to carry
+
+Read off the customer's own steps, not invented:
+
+| Area | Steps | What it needs |
+| --- | --- | --- |
+| 售前项目 | 15–20 | A presales-project object keyed to the CRM opportunity code; a project-role junction (客户经理 / 项目经理 / 项目总监 / 项目 QA / 资源报价负责人); a four-part cost estimate (人工服务 · 第三方服务 · 第三方软硬件 · 项目费用) yielding 报价 and 毛利率; an information-security classification; and a **five-tier** approval chain (成本中心负责人 → 事业部负责人 → Bizcase 审核 → 事业本部负责人 → 事业群运营负责人) |
+| 交付项目 | 21–26 | A delivery-project object gated on an approved presales project; 实施/核算成本中心 and 对应部门; a wider role set (分包 TS 填写人, 各级 QA); attachments (开工确认单); its own approval |
+| 成本计划 | 27–32 | A cost-plan object baselined on the approved Bizcase total, four cost-detail children, **monthly decomposition** of the labour and third-party-service lines, and a budget-adjustment flow carrying 调整原因 / 差异分析 through approval |
+| 成本执行 | 33–36 | Monthly timesheets (TS) split presales/delivery, timesheet approval, travel cost booked to the project, running actual-cost accumulation, and a hard cross-object gate: **成本超预算时限制工时填报** |
+| 项目报表 | 37–40 | Datasets and dashboards over budget vs actual, 预算执行率, 毛利率, and contract/order execution |
+
+Three of the spec's requirements are **not metadata** and need an owner named
+before any of it is built:
+
+- **请假 / 加班同步 (step 33)** — an HR/attendance integration, not an authored object.
+- **差旅报销单据 (step 35)** — an expense/reimbursement integration.
+- **开票 / 收款 (steps 1, 37, 38)** — invoicing and collections. **Neither HotCRM
+  nor the PSA app models them**, yet the spec reads them in project reporting and
+  leans on them in the 客户分类 rule (「仅可用于付款回款」). That is a third system
+  the spec never names — this is Q3, and Q1's answer makes it sharper, not moot.
+
+In rough size this is a **second application of HotCRM's own magnitude** —
+comparable object count, heavier on multi-tier approval and period-based
+calculation, lighter on UI. It is not an increment to this repo.
 
 ## Product response
 
@@ -240,8 +286,10 @@ Non-negotiable per AGENTS.md, and they are a real share of the effort:
 
 ## Open questions for the customer
 
-1. **Is `项管平台` an existing separate system, or expected to be built?** This
-   decides 65% of the spec (Finding 1, and the two futures above).
+1. ~~**Is `项管平台` an existing separate system, or expected to be built?**~~
+   **Answered 2026-09-14 — it does not exist yet.** The follow-on decision is a
+   maintainer's rather than the customer's: is the PSA domain chartered as a
+   separate ObjectStack application, and by whom?
 2. **Step 12** — is a dedicated 跟进记录 object needed, or do tasks / events /
    record comments satisfy 跟进记录?
 3. **Step 1** — 付款回款 implies invoicing and collections, which HotCRM does not
@@ -255,8 +303,8 @@ Non-negotiable per AGENTS.md, and they are a real share of the effort:
 
 ## Acceptance
 
-This record is Triaged, not built. It is satisfied when the scope boundary and
-the six open questions above have an answer from the customer, and each accepted
+This record is Triaged, not built. It is satisfied when the open questions above
+all carry an answer (Q1 does, as of 2026-09-14; five remain) and each accepted
 item has been cut into its own build record (`0003-…` onward) carrying its own
 disposition, metadata list and acceptance. Nothing enters `src/` on the strength
-of this record alone.
+of this record alone, and nothing in the D bucket enters it at all.
