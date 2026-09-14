@@ -109,6 +109,21 @@ export const CrmApp = App.create({
     },
 
     {
+      // Demo (epic #2 / T7): the customer's 项管平台 path column, as a group.
+      id: 'group_projects',
+      type: 'group',
+      label: 'Projects',
+      icon: 'briefcase',
+      expanded: true,
+      children: [
+        { id: 'nav_presales_project',       type: 'object',    objectName: 'crm_presales_project',      label: 'Presales Projects', icon: 'lightbulb' },
+        { id: 'nav_delivery_project',       type: 'object',    objectName: 'crm_delivery_project',      label: 'Delivery Projects', icon: 'hammer' },
+        { id: 'nav_timesheet',              type: 'object',    objectName: 'crm_timesheet',             label: 'Timesheets',        icon: 'clock' },
+        { id: 'nav_travel_cost',            type: 'object',    objectName: 'crm_travel_cost',           label: 'Travel Costs',      icon: 'plane' },
+        { id: 'nav_project_cost_dashboard', type: 'dashboard', dashboardName: 'project_cost_dashboard', label: 'Project Cost',      icon: 'chart-bar' },
+      ],
+    },
+    {
       // Everything a rep owes someone. `crm_task` had views, seed data, a
       // recurrence hook and two reminder flows, and no entry point — the only
       // way to see a task was to open the record it hung off.

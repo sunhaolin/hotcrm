@@ -28,6 +28,7 @@ import productHook from '../objects/product.hook';
 import quoteHook from '../objects/quote.hook';
 import quoteLineItemHook from '../objects/quote_line_item.hook';
 import taskHook from '../objects/task.hook';
+import timesheetHook from '../objects/timesheet.hook';
 
 const entries: Array<Hook | Hook[]> = [
   accountHook,
@@ -47,6 +48,7 @@ const entries: Array<Hook | Hook[]> = [
   quoteHook,
   quoteLineItemHook,
   taskHook,
+  timesheetHook,
 ];
 
 /** Flat list of every CRM lifecycle hook (each `*.hook.ts` may export one or many). */

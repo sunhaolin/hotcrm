@@ -339,4 +339,35 @@ const opportunityWonHook: Hook = {
 };
 
 
-export default [opportunityValidationHook, opportunityWonHook];
+/**
+ * Demo (epic #2 / T6) — 「招标代理及其他类客户仅可用于付款回款，无法发起商机」.
+ * A cross-object TRANSITION gate (a CEL predicate cannot read the parent
+ * account), so it is a hook; existing rows are untouched (semantics rule 7).
+ * Fails open when the account cannot be read, so a seed row whose lookup is
+ * still a name at hook time is not refused by accident.
+ */
+const opportunityAccountClassificationGate: Hook = {
+  name: 'opportunity_account_classification_gate',
+  object: 'crm_opportunity',
+  events: ['beforeInsert'],
+  priority: 150,
+  description: 'Refuse a new opportunity on a bidding-agency or other-class account (demo, epic #2).',
+  handler: async (ctx: HookContext) => {
+    const api = ctx.api as HookApi | undefined;
+    const { input } = ctx;
+    const accountId = typeof input?.crm_account === 'string' ? input.crm_account : '';
+    if (!api || !accountId) return;
+    const account = await api.object('crm_account').findOne({ where: { id: accountId }, fields: ['name', 'classification'] });
+    const cls = account?.classification;
+    if (cls === 'bidding_agency' || cls === 'other') {
+      const name = typeof account?.name === 'string' ? account.name : accountId;
+      const err = new Error(`Account ${name} is classified ${cls}; it may only be used for payment and collection, not to open an opportunity.`) as Error & { code: string; status: number; userMessage: string };
+      err.code = 'ACCOUNT_CLASSIFICATION_GATE';
+      err.status = 422;
+      err.userMessage = `客户「${name}」为招标代理/其他类客户，仅可用于付款回款，无法发起商机`;
+      throw err;
+    }
+  },
+};
+
+export default [opportunityValidationHook, opportunityWonHook, opportunityAccountClassificationGate];

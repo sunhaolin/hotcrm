@@ -41,6 +41,8 @@ export {
   BillingHandoffClosedWonFlow,
   BillingHandoffContractActivatedFlow,
 } from './billing-handoff.flow';
+// Demo PSA approvals (epic #2)
+export { psaApprovalFlows } from './psa-approvals.flow';
 
 import { CampaignEnrollmentFlow } from './campaign-enrollment.flow';
 import {
@@ -71,6 +73,7 @@ import {
   BillingHandoffClosedWonFlow,
   BillingHandoffContractActivatedFlow,
 } from './billing-handoff.flow';
+import { psaApprovalFlows } from './psa-approvals.flow';
 
 /** All flow definitions as a typed array for defineStack() */
 export const allFlows: Flow[] = [
@@ -111,4 +114,6 @@ export const allFlows: Flow[] = [
   // Outbound integration
   BillingHandoffClosedWonFlow,
   BillingHandoffContractActivatedFlow,
+  // Demo PSA approvals (epic #2)
+  ...psaApprovalFlows,
 ];

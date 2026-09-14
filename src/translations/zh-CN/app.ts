@@ -41,6 +41,12 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_contract: { label: '合同' },
         nav_product: { label: '产品' },
         nav_sales_dashboard: { label: '销售业绩' },
+        group_projects: { label: '项目管理' },
+        nav_presales_project: { label: '售前项目' },
+        nav_delivery_project: { label: '交付项目' },
+        nav_timesheet: { label: '工时表' },
+        nav_travel_cost: { label: '差旅成本' },
+        nav_project_cost_dashboard: { label: '项目成本' },
 
         group_work: { label: '我的工作' },
         nav_my_tasks: { label: '我的任务' },
