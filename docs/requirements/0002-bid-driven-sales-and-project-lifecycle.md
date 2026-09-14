@@ -4,7 +4,7 @@
 - **Source**: Enterprise IT-services customer (systems integrator, bid/tender-driven B2B) — spreadsheet `CRM____.xlsx`, Sheet1, 40 rows
 - **Raised**: 2026-09-14
 - **Disposition**: **Mixed — triaged per step, see the table below.** The single largest finding is a **scope boundary the customer's own spec draws**: steps 15–40 are **D (out of scope for HotCRM)** — the spec's `系统路径` column places them on a separate `项管平台` (PSA) system, which the customer has since confirmed **does not exist yet** (see *Answers received*). Steps 1–14 are the CRM scope and triage to A / B / C individually.
-- **Traceability**: this record only. Build-level records are to be cut per area once the customer confirms the open questions below; nothing is implemented yet.
+- **Traceability**: **demo** — branch `demo/psa-presales` (never merges), epic [#2](https://github.com/sunhaolin/hotcrm/issues/2) with tasks #3–#12, presenter runbook at `docs/demo/psa-presales/RUNBOOK.md` on that branch. **Core**: nothing implemented; build-level records are still to be cut per accepted item once the remaining questions are answered.
 
 ## Raw requirement (verbatim)
 
@@ -85,6 +85,41 @@ resting on an unanswered question; with the PSA platform confirmed greenfield
 **and** confirmed wanted, it is the seam's only anchor — nothing on the PSA side
 can reference a deal without it. It is the one piece of these 40 steps that can
 start in this repo today, and it depends on none of the five remaining questions.
+
+### 2026-09-14 — Two things the presales engagement settled (user's questions, not the customer's)
+
+> 这是一个客户咨询的售前项目，希望明天就能看到 demo，怎么使用最简化的方式实现这个 demo。
+> 这是一个软件公司的标准需求吗，是否可以做成软件行业 CRM 的标准模板。
+
+**Is the process standard, and can it be a template?** The *skeleton* is textbook
+for project-based IT services / software outsourcing / systems-integration
+companies — 招投标 account classes, 铁三角, a Bizcase initiation gate, presales →
+delivery initiation, cost planning, TS timesheets, project margin. The
+*taxonomies* are this customer's (the five-tier chain's role names, 签约主体, the
+security classes, EAR). So the right disposition for the CRM-side extensions is
+**not C** — the README's own re-triage rule ("keeps recurring across customers →
+promote") applies to the segment — but not B either (a blanket 立项 gate is not
+every install's policy). It is a **vertical edition**, a bucket this framework
+does not yet name.
+
+**Where a vertical edition lives is decided by a number, not a preference.**
+Measured on `main` with `pnpm hygiene:tokens`: authored total 139,305 of a
+140,000 ceiling — **~695 tokens of headroom** — while one object in this repo's
+authored style is ~1,500 and one approval flow ~1,400. The CRM-side extensions
+alone are ~8–10k, the PSA side ~16k. Neither fits `src/`, and the ceiling is a
+maintainer ruling ("business logic under 100k tokens" is the repo's identity).
+⇒ The template is a **separate package** layered on HotCRM, plus a PSA
+application; the demo branch is where its objects were first drafted, and they
+**migrate** from there, never merge.
+
+**The demo** (方案 A, the full vertical slice) was built on `demo/psa-presales`
+under epic #2, gated only by `pnpm validate && pnpm build`, and driven end to
+end on a dev server: `Field.summary` rollups, both cross-object gates, the
+submit → approve loop and the project-cost dashboard all verified live. Two
+platform facts it surfaced, worth carrying into any build record: the analytics
+SQL cannot read formula columns (derive ratios from rollup sums instead), and
+`admin_rescue` on an empty position bench surfaces as the admin's override on
+the record, not as a row in the admin's inbox.
 
 ## Standard product analysis
 

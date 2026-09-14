@@ -95,4 +95,4 @@ metadata goes (core `src/` for B, an overlay package for C) before writing any
 | ID | Title | Source | Disposition | Status |
 | --- | --- | --- | --- | --- |
 | [0001](0001-agency-tier-lead-tagging.md) | Auto-tag leads by agency-tier hierarchy | Example customer | C customer-overlay | Triaged |
-| [0002](0002-bid-driven-sales-and-project-lifecycle.md) | Bid-driven sales process and project lifecycle (40-step process spec) | Enterprise IT-services customer | Mixed — per-step (A/B/C/D) | Triaged |
+| [0002](0002-bid-driven-sales-and-project-lifecycle.md) | Bid-driven sales process and project lifecycle (40-step process spec) | Enterprise IT-services customer | Mixed — per-step (A/B/C/D); vertical-edition candidate | Triaged (demo built on `demo/psa-presales`) |
