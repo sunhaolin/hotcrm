@@ -23,8 +23,8 @@ export const Opportunity = ObjectSchema.create({
   // Explicit search targets (ADR-0061). `name` is a real indexed column, so
   // $search resolves on its own here; the list is kept explicit to pin the
   // intent (other objects whose nameField IS a formula rely on it).
-  searchableFields: ['name'],
-  highlightFields: ['name', 'crm_account', 'amount', 'stage', 'owner_id'],
+  searchableFields: ['name', 'opportunity_number'],
+  highlightFields: ['opportunity_number', 'name', 'crm_account', 'amount', 'stage', 'owner_id'],
 
   fieldGroups: [
     { key: 'basic',       label: 'Basic Information',   icon: 'dollar-sign' },
@@ -34,6 +34,7 @@ export const Opportunity = ObjectSchema.create({
     { key: 'campaign', label: 'Campaigns', icon: 'flag', collapse: 'collapsed' },
     { key: 'notes',       label: 'Notes & Next Steps',  icon: 'file-text' },
     { key: 'crm_forecast',    label: 'Forecast & Metrics',  icon: 'bar-chart', collapse: 'collapsed' },
+    { key: 'team',        label: 'Deal Team',           icon: 'users' },
   ],
 
   fields: {
@@ -340,6 +341,50 @@ export const Opportunity = ObjectSchema.create({
       description: 'Free-text context behind the win or loss reason.',
       group: 'classification',
     }),
+    // ── Demo (epic #2 / T1): bid/initiation fields + 铁三角 ──
+    opportunity_number: Field.autonumber({
+      label: 'Opportunity Number',
+      format: 'OPP-{0000}',
+      group: 'basic',
+    }),
+    is_bid: Field.boolean({ label: 'Bid Required', group: 'classification', defaultValue: false }),
+    level: Field.select({
+      label: 'Opportunity Level',
+      group: 'classification',
+      options: [
+        { label: 'A', value: 'level_a', color: '#FF0000' },
+        { label: 'B', value: 'level_b', color: '#FFA500' },
+        { label: 'C', value: 'level_c', color: '#999999' },
+      ],
+    }),
+    priority: Field.select({
+      label: 'Priority',
+      group: 'classification',
+      options: [
+        { label: 'High', value: 'high', color: '#FF0000' },
+        { label: 'Medium', value: 'medium', color: '#FFA500', default: true },
+        { label: 'Low', value: 'low', color: '#999999' },
+      ],
+    }),
+    initiation_status: Field.select({
+      label: 'Initiation Status',
+      group: 'sales_process',
+      // Demo submit gesture (epic #2, decision 1). Distinct from the
+      // amount-tiered `approval_status` above, which is left untouched.
+      defaultValue: 'draft',
+      trackHistory: true,
+      options: [
+        { label: 'Not Initiated', value: 'draft', default: true },
+        { label: 'Submitted', value: 'submitted', color: '#4169E1' },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Initiated', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+    initiated_date: Field.datetime({ label: 'Initiated Date', group: 'sales_process', readonly: true }),
+    account_manager: Field.lookup('sys_user', { label: 'Account Manager (AR)', group: 'team' }),
+    solution_manager: Field.lookup('sys_user', { label: 'Solution Manager (SR)', group: 'team' }),
+    delivery_manager: Field.lookup('sys_user', { label: 'Delivery Manager (FR)', group: 'team' }),
   },
   
   // Database indexes for performance

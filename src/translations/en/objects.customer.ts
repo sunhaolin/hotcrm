@@ -80,6 +80,17 @@ export const customer: Record<string, ObjectTranslationData> = {
         help: 'Match key for lead conversion: Account Name lower-cased, trimmed, with internal whitespace collapsed. Maintained by the account_protection hook — never edit directly.',
       },
       display_title: { label: 'Display Title' },
+      classification: {
+        label: 'Customer Classification',
+        options: { regular_customer: 'Regular Customer', bidding_agency: 'Bidding Agency', other: 'Other' },
+      },
+      short_name: { label: 'Short Name' },
+      registration_number: { label: 'Unified Social Credit Code' },
+      approval_status: {
+        label: 'Approval Status',
+        options: { draft: 'Draft', submitted: 'Submitted', pending: 'Pending', approved: 'Approved', rejected: 'Rejected' },
+      },
+      approved_date: { label: 'Approved Date' },
     },
     _views: {
       all_accounts: { label: 'All Accounts', description: 'Primary account list with revenue & industry summaries' },

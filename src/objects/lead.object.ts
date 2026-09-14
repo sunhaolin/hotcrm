@@ -417,6 +417,38 @@ export const Lead = ObjectSchema.create({
         { label: 'Confirmed', value: 'confirmed', color: '#FF0000' },
       ],
     }),
+    // ── Demo (epic #2 / T1): demand-shaped lead fields ──
+    estimated_amount: Field.currency({ label: 'Estimated Amount', scale: 2, group: 'qualification' }),
+    demand_type: Field.select({
+      label: 'Demand Type',
+      group: 'qualification',
+      options: [
+        { label: 'Software Development', value: 'software_development' },
+        { label: 'Implementation Service', value: 'implementation' },
+        { label: 'Operations & Maintenance', value: 'operations' },
+        { label: 'Consulting', value: 'consulting' },
+      ],
+    }),
+    approval_status: Field.select({
+      label: 'Approval Status',
+      group: 'assignment',
+      // Demo submit gesture (epic #2, decision 1): the user sets this to
+      // `submitted`; the approval flow mirrors pending/approved/rejected.
+      defaultValue: 'draft',
+      trackHistory: true,
+      options: [
+        { label: 'Draft', value: 'draft', default: true },
+        { label: 'Submitted', value: 'submitted', color: '#4169E1' },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+    approved_date: Field.datetime({
+      label: 'Approved Date',
+      group: 'assignment',
+      readonly: true,
+    }),
   },
 
   // Lifecycle transitions are enforced via a `state_machine` validation rule

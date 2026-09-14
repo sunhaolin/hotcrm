@@ -125,6 +125,16 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       company_normalized: { label: '公司名称（规范化）', help: '线索转化的匹配键：公司名称转小写、去除首尾空格、内部连续空白合并为一个空格。由 lead_duplicate_check 钩子维护——请勿直接编辑。' },
       next_followup_date: { label: '下次跟进日期' },
       last_contacted_date: { label: '最近联系时间' },
+      estimated_amount: { label: '预计金额' },
+      demand_type: {
+        label: '需求类型',
+        options: { software_development: '软件开发', implementation: '实施服务', operations: '运维服务', consulting: '咨询' },
+      },
+      approval_status: {
+        label: '审批状态',
+        options: { draft: '草稿', submitted: '提交审批', pending: '审批中', approved: '已审批', rejected: '已驳回' },
+      },
+      approved_date: { label: '审批通过时间' },
     },
     _views: {
       all_leads: {
@@ -288,6 +298,18 @@ export const pipeline: Record<string, ObjectTranslationData> = {
         },
       },
       loss_details: { label: '赢/丢单详情', help: '赢单或丢单原因的补充说明。' },
+      opportunity_number: { label: '商机编码' },
+      is_bid: { label: '是否投标' },
+      level: { label: '商机级别', options: { level_a: 'A 级', level_b: 'B 级', level_c: 'C 级' } },
+      priority: { label: '优先级', options: { high: '高', medium: '中', low: '低' } },
+      initiation_status: {
+        label: '立项状态',
+        options: { draft: '未立项', submitted: '提交立项', pending: '立项审批中', approved: '已立项', rejected: '立项驳回' },
+      },
+      initiated_date: { label: '立项通过时间' },
+      account_manager: { label: '客户经理 (AR)' },
+      solution_manager: { label: '解决方案经理 (SR)' },
+      delivery_manager: { label: '交付经理 (FR)' },
     },
     _views: {
       open_opportunities: { label: '进行中商机' },

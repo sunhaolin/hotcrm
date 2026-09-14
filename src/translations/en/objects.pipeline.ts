@@ -109,6 +109,16 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       },
       next_followup_date: { label: 'Next Follow-up Date' },
       last_contacted_date: { label: 'Last Contacted' },
+      estimated_amount: { label: 'Estimated Amount' },
+      demand_type: {
+        label: 'Demand Type',
+        options: { software_development: 'Software Development', implementation: 'Implementation Service', operations: 'Operations & Maintenance', consulting: 'Consulting' },
+      },
+      approval_status: {
+        label: 'Approval Status',
+        options: { draft: 'Draft', submitted: 'Submitted', pending: 'Pending', approved: 'Approved', rejected: 'Rejected' },
+      },
+      approved_date: { label: 'Approved Date' },
     },
     _views: {
       all_leads: {
@@ -270,6 +280,18 @@ export const pipeline: Record<string, ObjectTranslationData> = {
         label: 'Loss/Win Details',
         help: 'Free-text context behind the win or loss reason.',
       },
+      opportunity_number: { label: 'Opportunity Number' },
+      is_bid: { label: 'Bid Required' },
+      level: { label: 'Opportunity Level', options: { level_a: 'A', level_b: 'B', level_c: 'C' } },
+      priority: { label: 'Priority', options: { high: 'High', medium: 'Medium', low: 'Low' } },
+      initiation_status: {
+        label: 'Initiation Status',
+        options: { draft: 'Not Initiated', submitted: 'Submitted', pending: 'Pending', approved: 'Initiated', rejected: 'Rejected' },
+      },
+      initiated_date: { label: 'Initiated Date' },
+      account_manager: { label: 'Account Manager (AR)' },
+      solution_manager: { label: 'Solution Manager (SR)' },
+      delivery_manager: { label: 'Delivery Manager (FR)' },
     },
     _views: {
       open_opportunities: { label: 'Open Deals' },

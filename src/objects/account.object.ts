@@ -452,6 +452,39 @@ export const Account = ObjectSchema.create({
     // admin a renewal reaches the CSM they named when nothing would. If an
     // account-level renewal owner is ever wanted, it is a change to that flow
     // plus a real writer for the date — not a second pair of fields.
+    // ── Demo (epic #2 / T1): bid-driven customer classification ──
+    classification: Field.select({
+      label: 'Customer Classification',
+      group: 'basic',
+      defaultValue: 'regular_customer',
+      options: [
+        { label: 'Regular Customer', value: 'regular_customer', color: '#00AA00', default: true },
+        { label: 'Bidding Agency', value: 'bidding_agency', color: '#FFA500' },
+        { label: 'Other', value: 'other', color: '#999999' },
+      ],
+    }),
+    short_name: Field.text({ label: 'Short Name', group: 'basic' }),
+    registration_number: Field.text({ label: 'Unified Social Credit Code', group: 'basic' }),
+    approval_status: Field.select({
+      label: 'Approval Status',
+      group: 'ownership',
+      // Demo submit gesture (epic #2, decision 1): the user sets this to
+      // `submitted`; the approval flow mirrors pending/approved/rejected.
+      defaultValue: 'draft',
+      trackHistory: true,
+      options: [
+        { label: 'Draft', value: 'draft', default: true },
+        { label: 'Submitted', value: 'submitted', color: '#4169E1' },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+    approved_date: Field.datetime({
+      label: 'Approved Date',
+      group: 'ownership',
+      readonly: true,
+    }),
   },
   
   // Database indexes for performance
