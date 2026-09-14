@@ -23,7 +23,9 @@ export const ProjectCostDataset = defineDataset({
     { name: 'planned_total', label: 'Planned Total', aggregate: 'sum', field: 'planned_total', format: '0,0' },
     { name: 'labor_total', label: 'Labor Actual', aggregate: 'sum', field: 'labor_actual', format: '0,0' },
     { name: 'travel_total', label: 'Travel Actual', aggregate: 'sum', field: 'travel_actual', format: '0,0' },
-    { name: 'avg_burn_pct', label: 'Avg Budget Burn', aggregate: 'avg', field: 'budget_burn_pct', format: '0%' },
-    { name: 'over_budget_count', label: 'Over-budget Projects', aggregate: 'count', filter: { budget_burn_pct: { $gt: 100 } } },
+    { name: 'active_count', label: 'Active Projects', aggregate: 'count', filter: { status: 'active' } },
+    // Formula columns are not queryable by the analytics SQL (measured: 500),
+    // so burn is a ratio of the two rollup sums — the same shape as win_rate.
+    { name: 'burn_ratio', label: 'Budget Burn', derived: { op: 'ratio', of: ['labor_total', 'baseline_total'] }, format: '0%' },
   ],
 });

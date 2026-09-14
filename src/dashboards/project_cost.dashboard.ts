@@ -35,9 +35,9 @@ export const ProjectCostDashboard: Dashboard = {
       layout: { x: 6, y: 0, w: 3, h: 2 }, options: { icon: 'Plane', format: '0,0' },
     },
     {
-      id: 'over_budget_projects', title: 'Over-budget Projects', description: 'Projects whose actual cost exceeds the baseline',
+      id: 'active_projects', title: 'Active Projects', description: 'Delivery projects currently in flight',
       type: 'metric', colorVariant: 'orange',
-      dataset: 'project_cost_metrics', values: ['over_budget_count'],
+      dataset: 'project_cost_metrics', values: ['active_count'],
       layout: { x: 9, y: 0, w: 3, h: 2 }, options: { icon: 'AlertTriangle', format: '0' },
     },
     {
@@ -59,7 +59,7 @@ export const ProjectCostDashboard: Dashboard = {
     {
       id: 'burn_by_project', title: 'Budget Burn by Project', description: 'Baseline, actuals and burn % per project',
       type: 'table', colorVariant: 'default',
-      dataset: 'project_cost_metrics', dimensions: ['project'], values: ['baseline_total', 'labor_total', 'travel_total', 'avg_burn_pct'],
+      dataset: 'project_cost_metrics', dimensions: ['project'], values: ['baseline_total', 'labor_total', 'travel_total', 'burn_ratio'],
       layout: { x: 0, y: 7, w: 12, h: 4 },
       options: {
         columns: [
@@ -67,9 +67,9 @@ export const ProjectCostDashboard: Dashboard = {
           { header: 'Baseline', accessorKey: 'baseline_total', format: '0,0' },
           { header: 'Labor Actual', accessorKey: 'labor_total', format: '0,0' },
           { header: 'Travel Actual', accessorKey: 'travel_total', format: '0,0' },
-          { header: 'Burn %', accessorKey: 'avg_burn_pct', format: '0%' },
+          { header: 'Labor Burn', accessorKey: 'burn_ratio', format: '0%' },
         ],
-        sortBy: 'avg_burn_pct', sortOrder: 'desc', limit: 10,
+        sortBy: 'burn_ratio', sortOrder: 'desc', limit: 10,
       },
     },
   ],

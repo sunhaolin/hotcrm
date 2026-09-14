@@ -42,7 +42,10 @@ const approvalFlow = (s: Spec): Flow => ({
       config: { objectName: s.objectName, filter: { id: '{record.id}' }, outputVariable: 'rec' } },
     { id: 'review', type: 'approval', label: `${s.label} Review`,
       config: {
-        approvers: [{ type: 'position', value: s.approver }],
+        // Demo (epic decision 3): the org owner is the dev admin, so every
+        // request lands in one 待我审批. The `approver` position is kept on
+        // the spec as the production routing the runbook names.
+        approvers: [{ type: 'org_membership_level', value: 'owner' }],
         onEmptyApprovers: 'admin_rescue',
         behavior: 'first_response',
         lockRecord: true,
