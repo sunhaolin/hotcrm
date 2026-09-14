@@ -9,6 +9,7 @@ import { commerce } from './en/objects.commerce';
 import { service } from './en/objects.service';
 import { activity } from './en/objects.activity';
 import { marketing } from './en/objects.marketing';
+import { psa } from './en/objects.psa';
 
 /**
  * English (en) — CRM App Translations
@@ -73,6 +74,11 @@ export const en: TranslationData = {
     crm_campaign_member: marketing.crm_campaign_member,
     crm_opportunity_line_item: pipeline.crm_opportunity_line_item,
     crm_quote_line_item: commerce.crm_quote_line_item,
+    crm_presales_project: psa.crm_presales_project,
+    crm_delivery_project: psa.crm_delivery_project,
+    crm_cost_plan_line: psa.crm_cost_plan_line,
+    crm_timesheet: psa.crm_timesheet,
+    crm_travel_cost: psa.crm_travel_cost,
   },
   ...appSurface,
 };

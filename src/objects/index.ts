@@ -73,3 +73,9 @@ export { Product } from './product.object';
 export { Quote } from './quote.object';
 export { QuoteLineItem } from './quote_line_item.object';
 export { Task } from './task.object';
+// Demo PSA objects (epic #2)
+export { PresalesProject } from './presales_project.object';
+export { DeliveryProject } from './delivery_project.object';
+export { CostPlanLine } from './cost_plan_line.object';
+export { Timesheet } from './timesheet.object';
+export { TravelCost } from './travel_cost.object';

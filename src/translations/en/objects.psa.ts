@@ -1,0 +1,145 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { ObjectTranslationData } from '@objectstack/spec/system';
+
+/**
+ * English (en) — `objects` translations for the PSA family (demo, epic #2):
+ * `crm_presales_project`, `crm_delivery_project`, `crm_cost_plan_line`,
+ * `crm_timesheet`, `crm_travel_cost`.
+ */
+const approval = {
+  approval_status: {
+    label: 'Approval Status',
+    options: { draft: 'Draft', submitted: 'Submitted', pending: 'Pending', approved: 'Approved', rejected: 'Rejected' },
+  },
+  approved_date: { label: 'Approved Date' },
+};
+const projectType = { label: 'Project Type', options: { software_development: 'Software Development', implementation: 'Implementation Service', operations: 'Operations & Maintenance', consulting: 'Consulting' } };
+const businessCategory = { label: 'Business Category', options: { government_enterprise: 'Government & Enterprise', finance: 'Finance', manufacturing: 'Manufacturing', internet: 'Internet' } };
+const securityClass = { label: 'Security Class', options: { public: 'Public', internal: 'Internal', confidential: 'Confidential', secret: 'Secret' } };
+const costCenter = { options: { dc_east: 'Delivery Center East', dc_south: 'Delivery Center South', dc_north: 'Delivery Center North' } };
+
+export const psa: Record<string, ObjectTranslationData> = {
+  crm_presales_project: {
+    label: 'Presales Project',
+    pluralLabel: 'Presales Projects',
+    description: 'A presales project opened against an approved opportunity: roles, cost estimate, quote and margin',
+    fields: {
+      owner_id: { label: 'Project Owner' },
+      project_number: { label: 'Project Number' },
+      name: { label: 'Project Name' },
+      alias: { label: 'Alias' },
+      crm_opportunity: { label: 'Opportunity' },
+      crm_account: { label: 'Account' },
+      project_type: projectType,
+      business_category: businessCategory,
+      planned_start: { label: 'Planned Start' },
+      planned_end: { label: 'Planned End' },
+      expected_contract_amount: { label: 'Expected Contract Amount' },
+      account_manager: { label: 'Account Manager' },
+      project_manager: { label: 'Project Manager' },
+      project_director: { label: 'Project Director' },
+      project_qa: { label: 'Project QA' },
+      pricing_owner: { label: 'Pricing Owner' },
+      labor_cost: { label: 'Labor Service Cost' },
+      third_party_service_cost: { label: 'Third-party Service Cost' },
+      procurement_cost: { label: 'Hardware/Software Procurement Cost' },
+      project_expense: { label: 'Project Expense' },
+      total_cost: { label: 'Total Cost' },
+      quote_amount: { label: 'Quote Amount' },
+      gross_margin_pct: { label: 'Gross Margin %', help: '(Quote − Total Cost) ÷ Quote × 100. Reads 0 until a positive quote is set.' },
+      security_class: securityClass,
+      security_note: { label: 'Security Note' },
+      ...approval,
+      description: { label: 'Project Background' },
+    },
+    _views: { all_presales_projects: { label: 'All Presales Projects' } },
+  },
+  crm_delivery_project: {
+    label: 'Delivery Project',
+    pluralLabel: 'Delivery Projects',
+    description: 'A delivery project opened from an approved presales project: cost centres, roles, budget baseline and cost rollups',
+    fields: {
+      owner_id: { label: 'Project Owner' },
+      project_number: { label: 'Project Number' },
+      name: { label: 'Project Name' },
+      alias: { label: 'Alias' },
+      crm_presales_project: { label: 'Presales Project' },
+      crm_opportunity: { label: 'Opportunity' },
+      crm_account: { label: 'Account' },
+      project_type: projectType,
+      business_category: businessCategory,
+      planned_start: { label: 'Planned Start' },
+      planned_end: { label: 'Planned End' },
+      status: { label: 'Status', options: { planning: 'Planning', active: 'Active', closed: 'Closed' } },
+      impl_cost_center: { label: 'Implementation Cost Centre', ...costCenter },
+      accounting_cost_center: { label: 'Accounting Cost Centre', ...costCenter },
+      department: { label: 'Department', options: { bu_finance: 'BU Finance Solutions', bu_government: 'BU Government Solutions', bu_manufacturing: 'BU Manufacturing Solutions' } },
+      project_manager: { label: 'Project Manager' },
+      project_director: { label: 'Project Director' },
+      pricing_owner: { label: 'Pricing Owner' },
+      subcontract_ts_owner: { label: 'Subcontract TS Owner' },
+      qa_lead: { label: 'QA Lead' },
+      budget_baseline: { label: 'Budget Baseline', help: 'The approved Bizcase total cost, carried over as the control baseline.' },
+      planned_total: { label: 'Planned Total' },
+      labor_actual: { label: 'Labor Actual' },
+      travel_actual: { label: 'Travel Actual' },
+      actual_cost: { label: 'Actual Cost' },
+      budget_burn_pct: { label: 'Budget Burn %', help: 'Actual ÷ Baseline × 100. Reads 0 until a positive baseline is set.' },
+      budget_variance: { label: 'Budget Variance' },
+      security_class: securityClass,
+      security_note: { label: 'Security Note' },
+      ...approval,
+    },
+    _views: { all_delivery_projects: { label: 'All Delivery Projects' } },
+  },
+  crm_cost_plan_line: {
+    label: 'Cost Plan Line',
+    pluralLabel: 'Cost Plan Lines',
+    description: 'One planned cost amount for a delivery project, by category and month',
+    fields: {
+      crm_delivery_project: { label: 'Delivery Project' },
+      category: { label: 'Cost Category', options: { labor: 'Labor Service', third_party_service: 'Third-party Service', procurement: 'Hardware/Software Procurement', expense: 'Project Expense' } },
+      period_month: { label: 'Period (Month)' },
+      description: { label: 'Description', help: 'Grade / service name / procurement category the line is for.' },
+      quantity: { label: 'Quantity' },
+      unit_price: { label: 'Unit Price' },
+      planned_amount: { label: 'Planned Amount' },
+      notes: { label: 'Notes' },
+    },
+    _views: { all_cost_plan_lines: { label: 'All Cost Plan Lines' } },
+  },
+  crm_timesheet: {
+    label: 'Timesheet',
+    pluralLabel: 'Timesheets',
+    description: 'Monthly hours a person books to a delivery project, approved by the project manager',
+    fields: {
+      timesheet_number: { label: 'Timesheet #' },
+      owner_id: { label: 'Submitted By' },
+      crm_delivery_project: { label: 'Delivery Project' },
+      crm_presales_project: { label: 'Presales Project', help: 'Optional — presales hours are recorded but not rolled up.' },
+      period_month: { label: 'Period (Month)' },
+      hours: { label: 'Hours' },
+      hourly_rate: { label: 'Hourly Rate' },
+      cost: { label: 'Cost', help: 'Hours × hourly rate, computed on save.' },
+      notes: { label: 'Notes' },
+      ...approval,
+    },
+    _views: { all_timesheets: { label: 'All Timesheets' } },
+  },
+  crm_travel_cost: {
+    label: 'Travel Cost',
+    pluralLabel: 'Travel Costs',
+    description: 'A travel expense booked to a delivery project, referenced to its reimbursement receipt',
+    fields: {
+      travel_number: { label: 'Travel #' },
+      owner_id: { label: 'Traveller' },
+      crm_delivery_project: { label: 'Delivery Project' },
+      expense_date: { label: 'Expense Date' },
+      amount: { label: 'Amount' },
+      receipt_number: { label: 'Receipt Number' },
+      description: { label: 'Description' },
+    },
+    _views: { all_travel_costs: { label: 'All Travel Costs' } },
+  },
+};

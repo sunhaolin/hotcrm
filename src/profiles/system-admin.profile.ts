@@ -14,6 +14,12 @@ export const SystemAdminProfile = {
   name: 'system_admin',
   label: 'System Administrator',
   objects: {
+    // Demo PSA objects (epic #2)
+    crm_presales_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_delivery_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     // `allowTransfer` on every object — canonical note in `src/profiles/index.ts`.
     // The admin is the persona that reassigns ownership when someone leaves.
     // `allowExport` on the five objects with an export surface — see the

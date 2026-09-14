@@ -10,6 +10,12 @@ export const SalesManagerProfile = {
   name: 'sales_manager',
   label: 'Sales Manager',
   objects: {
+    // Demo PSA objects (epic #2)
+    crm_presales_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_delivery_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     // `allowTransfer` on exactly the objects this set holds `modifyAllRecords`
     // on — the sales book a manager reassigns. Canonical note in
     // `src/profiles/index.ts`.

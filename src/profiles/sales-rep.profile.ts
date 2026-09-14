@@ -35,6 +35,12 @@ export const SalesRepProfile = {
   // authors none, so the master set was every record.
   // objectstack-ai/objectstack#5386 fixed that upstream and it shipped in rc.4.
   objects: {
+    // Demo PSA objects (epic #2)
+    crm_presales_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
+    crm_delivery_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
+    crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
     // `allowExport` where an export surface exists — canonical note in
     // `src/profiles/index.ts`. Safe alongside `readScope: 'own'`: export is
     // read-derived, so a rep's CSV carries their own book, not the org's.

@@ -14,3 +14,9 @@ export { ForecastViews } from './forecast.view';
 export { KnowledgeArticleViews } from './knowledge_article.view';
 export { ProductViews } from './product.view';
 export { QuoteViews } from './quote.view';
+// Demo PSA views (epic #2)
+export { PresalesProjectViews } from './presales_project.view';
+export { DeliveryProjectViews } from './delivery_project.view';
+export { CostPlanLineViews } from './cost_plan_line.view';
+export { TimesheetViews } from './timesheet.view';
+export { TravelCostViews } from './travel_cost.view';

@@ -1,0 +1,145 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { ObjectTranslationData } from '@objectstack/spec/system';
+
+/**
+ * 简体中文 (zh-CN) — `objects` translations for the PSA family (demo, epic #2):
+ * `crm_presales_project`, `crm_delivery_project`, `crm_cost_plan_line`,
+ * `crm_timesheet`, `crm_travel_cost`.
+ */
+const approval = {
+  approval_status: {
+    label: '审批状态',
+    options: { draft: '草稿', submitted: '提交审批', pending: '审批中', approved: '已审批', rejected: '已驳回' },
+  },
+  approved_date: { label: '审批通过时间' },
+};
+const projectType = { label: '项目类型', options: { software_development: '软件开发', implementation: '实施服务', operations: '运维服务', consulting: '咨询' } };
+const businessCategory = { label: '业务分类', options: { government_enterprise: '政企', finance: '金融', manufacturing: '制造', internet: '互联网' } };
+const securityClass = { label: '信息安全类别', options: { public: '公开', internal: '内部', confidential: '秘密', secret: '机密' } };
+const costCenter = { options: { dc_east: '华东交付中心', dc_south: '华南交付中心', dc_north: '华北交付中心' } };
+
+export const psa: Record<string, ObjectTranslationData> = {
+  crm_presales_project: {
+    label: '售前项目',
+    pluralLabel: '售前项目',
+    description: '基于已审批商机发起的售前项目：角色、成本测算、报价与毛利',
+    fields: {
+      owner_id: { label: '项目负责人' },
+      project_number: { label: '项目编号' },
+      name: { label: '项目名称' },
+      alias: { label: '项目别名' },
+      crm_opportunity: { label: '关联商机' },
+      crm_account: { label: '所属客户' },
+      project_type: projectType,
+      business_category: businessCategory,
+      planned_start: { label: '计划开始日期' },
+      planned_end: { label: '计划结束日期' },
+      expected_contract_amount: { label: '预计合同金额' },
+      account_manager: { label: '客户经理' },
+      project_manager: { label: '项目经理' },
+      project_director: { label: '项目总监' },
+      project_qa: { label: '项目 QA' },
+      pricing_owner: { label: '资源报价负责人' },
+      labor_cost: { label: '人工服务成本' },
+      third_party_service_cost: { label: '第三方服务成本' },
+      procurement_cost: { label: '第三方软硬件采购成本' },
+      project_expense: { label: '项目费用' },
+      total_cost: { label: '总成本' },
+      quote_amount: { label: '项目报价' },
+      gross_margin_pct: { label: '毛利率 (%)', help: '（报价 − 总成本）÷ 报价 × 100；报价为 0 时显示 0。' },
+      security_class: securityClass,
+      security_note: { label: '安全备注说明' },
+      ...approval,
+      description: { label: '项目背景' },
+    },
+    _views: { all_presales_projects: { label: '全部售前项目' } },
+  },
+  crm_delivery_project: {
+    label: '交付项目',
+    pluralLabel: '交付项目',
+    description: '基于已审批售前项目立项的交付项目：成本中心、角色、预算基线与成本汇总',
+    fields: {
+      owner_id: { label: '项目负责人' },
+      project_number: { label: '项目编号' },
+      name: { label: '项目名称' },
+      alias: { label: '项目别名' },
+      crm_presales_project: { label: '关联售前项目' },
+      crm_opportunity: { label: '关联商机' },
+      crm_account: { label: '所属客户' },
+      project_type: projectType,
+      business_category: businessCategory,
+      planned_start: { label: '计划开始日期' },
+      planned_end: { label: '计划结束日期' },
+      status: { label: '项目状态', options: { planning: '规划中', active: '进行中', closed: '已关闭' } },
+      impl_cost_center: { label: '实施成本中心', ...costCenter },
+      accounting_cost_center: { label: '核算成本中心', ...costCenter },
+      department: { label: '对应部门', options: { bu_finance: '金融事业部', bu_government: '政企事业部', bu_manufacturing: '制造事业部' } },
+      project_manager: { label: '项目经理' },
+      project_director: { label: '项目总监' },
+      pricing_owner: { label: '资源报价负责人' },
+      subcontract_ts_owner: { label: '分包 TS 填写人' },
+      qa_lead: { label: 'QA 负责人' },
+      budget_baseline: { label: '预算基线', help: '审批通过的 Bizcase 总成本，作为考核基线。' },
+      planned_total: { label: '计划总额' },
+      labor_actual: { label: '人工实际成本' },
+      travel_actual: { label: '差旅实际成本' },
+      actual_cost: { label: '实际成本' },
+      budget_burn_pct: { label: '预算消耗 (%)', help: '实际 ÷ 基线 × 100；基线为 0 时显示 0。' },
+      budget_variance: { label: '预算差异' },
+      security_class: securityClass,
+      security_note: { label: '安全备注说明' },
+      ...approval,
+    },
+    _views: { all_delivery_projects: { label: '全部交付项目' } },
+  },
+  crm_cost_plan_line: {
+    label: '成本计划行',
+    pluralLabel: '成本计划行',
+    description: '交付项目按类别、按月的一条计划成本',
+    fields: {
+      crm_delivery_project: { label: '交付项目' },
+      category: { label: '成本类别', options: { labor: '人工服务', third_party_service: '第三方服务', procurement: '软硬件采购', expense: '项目费用' } },
+      period_month: { label: '月份' },
+      description: { label: '说明', help: '岗位级别 / 服务名称 / 采购品类。' },
+      quantity: { label: '数量' },
+      unit_price: { label: '单价' },
+      planned_amount: { label: '计划金额' },
+      notes: { label: '备注' },
+    },
+    _views: { all_cost_plan_lines: { label: '全部成本计划行' } },
+  },
+  crm_timesheet: {
+    label: '工时表',
+    pluralLabel: '工时表',
+    description: '人员按月填报到交付项目的工时，由项目经理审批',
+    fields: {
+      timesheet_number: { label: '工时单号' },
+      owner_id: { label: '填报人' },
+      crm_delivery_project: { label: '交付项目' },
+      crm_presales_project: { label: '售前项目', help: '可选——售前工时记录但不汇总。' },
+      period_month: { label: '月份' },
+      hours: { label: '工时（小时）' },
+      hourly_rate: { label: '费率标准' },
+      cost: { label: '人工成本', help: '工时 × 费率，保存时自动计算。' },
+      notes: { label: '备注' },
+      ...approval,
+    },
+    _views: { all_timesheets: { label: '全部工时表' } },
+  },
+  crm_travel_cost: {
+    label: '差旅成本',
+    pluralLabel: '差旅成本',
+    description: '按项目归集的差旅费用，凭报销单据录入',
+    fields: {
+      travel_number: { label: '差旅单号' },
+      owner_id: { label: '出差人' },
+      crm_delivery_project: { label: '交付项目' },
+      expense_date: { label: '发生日期' },
+      amount: { label: '金额' },
+      receipt_number: { label: '报销单据号' },
+      description: { label: '说明' },
+    },
+    _views: { all_travel_costs: { label: '全部差旅成本' } },
+  },
+};
