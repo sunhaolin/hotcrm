@@ -30,7 +30,10 @@
 //      (objectstack-ai/objectstack#16549). So a demo salesperson asking their
 //      agent about the pipeline got 0 opportunities and 0 tasks. This step
 //      re-stamps `owner_id` per the routes in `src/sharing/demo-staffing.ts`;
-//      `crm_account` is deliberately NOT among them (see step 5);
+//      `crm_account` is deliberately NOT among them (see step 5). A row an
+//      approval holds locked is REPORTED AND SKIPPED, never fatal — that is
+//      what makes the "rerun it any time" line above true (see
+//      `Api.patchUnlessLocked`);
 //   4. RE-EVALUATE every active sharing rule. This step is not optional and is
 //      the reason staffing alone was never enough: `plugin-sharing` materialises
 //      grants from a record-write hook that returns early on `isSystem` writes,
@@ -147,6 +150,36 @@ class Api {
       // administrator, exactly as `scripts/backfill-owner-id.ts` reports it.
       throw new Error(`PATCH ${object}/${id} → ${status}: ${msg}`);
     }
+  }
+
+  /**
+   * PATCH, tolerating the ONE refusal this run must not die on: a record an
+   * approval holds locked.
+   *
+   * `opportunity_approval` declares `lockRecord: true`, so every open
+   * opportunity at or above `LARGE_DEAL_AMOUNT` whose request is still pending
+   * answers `409 RECORD_LOCKED` to any write — the owner re-stamp below
+   * included. That is the platform behaving correctly, and ⛔ not something to
+   * route around by clearing the lock: the decision is the approver's.
+   *
+   * Left unhandled it made the "rerun it any time" promise at the head of this
+   * file false. ONE such row — a $100K deal the dev admin opened while playing
+   * with the demo, or a row this script's own re-stamp pushed into approval on
+   * an earlier run — aborted the whole run, so the sharing-rule re-evaluation
+   * and the verification never ran and the org was left half-staffed with an
+   * exit code and no census to read.
+   *
+   * So a locked row is REPORTED and stepped over: it keeps its current owner,
+   * it is not counted as settled, and the caller prints how many there were.
+   * Every other non-2xx still throws.
+   */
+  async patchUnlessLocked(object: string, id: string, body: Json): Promise<'written' | 'locked'> {
+    const { status, json } = await this.call('PATCH', `/api/v1/data/${object}/${id}`, body);
+    if (status >= 200 && status < 300) return 'written';
+    const code = json?.code ?? json?.error?.code;
+    if (status === 409 && code === 'RECORD_LOCKED') return 'locked';
+    const msg = json?.error?.message ?? json?.error ?? json?.message ?? JSON.stringify(json);
+    throw new Error(`PATCH ${object}/${id} → ${status}: ${msg}`);
   }
 
   /** Rows of `object` matching `filters` (the data API's own query verb). */
@@ -267,6 +300,12 @@ type OwnershipOutcome = {
   settled: Map<string, string>;
   written: number;
   leftAlone: number;
+  /**
+   * Rows an approval holds locked (`409 RECORD_LOCKED`), so this run could not
+   * move them. Deliberately NOT in `settled`: the census judges where a row was
+   * SENT, and a row nobody could write was never sent anywhere.
+   */
+  locked: string[];
 };
 
 /**
@@ -293,6 +332,18 @@ type OwnershipOutcome = {
  * That also makes the run idempotent and order-independent: correct whether
  * `demo_bootstrap` has already claimed the rows or has not run yet, and a
  * second pass over a converged org writes nothing.
+ *
+ * ### The one row this cannot move, and why that is not a failure
+ *
+ * A record under a pending approval is locked (`lockRecord: true` on
+ * `opportunity_approval`), so the re-stamp is refused with `409 RECORD_LOCKED`
+ * — and the re-stamp is itself an update that can push a $100K+ open deal into
+ * approval, which is how a converged org ends up holding such rows at all.
+ * `Api.patchUnlessLocked` steps over them and this function reports them in
+ * `locked`, because a run that died there left the org half-staffed: no
+ * sharing-rule re-evaluation, no census, no verification. ⛔ Never clear the
+ * lock to get past it — the decision belongs to the approver, and rerunning
+ * after they take it routes the row.
  */
 async function handBookToRoster(
   api: Api,
@@ -319,6 +370,7 @@ async function handBookToRoster(
     const fields = ['id', 'owner_id', ...(route.accountField ? [route.accountField] : [])];
     const rows = await api.query(route.object, [], fields);
     const settled = new Map<string, string>();
+    const locked: string[] = [];
     let written = 0;
     let leftAlone = 0;
     for (const row of rows) {
@@ -331,11 +383,15 @@ async function handBookToRoster(
       }
       const accountId = route.accountField ? row[route.accountField] : undefined;
       const wanted = ownerFor(accountId ? territoryOf.get(String(accountId)) : undefined);
+      const outcome = await api.patchUnlessLocked(route.object, id, { owner_id: wanted });
+      if (outcome === 'locked') {
+        locked.push(id);
+        continue;
+      }
       settled.set(id, wanted);
-      await api.patchOk(route.object, id, { owner_id: wanted });
       written++;
     }
-    outcomes.push({ route, settled, written, leftAlone });
+    outcomes.push({ route, settled, written, leftAlone, locked });
   }
   return outcomes;
 }
@@ -376,7 +432,7 @@ async function ownershipCensus(
     `${'dev admin'.padStart(w)}${'nobody'.padStart(8)}${'new'.padStart(6)}`,
   );
 
-  for (const { route, settled } of outcomes) {
+  for (const { route, settled, locked } of outcomes) {
     const rows = await api.query(route.object, [], ['id', 'owner_id']);
     const ownerById = new Map(rows.map((r) => [String(r.id), String(r.owner_id ?? '')]));
     const observed = new Map<string, number>();
@@ -404,7 +460,12 @@ async function ownershipCensus(
     // Guard the guard: an object with no routed rows balances trivially and
     // proves nothing, so its clean-looking line above is not a pass.
     if (settled.size === 0) {
-      failures.push(`${route.object} routed no rows at all — its line above is vacuous, not clean`);
+      failures.push(
+        locked.length > 0
+          ? `${route.object} routed no rows at all — every candidate row (${locked.length}) is locked by a ` +
+            `pending approval, so its line above is vacuous. Decide those approvals and rerun.`
+          : `${route.object} routed no rows at all — its line above is vacuous, not clean`,
+      );
       continue;
     }
     if (wrong.length > 0) {
@@ -558,6 +619,20 @@ async function main(): Promise<number> {
       `   ${o.route.object.padEnd(18)} re-stamped ${String(o.written).padStart(3)}, left ` +
       `${String(o.leftAlone).padStart(3)} with a live owner — ${o.route.why}`,
     );
+  }
+  const lockedRows = ownership.reduce((n, o) => n + o.locked.length, 0);
+  if (lockedRows > 0) {
+    // Not a failure and not silent: the row stayed with the dev admin because an
+    // approval holds it, which is the app doing its job. Naming the count (and
+    // who clears it) is what keeps the census below readable — those rows are
+    // absent from it rather than missing from it.
+    console.log(
+      `   ⏸  ${lockedRows} row(s) skipped — an approval holds them locked and only its approver ` +
+      `can release them. Decide them in the Approvals Inbox, then rerun this script to route them.`,
+    );
+    for (const o of ownership.filter((x) => x.locked.length > 0)) {
+      console.log(`      ${o.route.object}: ${o.locked.join(', ')}`);
+    }
   }
 
   console.log('\n── Re-evaluating sharing rules ──');
