@@ -68,15 +68,24 @@ export const PresalesProject = ObjectSchema.create({
       scale: 2,
     }),
 
+    // `hidden`: the two roll-ups are kept as columns but taken off every
+    // rendered surface. Booking presales hours needs a timesheet, and a
+    // timesheet's `crm_delivery_project` is a REQUIRED master-detail, so a
+    // presales project that has no delivery project yet can carry no hours at
+    // all — the pair read 0 on every record and read as broken rather than as
+    // empty. They stay declared (the platform keeps maintaining them, so
+    // nothing has to be backfilled) and come back by dropping `hidden`.
     presales_hours: Field.summary({
       label: 'Presales Hours',
       group: 'cost_estimate',
+      hidden: true,
       scale: 1,
       summaryOperations: { object: 'crm_timesheet', field: 'hours', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
     }),
     presales_labor_actual: Field.summary({
       label: 'Presales Labor Actual',
       group: 'cost_estimate',
+      hidden: true,
       scale: 2,
       summaryOperations: { object: 'crm_timesheet', field: 'cost', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
     }),
