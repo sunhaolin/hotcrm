@@ -87,6 +87,11 @@ const INTENDED_BUCKET: Record<string, Granularity> = {
   // objectstack#3912 and objectstack#3777 are both released as of 17.0.0 GA
   // (see the Activity dashboard's header note, which now says the same).
   'event_metrics.start_datetime': 'week',
+  // Demo (epic #2). Both project datasets put the planned end date on an
+  // axis so cost and finance read per delivery month — the same product
+  // reason as `opportunity_metrics.close_date`.
+  'project_cost_metrics.planned_end': 'month',
+  'project_finance_metrics.planned_end': 'month',
 };
 
 /** Matrix report → the bucket its date axis must carry on @objectstack 17+. */

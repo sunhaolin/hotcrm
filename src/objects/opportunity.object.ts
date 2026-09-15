@@ -354,9 +354,9 @@ export const Opportunity = ObjectSchema.create({
       label: 'Opportunity Level',
       group: 'classification',
       options: [
-        { label: 'A', value: 'level_a', color: '#FF0000' },
-        { label: 'B', value: 'level_b', color: '#FFA500' },
-        { label: 'C', value: 'level_c', color: '#999999' },
+        { label: 'A — strategic', value: 'level_a', color: '#FF0000' },
+        { label: 'B — important', value: 'level_b', color: '#FFA500' },
+        { label: 'C — routine', value: 'level_c', color: '#999999' },
       ],
     }),
     priority: Field.select({

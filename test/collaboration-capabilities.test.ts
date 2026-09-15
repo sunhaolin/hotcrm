@@ -67,6 +67,17 @@ const FILES_ENABLED = [
   'crm_contract',
   'crm_opportunity',
   'crm_quote',
+  // Demo (epic #2): the project and finance records carry documents by
+  // nature — a Bizcase, a delivery acceptance, an invoice scan, a purchase
+  // contract PDF, a trip itinerary, a sick note (需求表 steps 15, 26, 35–38).
+  'crm_presales_project',
+  'crm_delivery_project',
+  'crm_invoice',
+  'crm_collection',
+  'crm_purchase_contract',
+  'crm_sales_order',
+  'crm_business_trip',
+  'crm_leave_request',
 ] as const;
 
 const filesFlag = (name: string) => objectByName.get(name)?.enable?.files;

@@ -17,11 +17,11 @@ HotCRM 分析將你的 CRM 活動轉化為**決策**。三個層次協同運作�
 
 | 層次 | 作用 |
 | --- | --- |
-| [**儀表板**](/zh-Hant/docs/analytics/dashboards) | **五個**開箱即用的儀表板 —— CRM Overview、Sales Performance、Sales Activity、Customer Service、Executive Overview |
+| [**儀表板**](/zh-Hant/docs/analytics/dashboards) | **七個**開箱即用的儀表板 —— CRM Overview、Sales Performance、Sales Activity、Customer Service、Executive Overview、Project Cost、Project Finance |
 | [**報表**](/zh-Hant/docs/analytics/reports) | **十份**標準報表 —— 交易 4 份、工單 3 份，潛在客戶、客戶、流失各 1 份 |
-| [**多維資料集**](/zh-Hant/docs/analytics/cubes) | `src/datasets/` 下的**九個** dataset，也就是上面兩層按名字繫結的那一層 |
+| [**多維資料集**](/zh-Hant/docs/analytics/cubes) | `src/datasets/` 下的**十一個** dataset，也就是上面兩層按名字繫結的那一層 |
 
-上表有兩個數字過去寫的是別的樣子，去找東西之前值得先知道。**這裡沒有合約報表** —— 也建不出來：`src/datasets/` 只讀九個物件，`crm_contract` 不在其中，所以分析裡沒有任何東西能對合約做計數、求和或分組。另外，**沒有任何 cube 叫這四個名字** —— *Sales*、*Pipeline*、*Service*、*Marketing* 在應用裡零命中。前三個由哪些 dataset 回答、第四個為什麼連資料來源都沒有，見 [多維資料集](/zh-Hant/docs/analytics/cubes)。
+上表有兩個數字過去寫的是別的樣子，去找東西之前值得先知道。**這裡沒有合約報表** —— 也建不出來：`src/datasets/` 只讀十個物件，`crm_contract` 不在其中，所以分析裡沒有任何東西能對合約做計數、求和或分組。另外，**沒有任何 cube 叫這四個名字** —— *Sales*、*Pipeline*、*Service*、*Marketing* 在應用裡零命中。前三個由哪些 dataset 回答、第四個為什麼連資料來源都沒有，見 [多維資料集](/zh-Hant/docs/analytics/cubes)。
 
 ## 開箱即用的能力
 
@@ -53,7 +53,7 @@ HotCRM 分析將你的 CRM 活動轉化為**決策**。三個層次協同運作�
 - **Forecasts** —— 預測記錄本身。
 - **Pipeline Coverage**、**Lead Inflow**、**SLA Performance** —— 三張按名字釘在側邊欄上的報表。
 
-沒有 *Analytics* 群組，側邊欄上也沒有任何條目叫 *Dashboards*、*Reports* 或 *Cubes*。其餘儀表板各自釘在負責它的群組下 —— **Sales Performance** 在 Sales、**Sales Activity** 在 Activity、**Service Overview** 在 Service —— 報表庫裡剩下的報表則從報表介面進入，而不是從導覽進入。整條側邊欄逐組的列法，見 [快速導覽](/zh-Hant/docs/getting-started/quick-tour)。
+沒有 *Analytics* 群組，側邊欄上也沒有任何條目叫 *Dashboards*、*Reports* 或 *Cubes*。其餘儀表板各自釘在負責它的群組下 —— **Sales Performance** 在 Sales、**Sales Activity** 在 Activity、**Service Overview** 在 Service、**Project Cost** 在 Projects、**Project Finance** 在 Project Finance —— 報表庫裡剩下的報表則從報表介面進入，而不是從導覽進入。整條側邊欄逐組的列法，見 [快速導覽](/zh-Hant/docs/getting-started/quick-tour)。
 
 ## AI 驅動的洞察
 
@@ -65,6 +65,6 @@ HotCRM 分析將你的 CRM 活動轉化為**決策**。三個層次協同運作�
 
 ## 從這裡開始
 
-- [儀表板](/zh-Hant/docs/analytics/dashboards) —— 五個內建儀表板。
+- [儀表板](/zh-Hant/docs/analytics/dashboards) —— 七個內建儀表板。
 - [報表](/zh-Hant/docs/analytics/reports) —— 十份標準報表。
-- [多維資料集](/zh-Hant/docs/analytics/cubes) —— 底下的九個 dataset，這一層能回答什麼、又到哪裡為止。
+- [多維資料集](/zh-Hant/docs/analytics/cubes) —— 底下的十一個 dataset，這一層能回答什麼、又到哪裡為止。

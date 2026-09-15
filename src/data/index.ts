@@ -21,6 +21,7 @@
  *   - `marketing.seed.ts` campaigns, campaign members
  *   - `revenue.seed.ts` contracts, quotes, quote lines, forecasts
  */
+import type { Seed } from '@objectstack/spec/data';
 import { products } from './catalog.seed';
 import { accounts, contacts, leads, opportunities, opportunityLineItems } from './sales.seed';
 import {
@@ -76,54 +77,131 @@ import {
  * to leaving no claimed object ownerless.
  */
 
-/** All CRM seed datasets */
-export const CrmSeedData = [
-  psaAccounts,
-  industryAccounts,
-  psaContacts,
-  industryContacts,
-  psaLeads,
-  industryLeads,
-  psaOpportunities,
-  industryOpportunities,
-  psaTasks,
-  industryTasks,
-  psaEvents,
-  industryEvents,
-  // Round 2: master data and the contract come before the projects that reference them;
-  // trips before the travel costs booked to them; leave after the timesheets it syncs.
-  // Round 3 (the software-company data set) interleaves in the same order.
+/**
+ * One dataset per object, whatever the composition.
+ *
+ * The Chinese demo families (`psa.seed.ts`, `psa-round2.seed.ts`,
+ * `psa-industry.seed.ts`) author rows for objects the standard families also
+ * seed — accounts, contacts, leads, opportunities, tasks, events, contracts,
+ * products, quotes. Registering them as SEPARATE datasets would work at boot
+ * (the loader replays each in turn), but `test/seed-consistency.test.ts` reads
+ * every family through `one(object)` — "exactly one dataset per object" is the
+ * invariant that lets a test say "the accounts" without knowing how many files
+ * author them. So the families are folded here, per object, into the dataset
+ * the standard file declares: same `object`, same `mode`, same `externalId`
+ * (checked below, because an upsert keyed on a different column would silently
+ * duplicate rows on every replay), with the Chinese records appended.
+ */
+const union = (base: Seed, ...more: Seed[]): Seed => {
+  for (const extra of more) {
+    if (extra.object !== base.object) {
+      throw new Error(`seed union: ${extra.object} folded into ${base.object}`);
+    }
+    if (JSON.stringify(extra.externalId) !== JSON.stringify(base.externalId) || extra.mode !== base.mode) {
+      throw new Error(`seed union: ${base.object} datasets disagree on externalId/mode`);
+    }
+  }
+  return { ...base, records: [...base.records, ...more.flatMap((d) => d.records)] };
+};
+
+// The Chinese demo rows, one dataset per object. Order matters to the loader:
+// master data (rate cards, legal entities) and contracts before the projects
+// that reference them; trips before the travel costs booked to them; leave
+// after the timesheets it syncs into; quote lines after quotes and products.
+const zhAccounts = union(psaAccounts, industryAccounts);
+const zhContacts = union(psaContacts, industryContacts);
+const zhLeads = union(psaLeads, industryLeads);
+const zhOpportunities = union(psaOpportunities, industryOpportunities);
+const zhTasks = union(psaTasks, industryTasks);
+const zhEvents = union(psaEvents, industryEvents);
+const zhContracts = union(psaContracts, industryContracts);
+const zhPresalesProjects = union(presalesProjects, industryPresalesProjects);
+const zhDeliveryProjects = union(deliveryProjects, industryDeliveryProjects);
+const zhBusinessTrips = union(businessTrips, industryBusinessTrips);
+const zhCostPlanLines = union(costPlanLines, industryCostPlanLines);
+const zhTimesheets = union(timesheets, industryTimesheets);
+const zhTravelCosts = union(travelCosts, industryTravelCosts);
+const zhBudgetAdjustments = union(budgetAdjustments, industryBudgetAdjustments);
+const zhInvoices = union(invoices, industryInvoices);
+const zhCollections = union(collections, industryCollections);
+const zhPurchaseContracts = union(purchaseContracts, industryPurchaseContracts);
+const zhSalesOrders = union(salesOrders, industrySalesOrders);
+const zhLeaveRequests = union(leaveRequests, industryLeaveRequests);
+
+/**
+ * The Chinese-only demo set: what `HOTCRM_COMPOSITION=zh-demo` replays.
+ *
+ * A software company's year (华软股份) — 14 accounts, 13 opportunities, the
+ * presales and delivery projects behind them, and the finance trail. Nothing
+ * from the English storytelling families, so a demo audience never meets Acme
+ * Corporation between two Chinese customers. `docs/demo/psa-presales/RUNBOOK.md`
+ * is the only consumer; every build, test and CI job assembles `default`.
+ */
+export const ZhDemoSeedData: Seed[] = [
+  zhAccounts,
+  zhContacts,
+  zhLeads,
+  zhOpportunities,
+  industryProducts,
+  zhTasks,
+  zhEvents,
   rateCards,
   legalEntities,
-  psaContracts,
-  industryContracts,
-  presalesProjects,
-  industryPresalesProjects,
-  deliveryProjects,
-  industryDeliveryProjects,
-  businessTrips,
-  industryBusinessTrips,
-  costPlanLines,
-  industryCostPlanLines,
-  timesheets,
-  industryTimesheets,
-  travelCosts,
-  industryTravelCosts,
-  budgetAdjustments,
-  industryBudgetAdjustments,
-  invoices,
-  industryInvoices,
-  collections,
-  industryCollections,
-  purchaseContracts,
-  industryPurchaseContracts,
-  salesOrders,
-  industrySalesOrders,
-  leaveRequests,
-  industryLeaveRequests,
-  industryProducts,
+  zhContracts,
   industryQuotes,
   industryQuoteLineItems,
+  zhPresalesProjects,
+  zhDeliveryProjects,
+  zhBusinessTrips,
+  zhCostPlanLines,
+  zhTimesheets,
+  zhTravelCosts,
+  zhBudgetAdjustments,
+  zhInvoices,
+  zhCollections,
+  zhPurchaseContracts,
+  zhSalesOrders,
+  zhLeaveRequests,
+];
+
+/** All CRM seed datasets — the standard families, each carrying its Chinese rows. */
+export const CrmSeedData: Seed[] = [
+  union(accounts, zhAccounts),
+  union(contacts, zhContacts),
+  union(leads, zhLeads),
+  union(opportunities, zhOpportunities),
+  union(products, industryProducts),
+  opportunityLineItems,
+  union(tasks, zhTasks),
+  cases,
+  // Events come after the five objects their `related_to_*` lookups resolve
+  // against (accounts, contacts, leads, opportunities, cases); the attendee
+  // junctions come after the events they hang off.
+  union(events, zhEvents),
+  eventAttendeesFromContacts,
+  eventAttendeesFromLeads,
+  campaigns,
+  campaignMembersFromLeads,
+  campaignMembersFromContacts,
+  rateCards,
+  legalEntities,
+  union(contracts, zhContracts),
+  union(quotes, industryQuotes),
+  union(quoteLineItems, industryQuoteLineItems),
+  forecasts,
+  knowledgeArticles,
+  zhPresalesProjects,
+  zhDeliveryProjects,
+  zhBusinessTrips,
+  zhCostPlanLines,
+  zhTimesheets,
+  zhTravelCosts,
+  zhBudgetAdjustments,
+  zhInvoices,
+  zhCollections,
+  zhPurchaseContracts,
+  zhSalesOrders,
+  zhLeaveRequests,
 ];
 
 // ─────────────────────────────────────── the SaaS / multi-org composition ──
@@ -141,14 +219,18 @@ export const CrmSeedData = [
  * nothing is decided per tenant, and no enterprise package is imported. See
  * {@link SaasTenantSeedData} for why the seed set shrinks and
  * `objectstack.config.ts` for the flow/permission halves.
+ *
+ * `zh-demo` is the community app with ONLY the Chinese demo rows — the same
+ * flows and permission sets as `default`, a smaller seed set. See
+ * {@link ZhDemoSeedData}.
  */
-export type HotCrmComposition = 'default' | 'saas';
+export type HotCrmComposition = 'default' | 'saas' | 'zh-demo';
 
 /** The environment variable {@link resolveComposition} reads. */
 export const COMPOSITION_ENV_VAR = 'HOTCRM_COMPOSITION';
 
 /** Every value {@link resolveComposition} accepts, for diagnostics and tests. */
-export const HOTCRM_COMPOSITIONS: readonly HotCrmComposition[] = ['default', 'saas'];
+export const HOTCRM_COMPOSITIONS: readonly HotCrmComposition[] = ['default', 'saas', 'zh-demo'];
 
 /**
  * Resolve the composition from the environment — and REFUSE anything else.
@@ -216,8 +298,11 @@ export function resolveComposition(
  * into every tenant of every SaaS deployment; the bar is "a tenant cannot
  * operate without it", not "it looks nice on day one".
  */
-export const SaasTenantSeedData = [products];
+export const SaasTenantSeedData: Seed[] = [products];
 
 /** The seed datasets a composition registers. */
-export const seedDataFor = (composition: HotCrmComposition): typeof CrmSeedData =>
-  composition === 'saas' ? SaasTenantSeedData : CrmSeedData;
+export const seedDataFor = (composition: HotCrmComposition): Seed[] => {
+  if (composition === 'saas') return SaasTenantSeedData;
+  if (composition === 'zh-demo') return ZhDemoSeedData;
+  return CrmSeedData;
+};

@@ -1,0 +1,45 @@
+---
+title: Trips & Travel Costs
+description: A business trip is requested and approved first; travel costs are booked against the approved trip, default their project and traveller from it, and roll up into the project's travel actual.
+---
+
+# Trips & Travel Costs
+
+A **business trip** (出差申请, `crm_business_trip`) is the request: who travels, where, when, for which project, at what estimated cost. A **travel cost** (差旅成本, `crm_travel_cost`) is one expense booked against that trip after the fact — a ticket, a hotel night, a taxi — and it is what lands on the project as **Travel Actual**. The order is deliberate: the trip is approved first, and a cost can only be booked against an approved trip.
+
+## Business trips
+
+| Field | What it is |
+| --- | --- |
+| Subject, Traveller | What the trip is for and who goes |
+| Delivery Project *or* Presales Project | Whose cost it is — one or the other |
+| Destination, Transport (*flight, train, car, other*), Start and End Date, Days | The plan; days are filled by `business_trip_days_fill` from the dates |
+| Estimated Cost | What the traveller expects to spend |
+| Actual Cost | A rollup — the sum of the travel costs booked to the trip; not typed |
+| Approval Status *(read-only)*, Approved Date | The **出差审批** verdict, decided by the project manager |
+
+Submit the trip with **Submit for Approval**; the record locks until the project manager decides, and the status is read-only otherwise. Files are enabled, so an itinerary or a customer's invitation goes on the record as an attachment.
+
+## Travel costs
+
+| Field | What it is |
+| --- | --- |
+| Business Trip | The approved trip this cost belongs to |
+| Delivery Project, Traveller, Date | Defaulted from the trip by `travel_cost_trip_fill`; only the delivery project counts toward Travel Actual |
+| Category, Amount, Receipt Number, Notes | The expense itself |
+
+## What the system does automatically
+
+- **The trip gate.** Saving a travel cost against a trip that is not yet approved is **refused**: *出差申请「…」尚未审批通过，不能登记差旅成本*. Approve the trip, then book the cost.
+- **Defaults from the trip** (`travel_cost_trip_fill`) — project, traveller and date are copied from the trip when the cost leaves them blank, so a cost cannot land on a different project than the trip it belongs to by accident.
+- **Two rollups** — the trip's Actual Cost sums its costs, and the delivery project's Travel Actual sums every cost booked to it; Actual Cost and Budget Burn % on the [delivery project](/docs/projects/delivery-projects) follow.
+
+## Sharing
+
+A business trip is **private** — the traveller's own request, read by the Sales Manager and the System Administrator in full; the approver reaches it through the approval request rather than through sharing. A travel cost is *Controlled by Parent* under the delivery project: whoever can see the project sees its travel costs.
+
+## Tips
+
+- ✅ **Request the trip before you go**, so the costs can be booked the day you are back.
+- ✅ **One travel cost per receipt**, with the receipt number — it is the natural key finance reconciles against.
+- ✅ **Watch Estimated vs Actual Cost on the trip**: it is the earliest signal that a project's travel line is running hot.

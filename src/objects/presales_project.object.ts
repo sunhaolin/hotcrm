@@ -71,7 +71,7 @@ export const PresalesProject = ObjectSchema.create({
     project_manager: Field.lookup('sys_user', { label: 'Project Manager', group: 'roles' }),
     project_director: Field.lookup('sys_user', { label: 'Project Director', group: 'roles' }),
     project_qa: Field.lookup('sys_user', { label: 'Project QA', group: 'roles' }),
-    pricing_owner: Field.lookup('sys_user', { label: 'Pricing Owner', group: 'roles' }),
+    pricing_manager: Field.lookup('sys_user', { label: 'Pricing Owner', group: 'roles' }),
 
     labor_cost: Field.currency({ label: 'Labor Service Cost', scale: 2, group: 'cost_estimate' }),
     third_party_service_cost: Field.currency({ label: 'Third-party Service Cost', scale: 2, group: 'cost_estimate' }),

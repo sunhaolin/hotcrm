@@ -12,6 +12,9 @@ import * as salesSeed from '../src/data/sales.seed';
 import * as serviceSeed from '../src/data/service.seed';
 import * as marketingSeed from '../src/data/marketing.seed';
 import * as revenueSeed from '../src/data/revenue.seed';
+import * as psaSeed from '../src/data/psa.seed';
+import * as psaRound2Seed from '../src/data/psa-round2.seed';
+import * as psaIndustrySeed from '../src/data/psa-industry.seed';
 import { makeCtx } from './helpers/hook-harness';
 
 /**
@@ -252,6 +255,14 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
  * The #635 split has one structural failure mode: a family module gains a
  * dataset and nobody adds it to `CrmSeedData`, so it silently never seeds.
  * Nothing else would notice — the module compiles, the records exist in source.
+ *
+ * Since the Chinese PSA demo (epic #2) `CrmSeedData` holds ONE dataset per
+ * object, folded by `union()` in `src/data/index.ts` from the standard family
+ * and the PSA rows — so a family dataset no longer arrives by reference. What
+ * still has to hold is the record set: every RECORD a family module authors
+ * reaches the aggregate (same reference, under the same object), and the
+ * aggregate carries no record that no family module authored. That is the same
+ * invariant read one level down.
  */
 describe('every family module dataset is wired into CrmSeedData (#635 split)', () => {
   const FAMILIES: Record<string, AnyRec> = {
@@ -261,6 +272,9 @@ describe('every family module dataset is wired into CrmSeedData (#635 split)', (
     'service.seed': serviceSeed,
     'marketing.seed': marketingSeed,
     'revenue.seed': revenueSeed,
+    'psa.seed': psaSeed,
+    'psa-round2.seed': psaRound2Seed,
+    'psa-industry.seed': psaIndustrySeed,
   };
 
   const isDataset = (value: unknown): value is Dataset =>
@@ -280,12 +294,25 @@ describe('every family module dataset is wired into CrmSeedData (#635 split)', (
   });
 
   it('aggregates all of them, and nothing else', () => {
-    const aggregated = CrmSeedData as unknown[];
-    const missing = declared.filter((d) => !aggregated.includes(d.value)).map((d) => d.id);
+    const aggregated = CrmSeedData as unknown as Dataset[];
+    const seededRecords = (object: string) =>
+      new Set(aggregated.filter((d) => d.object === object).flatMap((d) => d.records));
+    const missing = declared
+      .filter((d) => !d.value.records.every((r: AnyRec) => seededRecords(d.value.object).has(r)))
+      .map((d) => d.id);
     expect(
       missing,
       `these datasets are authored but never seeded — add them to src/data/index.ts:\n  ${missing.join('\n  ')}`,
     ).toEqual([]);
-    expect(aggregated.length, 'CrmSeedData holds an entry no family module exports').toBe(declared.length);
+    const authored = new Set(declared.flatMap((d) => d.value.records));
+    const orphans = aggregated.flatMap((d) => d.records.filter((r: AnyRec) => !authored.has(r)).map(() => d.object));
+    expect(orphans, 'CrmSeedData carries a record no family module authors').toEqual([]);
+    // One dataset per object, whatever the composition folds together.
+    const objectsSeeded = aggregated.map((d) => d.object);
+    const twice = objectsSeeded.filter((o, i) => objectsSeeded.indexOf(o) !== i);
+    // The two junction families keep two datasets each on purpose: they are
+    // keyed on different composite externalIds (`[crm_event, crm_contact]` vs
+    // `[crm_event, crm_lead]`), which a single upsert dataset cannot express.
+    expect([...new Set(twice)].sort()).toEqual(['crm_campaign_member', 'crm_event_attendee']);
   });
 });
