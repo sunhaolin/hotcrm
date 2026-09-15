@@ -22,7 +22,7 @@ HotCRM turns customer conversations into **records you can query**: an email you
 
 1. The action asks for a **Subject** and a **Body**. The recipient is the contact's own email address; there is no template picker and no merge-field expansion.
 2. On submit an email row is written with status **Queued**, sent from your user's email address and linked back to the contact under *Related Object*.
-3. The contact's **Activity** timeline gains an entry — `Email: <subject>` — that points at that email row, so the drill-through opens the message rather than a summary string.
+3. The contact's **Activity** timeline gains an entry — `Email: <subject>` — carrying a pointer to that email row rather than a summary string. Two console defects sit between that pointer and the message today: the timeline is not re-read when the action succeeds, so reload the record to see the entry, and its *View source →* link answers `Not found` instead of opening the email. [Meetings & Calls](/docs/sales/meetings-and-calls) carries the detail.
 4. The contact's **Last Contacted Date**, and the parent account's **Last Activity Date**, are stamped. An email is an interaction, even though it is not a calendar slot, so it refreshes the same recency clock a held meeting does — see [Meetings & Calls](/docs/sales/meetings-and-calls).
 
 Delivery belongs to the platform's email service, which owns the states the row moves through: **Queued → Sent**, or **Failed** with the transport's error message and an attempt count. Whether the message leaves the building depends on the transport your deployment configures — with no provider configured the platform falls back to a log-only transport, which records the message and sends nothing.
@@ -45,7 +45,7 @@ The **Log a Call** action records an outbound or inbound call without leaving th
 
 1. **The event** — a real Event record with your subject, type *Call*, status **Held**, starting now, plus duration, notes, owner, and a link back to the record you fired the action from.
 2. **The attendees** — one row per person: you as the **organizer** with your response already *Accepted*, the contact or lead you fired the action from, and anyone you picked under *Contact Attendees* / *Internal Attendees*.
-3. **A timeline entry** on the record's **Activity** tab, pointing at that event, so the drill-through opens the real record.
+3. **A timeline entry** on the record's **Activity** tab, carrying a pointer to that event. Reload the record to see it, and open the event from **Activity › Events**: the timeline is not re-read when the action succeeds, and the entry's *View source →* link answers `Not found` — two console defects, covered in [Meetings & Calls](/docs/sales/meetings-and-calls).
 
 **Log a Meeting** and **Schedule a Meeting** are the same shape — held meeting, and booking for later. [Meetings & Calls](/docs/sales/meetings-and-calls) is the full account: what each form asks for, Planned vs Held, what attendee rows hold, and how a held call on a case stamps its First Response Date.
 

@@ -170,8 +170,19 @@ export const SendEmailAction: Action = {
         record_id: recipientId,
         record_label: record.full_name ?? record.name ?? to,
         // ADR-0052 ActivityPointer: structured pointer to the rich source entity
-        // (the sys_email row) so the timeline renders a "View source →" drill to
-        // the full email — the queryable replacement for stashing the id in metadata.
+        // (the sys_email row) — the queryable replacement for stashing the id in
+        // metadata, and what the timeline's "View source →" drill is built from.
+        //
+        // That drill is BROKEN in the console, and NOT here: the renderer builds
+        // the link href as /objects/<sourceObject>/<sourceId>, a path the console
+        // serves no page for, so it answers the REST 404 (ENDPOINT_NOT_FOUND)
+        // instead of opening the record — measured on @objectstack/console 17.4.0,
+        // where that string is the only /objects/ URL in the bundle and matches
+        // nothing in the router (the record route is
+        // /apps/<appId>/<object>/record/<id>). The pointer below is correct and
+        // stays: do not drop it, and do not route around the renderer with a
+        // redirectUrl return or a link of our own. Same gap on the crm_event
+        // pointer in global.actions.ts.
         source_object: 'sys_email',
         source_id: email?.id ?? null,
         metadata: JSON.stringify({ kind: 'email', to, subject }),

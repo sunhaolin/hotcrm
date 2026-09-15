@@ -50,7 +50,9 @@ Logging a call on an opportunity writes three things, not one:
 
 1. **The event** — subject, type, status, start time, duration, location, notes, owned by you, and linked back to the record you fired the action from.
 2. **The attendees** — one row per person (see below). You are added as the **organizer**, with your response already set to *Accepted*; a contact or lead you fired the action from is added as an attendee too.
-3. **A timeline entry** — the record's activity timeline gains an entry that points at the event, so the drill-through from the timeline opens the real record rather than a summary string.
+3. **A timeline entry** — the record's activity timeline gains an entry carrying a pointer to the event, so what is stored is a link to a real record rather than a summary string.
+
+> ⚠️ **The timeline does not show that entry until you reload, and its *View source →* link does not open the event.** Both are defects in the console's timeline renderer, measured on platform 17.4.0 — the app writes the entry and its pointer either way, and neither is a setting you can change. **Refresh:** the Activity tab reads the timeline once, when you open the record, and does not re-read it when an action succeeds, so reload the page (or leave the tab and come back) to see the call you just logged. **Drill-through:** the link addresses `/objects/…`, which the console serves no page for, so it answers with a `Not found` error instead of the event — open the event from **Activity › Events** instead. The entry **Send Email** writes behaves the same way; see [Email & Calendar](/docs/guides/email-and-calendar).
 
 On a **case**, the first *held* call or meeting also stamps the case's **First Response Date** — the moment the customer first heard back. A meeting merely *booked* does not count as a response, and neither does a status change.
 
