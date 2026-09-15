@@ -131,11 +131,11 @@ export const psa: Record<string, ObjectTranslationData> = {
   crm_timesheet: {
     label: 'Timesheet',
     pluralLabel: 'Timesheets',
-    description: 'Monthly hours a person books to a delivery project, approved by the project manager',
+    description: 'Monthly hours a person books to a delivery or presales project, approved by the project manager',
     fields: {
       timesheet_number: { label: 'Timesheet #' },
       owner_id: { label: 'Submitted By' },
-      crm_delivery_project: { label: 'Delivery Project' },
+      crm_delivery_project: { label: 'Delivery Project', help: 'Optional — a sheet with no delivery project books presales or attendance hours only. Approved sheets roll up into the project Labor Actual.' },
       crm_presales_project: { label: 'Presales Project', help: 'Optional — presales hours are recorded but not rolled up.' },
       period_month: { label: 'Period (Month)' },
       hours: { label: 'Hours' },

@@ -234,7 +234,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_timesheet: {
     label: 'タイムシート',
     pluralLabel: 'タイムシート',
-    description: '担当者がデリバリープロジェクトに計上する月次工数。プロジェクトマネージャーが承認',
+    description: '担当者がデリバリーまたはプリセールスプロジェクトに計上する月次工数。プロジェクトマネージャーが承認',
     fields: {
       approval_status: {
         label: '承認状況',
@@ -248,7 +248,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: '承認日時' },
       cost: { help: '工数 × 時間単価。タイムシートのフックが設定。', label: 'コスト' },
-      crm_delivery_project: { label: 'デリバリープロジェクト' },
+      crm_delivery_project: { help: '任意。デリバリープロジェクトを空にした場合はプリセールス工数または勤怠工数のみの計上になります。承認済みシートはプロジェクトの人件費実績に集計されます。', label: 'デリバリープロジェクト' },
       crm_presales_project: { help: '任意。プリセールス工数は記録のみで集計しません（エピック決定 4）。', label: 'プリセールスプロジェクト' },
       crm_rate_card: { help: '単価表から時間単価を設定 (timesheet_rate_fill)。', label: 'グレード / 単価表' },
       hourly_rate: { label: '時間単価' },

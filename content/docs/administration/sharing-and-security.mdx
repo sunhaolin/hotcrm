@@ -43,7 +43,7 @@ OWD is the *most restrictive* setting for each object. Everything else widens it
 | Presales Project | Private | A bid belongs to the presales team working it; the sales manager and the administrator hold *View All* |
 | Delivery Project | Private | Costs, margins and staffing are the project team's business |
 | Cost Plan Line | Controlled by Parent (Delivery Project) | A plan line is part of the project's cost plan, and follows the project's sharing |
-| Timesheet | Controlled by Parent (Delivery Project) | Hours are booked against the project they cost |
+| Timesheet | Private | A sheet is the submitter's own monthly record; the delivery project on it is optional, so there is no parent to derive from |
 | Travel Cost | Controlled by Parent (Delivery Project) | A travel expense is part of the project's actual cost |
 | Rate Card | Public Read/Write | Master data everyone prices from; maintained by the PMO |
 | Contracting Entity | Public Read/Write | Master data every opportunity picks from; maintained by finance |
@@ -59,7 +59,7 @@ OWD is the *most restrictive* setting for each object. Everything else widens it
 
 ### Controlled by Parent, in practice
 
-For the fourteen parent-derived objects above, there is nothing to configure per user: access is *computed*.
+For the thirteen parent-derived objects above, there is nothing to configure per user: access is *computed*.
 
 - **Read** — you see the rows whose parent you can see, and "can see" means every route that would let you open the parent directly: you own it, a sharing rule granted it, or someone shared it with you by hand. Measured against the shipped stack (platform 17.0.0-rc.4): a rep who can read exactly one account reads **that** account's contacts and no others, and a rep who can read **no** quote reads no quote line items at all. The account reaching that rep only through a territory rule is the point — a parent held by a share counts as a parent you can see.
 - **Write** — adding, changing or removing a row requires **edit** access to the parent, resolved the same way as reads. A row under a parent you cannot edit is refused, naming the parent that stopped it.
