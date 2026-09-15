@@ -128,9 +128,9 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       collected_total: { label: '入金合計' },
       contract_amount: { help: '販売契約の契約金額から既定値を設定 (delivery_project_defaults)。', label: '契約金額' },
-      crm_account: { label: '取引先' },
+      crm_account: { help: '空欄のままにすると、保存時にプリセールスプロジェクト（または販売契約）から自動設定されます (delivery_project_defaults)。', label: '取引先' },
       crm_contract: { label: '販売契約' },
-      crm_opportunity: { label: '商談' },
+      crm_opportunity: { help: '空欄のままにすると、保存時にプリセールスプロジェクトから自動設定されます (delivery_project_defaults)。', label: '商談' },
       crm_presales_project: { label: 'プリセールスプロジェクト' },
       department: {
         label: '部門',

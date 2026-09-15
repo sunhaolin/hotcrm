@@ -39,8 +39,13 @@ export const DeliveryProject = ObjectSchema.create({
     name: Field.text({ label: 'Project Name', required: true, storage: { notNull: true }, searchable: true, group: 'basic' }),
     alias: Field.text({ label: 'Alias', group: 'basic' }),
     crm_presales_project: Field.lookup('crm_presales_project', { label: 'Presales Project', required: true, storage: { notNull: true }, group: 'basic' }),
-    crm_opportunity: Field.lookup('crm_opportunity', { label: 'Opportunity', group: 'basic' }),
-    crm_account: Field.lookup('crm_account', { label: 'Account', group: 'basic' }),
+    // Carried, not typed: `delivery_project_defaults` fills both from the
+    // presales project when they are left blank (the account also follows a
+    // sales contract). The carry lands on SAVE — the console form has no
+    // lookup-driven default, so the pair stays empty on screen until then;
+    // the descriptions below are what tells a creator so.
+    crm_opportunity: Field.lookup('crm_opportunity', { label: 'Opportunity', description: 'Leave it empty and it is carried from the presales project when the record is saved (delivery_project_defaults).', group: 'basic' }),
+    crm_account: Field.lookup('crm_account', { label: 'Account', description: 'Leave it empty and it is carried from the presales project — or from the sales contract — when the record is saved (delivery_project_defaults).', group: 'basic' }),
     project_type: Field.select({ label: 'Project Type', group: 'basic', options: [...PROJECT_TYPE_OPTIONS] }),
     business_category: Field.select({ label: 'Business Category', group: 'basic', options: [...BUSINESS_CATEGORY_OPTIONS] }),
     planned_start: Field.date({ label: 'Planned Start', group: 'basic' }),
