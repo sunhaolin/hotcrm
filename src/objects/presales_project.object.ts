@@ -68,6 +68,18 @@ export const PresalesProject = ObjectSchema.create({
       scale: 2,
     }),
 
+    presales_hours: Field.summary({
+      label: 'Presales Hours',
+      group: 'cost_estimate',
+      scale: 1,
+      summaryOperations: { object: 'crm_timesheet', field: 'hours', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
+    }),
+    presales_labor_actual: Field.summary({
+      label: 'Presales Labor Actual',
+      group: 'cost_estimate',
+      scale: 2,
+      summaryOperations: { object: 'crm_timesheet', field: 'cost', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
+    }),
     security_class: Field.select({ label: 'Security Class', group: 'security', options: [...SECURITY_CLASS_OPTIONS] }),
     security_note: Field.textarea({ label: 'Security Note', group: 'security' }),
 

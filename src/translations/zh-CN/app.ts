@@ -46,7 +46,19 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_delivery_project: { label: '交付项目' },
         nav_timesheet: { label: '工时表' },
         nav_travel_cost: { label: '差旅成本' },
+        nav_business_trip: { label: '出差申请' },
+        nav_leave_request: { label: '请假申请' },
+        nav_budget_adjustment: { label: '预算调整' },
         nav_project_cost_dashboard: { label: '项目成本' },
+        group_finance: { label: '项目财务' },
+        nav_invoice: { label: '开票' },
+        nav_collection: { label: '收款' },
+        nav_purchase_contract: { label: '采购合同' },
+        nav_sales_order: { label: '销售订单' },
+        nav_project_finance_dashboard: { label: '项目财务' },
+        group_master: { label: '主数据' },
+        nav_rate_card: { label: '费率卡' },
+        nav_legal_entity: { label: '签约主体' },
 
         group_work: { label: '我的工作' },
         nav_my_tasks: { label: '我的任务' },
@@ -106,6 +118,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         active_projects: { title: '进行中项目', description: '当前进行中的交付项目数' },
         plan_vs_actual_by_project: { title: '各项目预算 vs 实际', description: '每个交付项目的基线、计划与人工实际' },
         burn_by_project: { title: '各项目预算消耗', description: '每个项目的基线、实际与消耗率' },
+      },
+    },
+    project_finance_dashboard: {
+      label: '项目财务',
+      description: '各交付项目的合同额、开票、收款、采购与订单',
+      widgets: {
+        contract_total: { title: '合同额合计', description: '各项目合同额之和' },
+        invoiced_total: { title: '已开票', description: '已开具发票金额（不含作废）' },
+        collected_total: { title: '已收款', description: '已收到的款项' },
+        purchase_total: { title: '采购合同', description: '分包与软硬件采购合同金额（不含已终止）' },
+        finance_by_project: { title: '各项目合同额 vs 开票 vs 收款', description: '每个交付项目的合同额、已开票与已收款' },
+        finance_table: { title: '项目财务明细', description: '合同额、开票、收款、开票率、回款率、采购与订单、进度' },
       },
     },
     sales_activity_dashboard: {
@@ -217,6 +241,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
       measures: {
         project_count: { label: '项目数' }, baseline_total: { label: '预算基线' }, planned_total: { label: '计划总额' },
         labor_total: { label: '人工实际' }, travel_total: { label: '差旅实际' }, active_count: { label: '进行中项目' }, burn_ratio: { label: '预算消耗' },
+      },
+    },
+    project_finance_metrics: {
+      label: '项目财务指标',
+      description: '各交付项目的合同额、开票、收款、采购与订单',
+      dimensions: {
+        project: { label: '项目' }, status: { label: '项目状态' }, department: { label: '对应部门' }, account: { label: '客户' }, planned_end: { label: '计划结束' },
+      },
+      measures: {
+        project_count: { label: '项目数' }, contract_total: { label: '合同额' }, invoiced_total: { label: '已开票' }, collected_total: { label: '已收款' },
+        purchase_total: { label: '采购合同' }, order_total: { label: '销售订单' }, labor_total: { label: '人工实际' }, travel_total: { label: '差旅实际' },
+        avg_progress: { label: '平均进度' }, invoice_ratio: { label: '开票率' }, collection_ratio: { label: '回款率' },
       },
     },
     account_metrics: {

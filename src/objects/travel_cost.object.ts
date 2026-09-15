@@ -19,6 +19,7 @@ export const TravelCost = ObjectSchema.create({
     travel_number: Field.autonumber({ label: 'Travel #', format: 'TRV-{0000}', group: 'basic' }),
     owner_id: Field.lookup('sys_user', { label: 'Traveller', group: 'basic', system: true, readonly: false }),
     crm_delivery_project: Field.masterDetail('crm_delivery_project', { label: 'Delivery Project', group: 'basic', required: true, storage: { notNull: true }, deleteBehavior: 'cascade' }),
+    crm_business_trip: Field.lookup('crm_business_trip', { label: 'Business Trip', group: 'basic', description: 'The approved trip this cost belongs to; project, traveller and date default from it.' }),
     expense_date: Field.date({ label: 'Expense Date', group: 'basic' }),
     amount: Field.currency({ label: 'Amount', scale: 2, group: 'basic', required: true, storage: { notNull: true } }),
     receipt_number: Field.text({ label: 'Receipt Number', group: 'basic' }),
@@ -27,6 +28,7 @@ export const TravelCost = ObjectSchema.create({
   indexes: [
     { fields: ['crm_delivery_project'] },
     { fields: ['owner_id'] },
+    { fields: ['crm_business_trip'] },
   ],
   enable: {
     apiEnabled: true,

@@ -311,6 +311,13 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       account_manager: { label: '客户经理 (AR)' },
       solution_manager: { label: '解决方案经理 (SR)' },
       delivery_manager: { label: '交付经理 (FR)' },
+      controllability: { label: '可控性', options: { high: '高', medium: '中', low: '低' } },
+      customer_initiation_date: { label: '客户立项时间' },
+      expected_bid_date: { label: '预计招标时间' },
+      subcontract_info: { label: '分包信息' },
+      crm_legal_entity: { label: '签约主体' },
+      business_category: { label: '业务分类', options: { government_enterprise: '政企', finance: '金融', manufacturing: '制造', internet: '互联网' } },
+      revenue_recognition_type: { label: '收入确认类型', options: { milestone: '按里程碑', time_and_material: '按工时', acceptance: '按验收', periodic: '按期间' } },
     },
     _views: {
       open_opportunities: { label: '进行中商机' },
@@ -343,6 +350,8 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       notes: { label: '备注与下一步' },
       team: { label: '铁三角' },
       initiation: { label: '商机立项' },
+      bid: { label: '招投标与签约主体' },
+      entity: { label: '签约主体' },
       // opportunity.view.ts 表单区块名称 (#1100)
       overview: { label: '概览' },
       forecast: { label: '预测' },

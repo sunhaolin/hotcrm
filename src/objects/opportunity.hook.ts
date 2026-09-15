@@ -357,7 +357,7 @@ const opportunityAccountClassificationGate: Hook = {
     const { input } = ctx;
     const accountId = typeof input?.crm_account === 'string' ? input.crm_account : '';
     if (!api || !accountId) return;
-    const account = await api.object('crm_account').findOne({ where: { id: accountId }, fields: ['name', 'classification'] });
+    const account = await api.object('crm_account').findOne({ where: { id: accountId }, fields: ['name', 'classification', 'ear_status'] });
     const cls = account?.classification;
     if (cls === 'bidding_agency' || cls === 'other') {
       const name = typeof account?.name === 'string' ? account.name : accountId;
@@ -365,6 +365,16 @@ const opportunityAccountClassificationGate: Hook = {
       err.code = 'ACCOUNT_CLASSIFICATION_GATE';
       err.status = 422;
       err.userMessage = `客户「${name}」为招标代理/其他类客户，仅可用于付款回款，无法发起商机`;
+      throw err;
+    }
+    // Round 2 (step 3, semantics rule 8): only a person's CONFIRMED EAR listing
+    // blocks; a machine `suspected` hit lets the write through.
+    if (account?.ear_status === 'confirmed') {
+      const name = typeof account?.name === 'string' ? account.name : accountId;
+      const err = new Error(`Account ${name} is confirmed on the US EAR entity list; no opportunity may be opened.`) as Error & { code: string; status: number; userMessage: string };
+      err.code = 'ACCOUNT_EAR_CONFIRMED';
+      err.status = 422;
+      err.userMessage = `客户「${name}」已被人工确认列入美国 EAR 管制清单，无法发起商机`;
       throw err;
     }
   },

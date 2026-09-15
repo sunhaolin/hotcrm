@@ -13,6 +13,7 @@ export const TimesheetViews = defineView({
       { field: 'crm_delivery_project', width: 220 },
       { field: 'owner_id', width: 140 },
       { field: 'period_month', width: 120, sortable: true },
+      { field: 'leave_hours', width: 90, align: 'right' },
       { field: 'hours', width: 90, align: 'right' },
       { field: 'hourly_rate', width: 110, align: 'right' },
       { field: 'cost', width: 130, align: 'right' },
@@ -30,7 +31,7 @@ export const TimesheetViews = defineView({
     sections: [
       { name: 'basic', label: 'Timesheet', columns: 2, fields: [
         'timesheet_number', { field: 'crm_delivery_project', required: true }, 'crm_presales_project', 'owner_id', 'period_month',
-        'hours', 'hourly_rate', 'cost', 'notes',
+        'crm_rate_card', 'standard_hours', 'leave_hours', 'overtime_hours', 'hours', 'hourly_rate', 'cost', 'notes',
       ] },
       { name: 'approval', label: 'Approval', columns: 2, fields: ['approval_status', 'approved_date'] },
     ],

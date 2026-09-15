@@ -384,6 +384,13 @@ export const OpportunityViews = defineView({
         fields: ['account_manager', 'solution_manager', 'delivery_manager'],
       },
       {
+        // Round 2 (steps 8 / 9): bid facts and the contracting entity.
+        name: 'bid',
+        label: 'Bid & Contracting Entity',
+        columns: 2,
+        fields: ['controllability', 'customer_initiation_date', 'expected_bid_date', 'crm_legal_entity', 'business_category', 'revenue_recognition_type', { field: 'subcontract_info', span: 'full' }],
+      },
+      {
         name: 'forecast',
         label: 'Forecast',
         columns: 2,

@@ -37,6 +37,10 @@ import {
   psaAccounts, psaContacts, psaLeads, psaOpportunities, psaTasks, psaEvents,
   presalesProjects, deliveryProjects, costPlanLines, timesheets, travelCosts,
 } from './psa.seed';
+import {
+  rateCards, legalEntities, psaContracts, budgetAdjustments, invoices, collections,
+  purchaseContracts, salesOrders, businessTrips, leaveRequests,
+} from './psa-round2.seed';
 
 /**
  * Ownership and CRM positions are NOT seeded here — they can't be.
@@ -67,21 +71,29 @@ import {
 
 /** All CRM seed datasets */
 export const CrmSeedData = [
-  // Demo composition (epic #2): the Chinese golden path ONLY. The standard
-  // English demo book (Acme, Globex, …) is deliberately not registered on this
-  // branch so every list the customer sees is Chinese. Restore the full list
-  // from `main` if this composition is ever reused outside the demo.
   psaAccounts,
   psaContacts,
   psaLeads,
   psaOpportunities,
   psaTasks,
   psaEvents,
+  // Round 2: master data and the contract come before the projects that reference them;
+  // trips before the travel costs booked to them; leave after the timesheets it syncs.
+  rateCards,
+  legalEntities,
+  psaContracts,
   presalesProjects,
   deliveryProjects,
+  businessTrips,
   costPlanLines,
   timesheets,
   travelCosts,
+  budgetAdjustments,
+  invoices,
+  collections,
+  purchaseContracts,
+  salesOrders,
+  leaveRequests,
 ];
 
 // ─────────────────────────────────────── the SaaS / multi-org composition ──

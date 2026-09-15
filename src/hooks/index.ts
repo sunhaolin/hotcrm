@@ -18,7 +18,6 @@ import campaignMemberHook from '../objects/campaign_member.hook';
 import caseHook from '../objects/case.hook';
 import contactHook from '../objects/contact.hook';
 import contractHook from '../objects/contract.hook';
-import deliveryProjectHook from '../objects/delivery_project.hook';
 import eventHook from '../objects/event.hook';
 import forecastHook from '../objects/forecast.hook';
 import knowledgeArticleHook from '../objects/knowledge_article.hook';
@@ -30,6 +29,11 @@ import quoteHook from '../objects/quote.hook';
 import quoteLineItemHook from '../objects/quote_line_item.hook';
 import taskHook from '../objects/task.hook';
 import timesheetHook from '../objects/timesheet.hook';
+import costPlanLineHook from '../objects/cost_plan_line.hook';
+import deliveryProjectHook from '../objects/delivery_project.hook';
+import leaveRequestHook from '../objects/leave_request.hook';
+import businessTripHook from '../objects/business_trip.hook';
+import travelCostHook from '../objects/travel_cost.hook';
 
 const entries: Array<Hook | Hook[]> = [
   accountHook,
@@ -39,7 +43,6 @@ const entries: Array<Hook | Hook[]> = [
   caseHook,
   contactHook,
   contractHook,
-  deliveryProjectHook,
   eventHook,
   forecastHook,
   knowledgeArticleHook,
@@ -51,6 +54,11 @@ const entries: Array<Hook | Hook[]> = [
   quoteLineItemHook,
   taskHook,
   timesheetHook,
+  costPlanLineHook,
+  deliveryProjectHook,
+  leaveRequestHook,
+  businessTripHook,
+  travelCostHook,
 ];
 
 /** Flat list of every CRM lifecycle hook (each `*.hook.ts` may export one or many). */

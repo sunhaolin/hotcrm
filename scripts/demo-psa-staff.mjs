@@ -81,4 +81,28 @@ for (const ts of await query('crm_timesheet', [], ['id', 'notes'])) {
   const owner = notes.includes('试点') ? U['陈晨'] : notes.includes('架构师') ? U['王强'] : notes.includes('高级工程师') ? U['刘洋'] : null;
   if (owner) await patch('crm_timesheet', ts.id, { owner_id: owner }, `填报人 · ${notes}`);
 }
+// Round 2: trips, leave, budget adjustment, invoices / collections / purchases /
+// orders and this month's draft sheet — each gets its person, and the approved
+// leave is re-saved so its hours land on that person's draft timesheet.
+console.log('Round 2 owners');
+const stampBy = async (object, field, matches, label) => {
+  for (const row of await query(object, [], ['id', field])) {
+    const text = String(row[field] ?? '');
+    const hit = matches.find(([needle]) => text.includes(needle));
+    if (hit) await patch(object, row.id, { owner_id: U[hit[1]] }, `${label} · ${text.slice(0, 24)}`);
+  }
+};
+await stampBy('crm_business_trip', 'subject', [['需求调研', '王强'], ['上线演练', '刘洋'], ['试点评审', '陈晨'], ['投标答疑', '李娜']], '出差人');
+await stampBy('crm_leave_request', 'reason', [['年假', '王强'], ['病假', '刘洋']], '申请人');
+await stampBy('crm_budget_adjustment', 'analysis', [['AI 审批助手', '王强']], '申请人');
+await stampBy('crm_invoice', 'invoice_number', [['HX2026', '张伟']], '经办人');
+await stampBy('crm_collection', 'bank_reference', [['CMB', '张伟']], '经办人');
+await stampBy('crm_purchase_contract', 'name', [['分包', '李娜'], ['许可', '李娜']], '商务负责人');
+await stampBy('crm_sales_order', 'name', [['一期订单', '张伟']], '商务负责人');
+await stampBy('crm_timesheet', 'notes', [['本月', '王强']], '填报人');
+// Re-save the approved leave with its owner: leave_timesheet_sync then pushes
+// the leave hours onto 王强's draft sheet for this month.
+for (const leave of await query('crm_leave_request', [['approval_status', '=', 'approved']], ['id', 'reason', 'owner_id'])) {
+  await patch('crm_leave_request', leave.id, { owner_id: leave.owner_id }, `同步请假工时 · ${String(leave.reason).slice(0, 16)}`);
+}
 console.log('Done. Sign in as any of them with password Demo12345! (dev only).');
