@@ -3,13 +3,13 @@
 import type { Hook, HookContext } from '@objectstack/spec/data';
 import type { HookApi } from './_hook-api';
 
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
-const round2 = (v: number): number => Math.round(v * 100) / 100;
-
 /**
  * 成本计划行 — round 2 (step 28): a labor line that names a rate card takes its
  * unit price from the card, and `planned_amount` is quantity × unit price
  * unless the caller wrote it. Seeds that carry all three are left alone.
+ *
+ * The handler closes over nothing — its two helpers are inline — so it lowers
+ * to a metadata-only body (`hook-body/not-lowerable`).
  */
 const costPlanLineFill: Hook = {
   name: 'cost_plan_line_fill',
@@ -18,6 +18,8 @@ const costPlanLineFill: Hook = {
   priority: 100,
   description: 'Unit price from the rate card; planned amount = quantity × unit price when not given.',
   handler: async (ctx: HookContext) => {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
+    const round2 = (v: number): number => Math.round(v * 100) / 100;
     const api = ctx.api as HookApi | undefined;
     const { input, previous } = ctx;
     if (!input) return;

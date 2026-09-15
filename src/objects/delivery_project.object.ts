@@ -66,7 +66,7 @@ export const DeliveryProject = ObjectSchema.create({
     subcontract_ts_owner: Field.lookup('sys_user', { label: 'Subcontract TS Owner', group: 'roles' }),
     qa_lead: Field.lookup('sys_user', { label: 'QA Lead', group: 'roles' }),
 
-    budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, carried over as the control baseline.', scale: 2, group: 'budget' }),
+    budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, carried over as the control baseline. Leave it empty on create and it is carried from the approved presales project, together with that Bizcase as cost plan lines (spec step 27).', scale: 2, group: 'budget' }),
     planned_total: Field.summary({
       label: 'Planned Total',
       group: 'budget',
@@ -174,7 +174,9 @@ export const DeliveryProject = ObjectSchema.create({
     security_class: Field.select({ label: 'Security Class', group: 'security', options: [...SECURITY_CLASS_OPTIONS] }),
     security_note: Field.textarea({ label: 'Security Note', group: 'security' }),
 
-    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
+    // readonly: rendered on forms, written only by the 发起审批 button
+    // (`src/actions/psa-approval.actions.ts`) and the approval flow.
+    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
     approved_date: Field.datetime({ label: 'Approved Date', group: 'approval', readonly: true }),
   },
 

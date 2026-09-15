@@ -3,6 +3,8 @@
 import type { TranslationData } from '@objectstack/spec/system';
 
 import { appSurface } from './zh-CN/app';
+import { psa2 } from './zh-CN/objects.psa2';
+import { mergeObject } from './_merge';
 import { customer } from './zh-CN/objects.customer';
 import { pipeline } from './zh-CN/objects.pipeline';
 import { commerce } from './zh-CN/objects.commerce';
@@ -55,29 +57,38 @@ import { psa } from './zh-CN/objects.psa';
  */
 export const zhCN: TranslationData = {
   objects: {
-    crm_account: customer.crm_account,
+    crm_account: mergeObject(customer.crm_account, psa2.crm_account),
     crm_contact: customer.crm_contact,
     crm_knowledge_article: service.crm_knowledge_article,
     crm_forecast: pipeline.crm_forecast,
-    crm_lead: pipeline.crm_lead,
+    crm_lead: mergeObject(pipeline.crm_lead, psa2.crm_lead),
     crm_quote: commerce.crm_quote,
     crm_contract: commerce.crm_contract,
     crm_case: service.crm_case,
     crm_task: activity.crm_task,
     crm_campaign: marketing.crm_campaign,
     crm_product: commerce.crm_product,
-    crm_opportunity: pipeline.crm_opportunity,
+    crm_opportunity: mergeObject(pipeline.crm_opportunity, psa2.crm_opportunity),
     crm_event: activity.crm_event,
     crm_event_attendee: activity.crm_event_attendee,
     crm_article_feedback: service.crm_article_feedback,
     crm_campaign_member: marketing.crm_campaign_member,
     crm_opportunity_line_item: pipeline.crm_opportunity_line_item,
     crm_quote_line_item: commerce.crm_quote_line_item,
-    crm_presales_project: psa.crm_presales_project,
-    crm_delivery_project: psa.crm_delivery_project,
+    crm_presales_project: mergeObject(psa.crm_presales_project, psa2.crm_presales_project),
+    crm_delivery_project: mergeObject(psa.crm_delivery_project, psa2.crm_delivery_project),
     crm_cost_plan_line: psa.crm_cost_plan_line,
-    crm_timesheet: psa.crm_timesheet,
+    crm_timesheet: mergeObject(psa.crm_timesheet, psa2.crm_timesheet),
     crm_travel_cost: psa.crm_travel_cost,
+    crm_rate_card: psa2.crm_rate_card,
+    crm_legal_entity: psa2.crm_legal_entity,
+    crm_budget_adjustment: psa2.crm_budget_adjustment,
+    crm_invoice: psa2.crm_invoice,
+    crm_collection: psa2.crm_collection,
+    crm_purchase_contract: psa2.crm_purchase_contract,
+    crm_sales_order: psa2.crm_sales_order,
+    crm_business_trip: psa2.crm_business_trip,
+    crm_leave_request: psa2.crm_leave_request,
   },
   ...appSurface,
 };

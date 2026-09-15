@@ -25,6 +25,25 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
       description: '営業・サービス・マーケティング向け顧客関係管理システム',
       // Keyed by navigation-node `id` (a flat keyspace regardless of depth).
       navigation: {
+        // Demo (epic #2): the project-management, project-finance and master-data groups.
+        group_finance: { label: 'プロジェクト財務' },
+        group_master: { label: 'マスタデータ' },
+        group_projects: { label: 'プロジェクト' },
+        nav_budget_adjustment: { label: '予算調整' },
+        nav_business_trip: { label: '出張申請' },
+        nav_collection: { label: '入金' },
+        nav_delivery_project: { label: 'デリバリープロジェクト' },
+        nav_invoice: { label: '請求書' },
+        nav_leave_request: { label: '休暇申請' },
+        nav_legal_entity: { label: '契約主体' },
+        nav_presales_project: { label: 'プリセールスプロジェクト' },
+        nav_project_cost_dashboard: { label: 'プロジェクトコスト' },
+        nav_project_finance_dashboard: { label: 'プロジェクト財務' },
+        nav_purchase_contract: { label: '購買契約' },
+        nav_rate_card: { label: '単価表' },
+        nav_sales_order: { label: '受注' },
+        nav_timesheet: { label: 'タイムシート' },
+        nav_travel_cost: { label: '旅費' },
         nav_home: { label: 'ホーム' },
 
         group_sales: { label: '営業' },
@@ -91,6 +110,30 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
     'error.load_failed': 'データの読み込みに失敗しました',
   },
   dashboards: {
+    project_cost_dashboard: {
+      label: 'プロジェクトコスト',
+      description: 'デリバリープロジェクト全体の予算ベースライン・計画・実績コスト',
+      widgets: {
+        active_projects: { description: '進行中のデリバリープロジェクト', title: '進行中プロジェクト' },
+        burn_by_project: { description: 'プロジェクト別のベースライン、実績、消化率', title: 'プロジェクト別予算消化' },
+        plan_vs_actual_by_project: { description: 'デリバリープロジェクト別のベースライン、計画、人件費実績', title: 'プロジェクト別 予算 vs 実績' },
+        total_budget: { description: '承認済み予算ベースラインの合計', title: '予算合計' },
+        total_labor_actual: { description: '承認済みタイムシートのコスト', title: '人件費実績' },
+        total_travel_actual: { description: 'プロジェクトに計上した旅費', title: '旅費実績' },
+      },
+    },
+    project_finance_dashboard: {
+      label: 'プロジェクト財務',
+      description: 'デリバリープロジェクト全体の契約、請求、入金、購買、受注',
+      widgets: {
+        collected_total: { description: '受領した金額', title: '入金済み' },
+        contract_total: { description: '契約金額の合計', title: '契約金額' },
+        finance_by_project: { description: 'デリバリープロジェクト別', title: '契約 vs 請求 vs 入金' },
+        finance_table: { description: '契約、請求、入金、購買、受注と 2 つの比率', title: 'プロジェクト財務一覧' },
+        invoiced_total: { description: '発行済み請求書（無効を除く）', title: '請求済み' },
+        purchase_total: { description: '外注・購買契約（終了を除く）', title: '購買契約' },
+      },
+    },
     sales_activity_dashboard: {
       label: '営業活動',
       description: '誰がどれだけ顧客と話しているか、どの取引先が沈黙しているか',
@@ -190,6 +233,51 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
   // the console substitutes on the raw key, so a translated token resolves to
   // nothing and the header renders blank.
   datasets: {
+    project_cost_metrics: {
+      label: 'プロジェクトコスト指標',
+      description: 'デリバリープロジェクト別の予算ベースライン、計画、実績コスト',
+      dimensions: {
+        account: { label: '取引先' },
+        department: { label: '部門' },
+        impl_cost_center: { label: '実施コストセンター' },
+        planned_end: { label: '計画終了日' },
+        project: { label: 'プロジェクト' },
+        status: { label: '状況' },
+      },
+      measures: {
+        active_count: { label: '進行中プロジェクト' },
+        baseline_total: { label: '予算ベースライン' },
+        burn_ratio: { label: '予算消化' },
+        labor_total: { label: '人件費実績' },
+        planned_total: { label: '計画合計' },
+        project_count: { label: 'プロジェクト' },
+        travel_total: { label: '旅費実績' },
+      },
+    },
+    project_finance_metrics: {
+      label: 'プロジェクト財務指標',
+      description: 'デリバリープロジェクト別の契約金額、請求、入金、購買、受注',
+      dimensions: {
+        account: { label: '取引先' },
+        department: { label: '部門' },
+        planned_end: { label: '計画終了日' },
+        project: { label: 'プロジェクト' },
+        status: { label: '状況' },
+      },
+      measures: {
+        avg_progress: { label: '平均進捗' },
+        collected_total: { label: '入金済み' },
+        collection_ratio: { label: '入金 ÷ 請求' },
+        contract_total: { label: '契約金額' },
+        invoice_ratio: { label: '請求 ÷ 契約' },
+        invoiced_total: { label: '請求済み' },
+        labor_total: { label: '人件費実績' },
+        order_total: { label: '受注' },
+        project_count: { label: 'プロジェクト' },
+        purchase_total: { label: '購買契約' },
+        travel_total: { label: '旅費実績' },
+      },
+    },
     account_metrics: {
       label: '取引先指標',
       description: '業種・種別ごとに取引先数を集計するセマンティックレイヤー',

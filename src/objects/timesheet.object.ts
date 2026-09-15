@@ -40,7 +40,9 @@ export const Timesheet = ObjectSchema.create({
     hourly_rate: Field.currency({ label: 'Hourly Rate', scale: 2, group: 'basic' }),
     cost: Field.currency({ label: 'Cost', scale: 2, group: 'basic', description: 'Hours × hourly rate; filled by the timesheet hook.' }),
     notes: Field.textarea({ label: 'Notes', group: 'basic' }),
-    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
+    // readonly: rendered on forms, written only by the 发起审批 button
+    // (`src/actions/psa-approval.actions.ts`) and the approval flow.
+    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
     approved_date: Field.datetime({ label: 'Approved Date', group: 'approval', readonly: true }),
   },
   indexes: [

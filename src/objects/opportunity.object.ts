@@ -371,8 +371,11 @@ export const Opportunity = ObjectSchema.create({
     initiation_status: Field.select({
       label: 'Initiation Status',
       group: 'sales_process',
-      // Demo submit gesture (epic #2, decision 1). Distinct from the
-      // amount-tiered `approval_status` above, which is left untouched.
+      // Demo (epic #2): set to `submitted` by the 发起立项审批 button
+      // (`psa-approval.actions.ts`); distinct from the amount-tiered
+      // `approval_status` above, which is left untouched. readonly — rendered
+      // on forms, never typed.
+      readonly: true,
       defaultValue: 'draft',
       trackHistory: true,
       options: [

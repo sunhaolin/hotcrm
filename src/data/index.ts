@@ -41,6 +41,13 @@ import {
   rateCards, legalEntities, psaContracts, budgetAdjustments, invoices, collections,
   purchaseContracts, salesOrders, businessTrips, leaveRequests,
 } from './psa-round2.seed';
+import {
+  industryAccounts, industryContacts, industryLeads, industryOpportunities, industryContracts,
+  industryPresalesProjects, industryDeliveryProjects, industryBusinessTrips, industryCostPlanLines,
+  industryTimesheets, industryTravelCosts, industryBudgetAdjustments, industryInvoices, industryCollections,
+  industryPurchaseContracts, industrySalesOrders, industryLeaveRequests, industryProducts, industryQuotes,
+  industryQuoteLineItems, industryTasks, industryEvents,
+} from './psa-industry.seed';
 
 /**
  * Ownership and CRM positions are NOT seeded here — they can't be.
@@ -72,28 +79,51 @@ import {
 /** All CRM seed datasets */
 export const CrmSeedData = [
   psaAccounts,
+  industryAccounts,
   psaContacts,
+  industryContacts,
   psaLeads,
+  industryLeads,
   psaOpportunities,
+  industryOpportunities,
   psaTasks,
+  industryTasks,
   psaEvents,
+  industryEvents,
   // Round 2: master data and the contract come before the projects that reference them;
   // trips before the travel costs booked to them; leave after the timesheets it syncs.
+  // Round 3 (the software-company data set) interleaves in the same order.
   rateCards,
   legalEntities,
   psaContracts,
+  industryContracts,
   presalesProjects,
+  industryPresalesProjects,
   deliveryProjects,
+  industryDeliveryProjects,
   businessTrips,
+  industryBusinessTrips,
   costPlanLines,
+  industryCostPlanLines,
   timesheets,
+  industryTimesheets,
   travelCosts,
+  industryTravelCosts,
   budgetAdjustments,
+  industryBudgetAdjustments,
   invoices,
+  industryInvoices,
   collections,
+  industryCollections,
   purchaseContracts,
+  industryPurchaseContracts,
   salesOrders,
+  industrySalesOrders,
   leaveRequests,
+  industryLeaveRequests,
+  industryProducts,
+  industryQuotes,
+  industryQuoteLineItems,
 ];
 
 // ─────────────────────────────────────── the SaaS / multi-org composition ──

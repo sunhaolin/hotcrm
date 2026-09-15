@@ -29,3 +29,9 @@ export {
 export { MarkArticleHelpfulAction, MarkArticleNotHelpfulAction } from './knowledge_article.actions';
 export { ConvertLeadAction, CreateCampaignAction, ScheduleFollowUpAction } from './lead.actions';
 export { CloneOpportunityAction, MassUpdateStageAction, GenerateQuoteAction } from './opportunity.actions';
+// Demo (epic #2): 发起审批 — one per approvable object, see the factory's note.
+export {
+  AccountSubmitApprovalAction, LeadSubmitApprovalAction, OpportunitySubmitInitiationAction,
+  PresalesProjectSubmitApprovalAction, DeliveryProjectSubmitApprovalAction, TimesheetSubmitApprovalAction,
+  BudgetAdjustmentSubmitApprovalAction, BusinessTripSubmitApprovalAction, LeaveRequestSubmitApprovalAction,
+} from './psa-approval.actions';

@@ -436,8 +436,10 @@ export const Lead = ObjectSchema.create({
     approval_status: Field.select({
       label: 'Approval Status',
       group: 'assignment',
-      // Demo submit gesture (epic #2, decision 1): the user sets this to
-      // `submitted`; the approval flow mirrors pending/approved/rejected.
+      // Demo (epic #2): the 发起审批 button (`psa-approval.actions.ts`) sets
+      // this to `submitted`; the approval flow mirrors pending/approved/
+      // rejected. readonly — rendered on forms, never typed.
+      readonly: true,
       defaultValue: 'draft',
       trackHistory: true,
       options: [

@@ -3,21 +3,16 @@
 import type { Hook, HookContext } from '@objectstack/spec/data';
 import type { HookApi } from './_hook-api';
 
-const empty = (v: unknown): boolean => v === undefined || v === null || v === '';
-
-function refuse(message: string, code: string, userMessage: string): Error {
-  const err = new Error(message) as Error & { code: string; status: number; userMessage: string };
-  err.code = code;
-  err.status = 422;
-  err.userMessage = userMessage;
-  return err;
-}
-
 /**
  * 差旅成本 — round 2 (step 35): a cost booked to a business trip takes the
  * trip's project, traveller and start date when they were left blank, and is
  * refused while the trip is not approved — 「差旅成本按项目归集，与人力成本对应，
  * 凭报销单据录入系统」 presumes an approved trip behind the receipt.
+ *
+ * The refusal is `invalid_value` (VALIDATION_FAILED / 400): the trip the user
+ * picked is one this object's own rule rejects. `refuse()` is the inline copy
+ * every refusing hook carries (`_refusal.ts`, pinned by
+ * `test/refusal-envelope.test.ts`).
  */
 const travelCostTripFill: Hook = {
   name: 'travel_cost_trip_fill',
@@ -26,6 +21,23 @@ const travelCostTripFill: Hook = {
   priority: 100,
   description: 'Project, traveller and date default from the business trip; refuse a cost on a trip that is not approved.',
   handler: async (ctx: HookContext) => {
+    function refuse(
+      message: string,
+      code: string,
+      status: number,
+      userMessage: string = message,
+    ): Error {
+      const err = new Error(message) as Error & {
+        code: string;
+        status: number;
+        userMessage: string;
+      };
+      err.code = code;
+      err.status = status;
+      err.userMessage = userMessage;
+      return err;
+    }
+    const empty = (v: unknown): boolean => v === undefined || v === null || v === '';
     const api = ctx.api as HookApi | undefined;
     const { input, previous } = ctx;
     const tripId = typeof input?.crm_business_trip === 'string' ? input.crm_business_trip : '';
@@ -39,7 +51,8 @@ const travelCostTripFill: Hook = {
       const subject = typeof trip.subject === 'string' ? trip.subject : tripId;
       throw refuse(
         `Business trip ${subject} is not approved; travel cost cannot be booked to it.`,
-        'TRIP_NOT_APPROVED',
+        'VALIDATION_FAILED',
+        400,
         `出差申请「${subject}」尚未审批通过，不能登记差旅成本`,
       );
     }

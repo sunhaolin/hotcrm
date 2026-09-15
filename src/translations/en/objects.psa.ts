@@ -88,7 +88,7 @@ export const psa: Record<string, ObjectTranslationData> = {
       pricing_owner: { label: 'Pricing Owner' },
       subcontract_ts_owner: { label: 'Subcontract TS Owner' },
       qa_lead: { label: 'QA Lead' },
-      budget_baseline: { label: 'Budget Baseline', help: 'The approved Bizcase total cost, carried over as the control baseline.' },
+      budget_baseline: { label: 'Budget Baseline', help: 'The approved Bizcase total cost, carried over as the control baseline. Leave it empty on create and it is carried from the approved presales project, together with its cost plan lines.' },
       planned_total: { label: 'Planned Total' },
       labor_actual: { label: 'Labor Actual' },
       travel_actual: { label: 'Travel Actual' },

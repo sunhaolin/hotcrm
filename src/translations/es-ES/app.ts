@@ -26,6 +26,25 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
       // Indexado por el `id` del nodo de navegación (espacio de nombres plano,
       // sea cual sea la profundidad del nodo).
       navigation: {
+        // Demo (epic #2): the project-management, project-finance and master-data groups.
+        group_finance: { label: 'Finanzas del proyecto' },
+        group_master: { label: 'Datos maestros' },
+        group_projects: { label: 'Proyectos' },
+        nav_budget_adjustment: { label: 'Ajustes presupuestarios' },
+        nav_business_trip: { label: 'Viajes de negocios' },
+        nav_collection: { label: 'Cobros' },
+        nav_delivery_project: { label: 'Proyectos de entrega' },
+        nav_invoice: { label: 'Facturas' },
+        nav_leave_request: { label: 'Solicitudes de permiso' },
+        nav_legal_entity: { label: 'Entidades contratantes' },
+        nav_presales_project: { label: 'Proyectos de preventa' },
+        nav_project_cost_dashboard: { label: 'Coste del proyecto' },
+        nav_project_finance_dashboard: { label: 'Finanzas del proyecto' },
+        nav_purchase_contract: { label: 'Contratos de compra' },
+        nav_rate_card: { label: 'Tarifas' },
+        nav_sales_order: { label: 'Pedidos de venta' },
+        nav_timesheet: { label: 'Hojas de horas' },
+        nav_travel_cost: { label: 'Costes de viaje' },
         group_activity: { label: 'Actividad' },
         nav_event: { label: 'Eventos' },
         nav_activity_dashboard: { label: 'Actividad de Ventas' },
@@ -91,6 +110,30 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
     'error.load_failed': 'Error al cargar los datos',
   },
   dashboards: {
+    project_cost_dashboard: {
+      label: 'Coste del proyecto',
+      description: 'Línea base vs planificado vs coste real en los proyectos de entrega',
+      widgets: {
+        active_projects: { description: 'Proyectos de entrega en curso', title: 'Proyectos activos' },
+        burn_by_project: { description: 'Línea base, reales y % consumido por proyecto', title: 'Consumo del presupuesto por proyecto' },
+        plan_vs_actual_by_project: { description: 'Línea base, planificado y coste real de personal por proyecto de entrega', title: 'Presupuesto vs real por proyecto' },
+        total_budget: { description: 'Suma de las líneas base aprobadas', title: 'Presupuesto total' },
+        total_labor_actual: { description: 'Coste de hojas de horas aprobadas', title: 'Coste real de personal' },
+        total_travel_actual: { description: 'Coste de viajes imputado a proyectos', title: 'Coste real de viajes' },
+      },
+    },
+    project_finance_dashboard: {
+      label: 'Finanzas del proyecto',
+      description: 'Contrato, facturación, cobros, compras y pedidos en los proyectos de entrega',
+      widgets: {
+        collected_total: { description: 'Dinero recibido', title: 'Cobrado' },
+        contract_total: { description: 'Suma de los importes de contrato', title: 'Importe del contrato' },
+        finance_by_project: { description: 'Por proyecto de entrega', title: 'Contrato vs facturado vs cobrado' },
+        finance_table: { description: 'Contrato, facturado, cobrado, compras, pedidos y las dos ratios', title: 'Tabla financiera de proyectos' },
+        invoiced_total: { description: 'Facturas emitidas, sin las anuladas', title: 'Facturado' },
+        purchase_total: { description: 'Contratos de subcontratación y compra, sin los terminados', title: 'Contratos de compra' },
+      },
+    },
     sales_activity_dashboard: {
       label: 'Actividad de ventas',
       description: 'Quién habla con los clientes, con qué frecuencia y qué cuentas se han quedado en silencio',
@@ -188,6 +231,51 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
   // Los marcadores `{…}` se sustituyen sobre la cadena TRADUCIDA, así que el
   // token debe conservarse tal cual: traducido, no resuelve y se ve vacío.
   datasets: {
+    project_cost_metrics: {
+      label: 'Métricas de coste de proyecto',
+      description: 'Línea base, planificado y coste real por proyecto de entrega',
+      dimensions: {
+        account: { label: 'Cuenta' },
+        department: { label: 'Departamento' },
+        impl_cost_center: { label: 'Centro de coste de implementación' },
+        planned_end: { label: 'Fin previsto' },
+        project: { label: 'Proyecto' },
+        status: { label: 'Estado' },
+      },
+      measures: {
+        active_count: { label: 'Proyectos activos' },
+        baseline_total: { label: 'Línea base del presupuesto' },
+        burn_ratio: { label: 'Consumo del presupuesto' },
+        labor_total: { label: 'Coste real de personal' },
+        planned_total: { label: 'Total planificado' },
+        project_count: { label: 'Proyectos' },
+        travel_total: { label: 'Coste real de viajes' },
+      },
+    },
+    project_finance_metrics: {
+      label: 'Métricas financieras de proyecto',
+      description: 'Importe del contrato, facturado, cobrado, compras y pedidos por proyecto de entrega',
+      dimensions: {
+        account: { label: 'Cuenta' },
+        department: { label: 'Departamento' },
+        planned_end: { label: 'Fin previsto' },
+        project: { label: 'Proyecto' },
+        status: { label: 'Estado' },
+      },
+      measures: {
+        avg_progress: { label: 'Progreso medio' },
+        collected_total: { label: 'Cobrado' },
+        collection_ratio: { label: 'Cobrado / facturado' },
+        contract_total: { label: 'Importe del contrato' },
+        invoice_ratio: { label: 'Facturado / contrato' },
+        invoiced_total: { label: 'Facturado' },
+        labor_total: { label: 'Coste real de personal' },
+        order_total: { label: 'Pedidos de venta' },
+        project_count: { label: 'Proyectos' },
+        purchase_total: { label: 'Contratos de compra' },
+        travel_total: { label: 'Coste real de viajes' },
+      },
+    },
     account_metrics: {
       label: 'Métricas de cuentas',
       description: 'Capa semántica para el recuento de cuentas por sector y tipo',
