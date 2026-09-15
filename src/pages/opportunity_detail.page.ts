@@ -164,6 +164,30 @@ export const OpportunityDetailPage: Page = {
                           label: 'Stage & Forecast',
                           fields: ['stage', 'forecast_category'],
                         },
+                        // Demo (epic #2): the customer's 跟单信息 / 立项 / 铁三角 / 赢丢单
+                        // fields, which the sections above never listed — a
+                        // `record:details` renders ONLY the fields its sections name.
+                        {
+                          name: 'classification',
+                          label: 'Bid & Priority',
+                          fields: ['opportunity_number', 'is_bid', 'level', 'priority'],
+                        },
+                        {
+                          name: 'initiation',
+                          label: 'Initiation',
+                          fields: ['initiation_status', 'initiated_date'],
+                        },
+                        {
+                          name: 'team',
+                          label: 'Deal Team',
+                          fields: ['account_manager', 'solution_manager', 'delivery_manager'],
+                        },
+                        {
+                          name: 'win_loss',
+                          label: 'Win / Loss',
+                          columns: 1,
+                          fields: ['win_reason', 'loss_reason', 'loss_details'],
+                        },
                         {
                           name: 'description',
                           label: 'Description',

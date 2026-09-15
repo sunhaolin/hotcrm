@@ -180,6 +180,7 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       lead_information: { label: 'Lead Information' },
       address_information: { label: 'Address Information' },
       privacy_preferences: { label: 'Privacy Preferences' },
+      demand: { label: 'Demand & Approval' },
     },
     _actions: {
       ...activityActions,
@@ -326,6 +327,8 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       forecast: { label: 'Forecast' },
       sales_strategy: { label: 'Sales Strategy' },
       win_loss: { label: 'Win / Loss' },
+      initiation: { label: 'Initiation' },
+      team: { label: 'Deal Team' },
     },
     _actions: {
       ...activityActions,
