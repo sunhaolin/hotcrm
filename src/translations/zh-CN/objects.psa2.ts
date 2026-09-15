@@ -109,13 +109,14 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   crm_collection: {
     label: '收款',
     pluralLabel: '收款',
-    description: '按交付项目登记的收款记录，可关联到具体发票',
+    description: '按交付项目和销售合同登记的收款记录，可关联到具体发票',
     fields: {
       description: { label: '说明' },
       amount: { label: '收款金额' },
       bank_reference: { label: '银行流水号' },
       collection_code: { label: '收款编号' },
       crm_account: { label: '客户' },
+      crm_contract: { label: '销售合同' },
       crm_delivery_project: { label: '交付项目' },
       crm_invoice: { label: '关联发票' },
       method: {

@@ -425,13 +425,14 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_collection: {
     label: 'Cobro',
     pluralLabel: 'Cobro',
-    description: 'Cobros registrados por proyecto de entrega, opcionalmente vinculados a una factura',
+    description: 'Cobros registrados por proyecto de entrega y contrato de venta, opcionalmente vinculados a una factura',
     fields: {
       description: { label: 'Descripción' },
       amount: { label: 'Importe cobrado' },
       bank_reference: { label: 'Referencia bancaria' },
       collection_code: { label: 'N.º de cobro' },
       crm_account: { label: 'Cuenta' },
+      crm_contract: { label: 'Contrato de venta' },
       crm_delivery_project: { label: 'Proyecto de entrega' },
       crm_invoice: { label: 'Factura asociada' },
       method: {

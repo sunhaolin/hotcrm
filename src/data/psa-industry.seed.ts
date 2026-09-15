@@ -342,12 +342,12 @@ export const industryCollections = defineSeed(Collection, {
   mode: 'upsert',
   externalId: 'bank_reference',
   records: [
-    { crm_delivery_project: DLV_BC, crm_invoice: 'BC20260818001', crm_account: BC, received_date: celDaysAgo(10), amount: 780000, method: 'bank_transfer', bank_reference: 'ICBC20260905000771', description: '北辰二期签约款到账' },
-    { crm_delivery_project: DLV_CJ, crm_invoice: 'CJ20260729001', crm_account: CJ, received_date: celDaysAgo(20), amount: 960000, method: 'bank_draft', bank_reference: 'CCB20260826000412', description: '长江 DMS 签约款（银行承兑汇票）' },
-    { crm_delivery_project: DLV_TQ, crm_invoice: 'TQ20260302001', crm_account: TQ, received_date: celDaysAgo(180), amount: 540000, method: 'bank_transfer', bank_reference: 'CMB20260319000233', description: '天启 TMS 签约款到账' },
-    { crm_delivery_project: DLV_TQ, crm_invoice: 'TQ20260720002', crm_account: TQ, received_date: celDaysAgo(35), amount: 720000, method: 'bank_transfer', bank_reference: 'CMB20260811000509', description: '天启 TMS 上线款到账' },
-    { crm_delivery_project: DLV_TQ, crm_invoice: 'TQ20260815003', crm_account: TQ, received_date: celDaysAgo(5), amount: 540000, method: 'bank_transfer', bank_reference: 'CMB20260910000688', description: '天启 TMS 验收款到账' },
-    { crm_delivery_project: DLV_HDL, crm_invoice: 'HD20260831001', crm_account: HDL, received_date: celDaysAgo(3), amount: 75000, method: 'bank_transfer', bank_reference: 'BOC20260912000145', description: '华东电力运维 · 第 1 月服务费到账' },
+    { crm_delivery_project: DLV_BC, crm_contract: CT_BC, crm_invoice: 'BC20260818001', crm_account: BC, received_date: celDaysAgo(10), amount: 780000, method: 'bank_transfer', bank_reference: 'ICBC20260905000771', description: '北辰二期签约款到账' },
+    { crm_delivery_project: DLV_CJ, crm_contract: CT_CJ, crm_invoice: 'CJ20260729001', crm_account: CJ, received_date: celDaysAgo(20), amount: 960000, method: 'bank_draft', bank_reference: 'CCB20260826000412', description: '长江 DMS 签约款（银行承兑汇票）' },
+    { crm_delivery_project: DLV_TQ, crm_contract: CT_TQ, crm_invoice: 'TQ20260302001', crm_account: TQ, received_date: celDaysAgo(180), amount: 540000, method: 'bank_transfer', bank_reference: 'CMB20260319000233', description: '天启 TMS 签约款到账' },
+    { crm_delivery_project: DLV_TQ, crm_contract: CT_TQ, crm_invoice: 'TQ20260720002', crm_account: TQ, received_date: celDaysAgo(35), amount: 720000, method: 'bank_transfer', bank_reference: 'CMB20260811000509', description: '天启 TMS 上线款到账' },
+    { crm_delivery_project: DLV_TQ, crm_contract: CT_TQ, crm_invoice: 'TQ20260815003', crm_account: TQ, received_date: celDaysAgo(5), amount: 540000, method: 'bank_transfer', bank_reference: 'CMB20260910000688', description: '天启 TMS 验收款到账' },
+    { crm_delivery_project: DLV_HDL, crm_contract: CT_HDL, crm_invoice: 'HD20260831001', crm_account: HDL, received_date: celDaysAgo(3), amount: 75000, method: 'bank_transfer', bank_reference: 'BOC20260912000145', description: '华东电力运维 · 第 1 月服务费到账' },
   ],
 });
 

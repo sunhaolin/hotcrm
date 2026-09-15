@@ -109,7 +109,7 @@ export const collections = defineSeed(Collection, {
   externalId: 'bank_reference',
   records: [
     {
-      crm_delivery_project: DLV_A, crm_invoice: 'HX20260716001', crm_account: CUSTOMER,
+      crm_delivery_project: DLV_A, crm_contract: CONTRACT_HX, crm_invoice: 'HX20260716001', crm_account: CUSTOMER,
       received_date: celDaysAgo(40), amount: 420000, method: 'bank_transfer', bank_reference: 'CMB20260731000158', description: '签约款到账，对应发票 HX20260716001',
     },
   ],
