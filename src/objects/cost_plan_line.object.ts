@@ -21,6 +21,7 @@ export const CostPlanLine = ObjectSchema.create({
     category: Field.select({ label: 'Cost Category', required: true, storage: { notNull: true }, group: 'basic', options: [...COST_CATEGORY_OPTIONS] }),
     period_month: Field.date({ label: 'Period (Month)', group: 'basic' }),
     description: Field.text({ label: 'Description', required: true, storage: { notNull: true }, group: 'basic', description: 'Grade / service name / procurement category the line is for.' }),
+    crm_rate_card: Field.lookup('crm_rate_card', { label: 'Grade / Rate Card', group: 'basic', description: 'Labor lines: fills the unit price from the rate card (cost_plan_line_fill).' }),
     quantity: Field.number({ label: 'Quantity', group: 'basic' }),
     unit_price: Field.currency({ label: 'Unit Price', scale: 2, group: 'basic' }),
     planned_amount: Field.currency({ label: 'Planned Amount', scale: 2, group: 'basic' }),

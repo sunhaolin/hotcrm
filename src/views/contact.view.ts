@@ -85,6 +85,11 @@ export const ContactViews = defineView({
           'title',
           'department',
           'owner_id',
+          // Round 2 (step 2): the customer's four relationship facts.
+          'gender',
+          'buying_influence',
+          'attitude',
+          'relationship_strength',
         ],
       },
       {

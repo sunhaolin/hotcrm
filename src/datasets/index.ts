@@ -11,3 +11,4 @@ export { TaskDataset } from './task.dataset';
 export { EventDataset } from './event.dataset';
 export { ForecastDataset } from './forecast.dataset';
 export { ProjectCostDataset } from './project_cost.dataset';
+export { ProjectFinanceDataset } from './project_finance.dataset';

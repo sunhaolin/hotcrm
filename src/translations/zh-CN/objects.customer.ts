@@ -83,6 +83,11 @@ export const customer: Record<string, ObjectTranslationData> = {
         options: { regular_customer: '常规销售客户', bidding_agency: '招标代理公司', other: '其他' },
       },
       short_name: { label: '客户简称' },
+      primary_vendor: { label: '当前主要服务商' },
+      it_budget_current_year: { label: '本年度 IT 采购预算' },
+      payment_cycle: { label: '付款周期', options: { days_30: '30 天', days_60: '60 天', days_90: '90 天', days_180: '180 天', milestone: '按里程碑', other: '其他' } },
+      ear_status: { label: '美国 EAR 管制清单', help: '机器比对命中记为"疑似"，只提示不阻断；人工确认在列后才拦截商机。', options: { unknown: '未核查', clear: '不在列', suspected: '疑似（机器命中）', confirmed: '人工确认在列' } },
+      is_strategic_partner: { label: '战略合作伙伴' },
       registration_number: { label: '统一社会信用代码' },
       approval_status: {
         label: '审批状态',
@@ -126,6 +131,7 @@ export const customer: Record<string, ObjectTranslationData> = {
       at_risk_accounts: { label: '⚠️ 风险客户' },
     },
     _sections: {
+      business_info: { label: '业务信息' },
       basic: { label: '基本信息' },
       financials: { label: '财务信息' },
       contact_info: { label: '联系信息' },
@@ -157,6 +163,10 @@ export const customer: Record<string, ObjectTranslationData> = {
       phone: { label: '电话' },
       mobile: { label: '手机' },
       title: { label: '职位' },
+      gender: { label: '性别', options: { male: '男', female: '女', other: '其他' } },
+      buying_influence: { label: '角色', options: { decision_maker: '决策者', influencer: '影响者', end_user: '使用者', procurement: '采购', technical_evaluator: '技术评估', champion: '内部支持者', other: '其他' } },
+      attitude: { label: '对我司态度', options: { supportive: '支持', neutral: '中立', opposed: '反对', unknown: '未知' } },
+      relationship_strength: { label: '与销售关系强度', options: { strong: '强', medium: '中', weak: '弱', none: '未建立' } },
       department: {
         label: '部门',
         options: {

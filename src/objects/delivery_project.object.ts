@@ -28,6 +28,7 @@ export const DeliveryProject = ObjectSchema.create({
     { key: 'org',        label: 'Cost Centre & Department', icon: 'building' },
     { key: 'roles',      label: 'Project Roles',       icon: 'users' },
     { key: 'budget',     label: 'Budget & Actuals',    icon: 'trending-up' },
+    { key: 'finance',    label: 'Contract & Finance',  icon: 'dollar-sign' },
     { key: 'security',   label: 'Information Security', icon: 'shield' },
     { key: 'approval',   label: 'Approval',            icon: 'check-circle' },
   ],
@@ -76,7 +77,8 @@ export const DeliveryProject = ObjectSchema.create({
       label: 'Labor Actual',
       group: 'budget',
       scale: 2,
-      summaryOperations: { object: 'crm_timesheet', field: 'cost', function: 'sum', relationshipField: 'crm_delivery_project' },
+      // Round 2 (step 34): only APPROVED timesheets count as actual cost.
+      summaryOperations: { object: 'crm_timesheet', field: 'cost', function: 'sum', relationshipField: 'crm_delivery_project', filter: { approval_status: 'approved' } },
     }),
     travel_actual: Field.summary({
       label: 'Travel Actual',
@@ -90,17 +92,82 @@ export const DeliveryProject = ObjectSchema.create({
       expression: F`coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0)`,
       scale: 2,
     }),
+    // Round 2 (step 32): approved adjustments move the control line; the two
+    // percentages and the variance read the CURRENT budget (baseline + adjustments).
+    budget_adjustment_total: Field.summary({
+      label: 'Approved Adjustments',
+      group: 'budget',
+      scale: 2,
+      summaryOperations: { object: 'crm_budget_adjustment', field: 'amount', function: 'sum', relationshipField: 'crm_delivery_project', filter: { approval_status: 'approved' } },
+    }),
+    budget_current: Field.formula({
+      label: 'Current Budget',
+      group: 'budget',
+      expression: F`coalesce(record.budget_baseline, 0) + coalesce(record.budget_adjustment_total, 0)`,
+      scale: 2,
+    }),
     budget_burn_pct: Field.formula({
       label: 'Budget Burn %',
-      description: 'Actual ÷ Baseline × 100. Reads 0 until a positive baseline is set.',
+      description: 'Actual ÷ Current budget × 100. Reads 0 until a positive budget is set.',
       group: 'budget',
-      expression: F`coalesce(record.budget_baseline, 0) > 0 ? ((coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0)) * 100.0) / record.budget_baseline : 0.0`,
+      expression: F`(coalesce(record.budget_baseline, 0) + coalesce(record.budget_adjustment_total, 0)) > 0 ? ((coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0)) * 100.0) / (coalesce(record.budget_baseline, 0) + coalesce(record.budget_adjustment_total, 0)) : 0.0`,
       scale: 2,
     }),
     budget_variance: Field.formula({
       label: 'Budget Variance',
       group: 'budget',
-      expression: F`coalesce(record.budget_baseline, 0) - (coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0))`,
+      expression: F`(coalesce(record.budget_baseline, 0) + coalesce(record.budget_adjustment_total, 0)) - (coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0))`,
+      scale: 2,
+    }),
+
+    // Round 2 (steps 37 / 38 / 40): contract, progress, revenue, invoicing and
+    // collections. Invoices / collections / purchase contracts / orders are
+    // master-detail children; their totals are platform rollups.
+    crm_contract: Field.lookup('crm_contract', { label: 'Sales Contract', group: 'finance' }),
+    contract_amount: Field.currency({ label: 'Contract Amount', scale: 2, group: 'finance', description: 'Defaults from the sales contract value (delivery_project_defaults).' }),
+    progress_pct: Field.number({ label: 'Progress %', group: 'finance', description: '0–100, maintained by the project manager.' }),
+    revenue_recognized: Field.formula({
+      label: 'Revenue Recognized',
+      description: 'Contract amount × progress %.',
+      group: 'finance',
+      expression: F`coalesce(record.contract_amount, 0) * coalesce(record.progress_pct, 0) / 100.0`,
+      scale: 2,
+    }),
+    invoiced_total: Field.summary({
+      label: 'Invoiced Total',
+      group: 'finance',
+      scale: 2,
+      summaryOperations: { object: 'crm_invoice', field: 'amount', function: 'sum', relationshipField: 'crm_delivery_project', filter: { status: { $ne: 'void' } } },
+    }),
+    collected_total: Field.summary({
+      label: 'Collected Total',
+      group: 'finance',
+      scale: 2,
+      summaryOperations: { object: 'crm_collection', field: 'amount', function: 'sum', relationshipField: 'crm_delivery_project' },
+    }),
+    receivable_balance: Field.formula({
+      label: 'Receivable Balance',
+      group: 'finance',
+      expression: F`coalesce(record.invoiced_total, 0) - coalesce(record.collected_total, 0)`,
+      scale: 2,
+    }),
+    purchase_total: Field.summary({
+      label: 'Purchase Contracts Total',
+      group: 'finance',
+      scale: 2,
+      summaryOperations: { object: 'crm_purchase_contract', field: 'amount', function: 'sum', relationshipField: 'crm_delivery_project', filter: { status: { $ne: 'terminated' } } },
+    }),
+    order_total: Field.summary({
+      label: 'Sales Orders Total',
+      group: 'finance',
+      scale: 2,
+      summaryOperations: { object: 'crm_sales_order', field: 'amount', function: 'sum', relationshipField: 'crm_delivery_project' },
+    }),
+    project_margin_pct: Field.formula({
+      label: 'Project Gross Margin %',
+      description: '(Contract amount − actual cost) ÷ contract amount × 100.',
+      group: 'finance',
+      expression: F`coalesce(record.contract_amount, 0) > 0 ? ((record.contract_amount - (coalesce(record.labor_actual, 0) + coalesce(record.travel_actual, 0))) * 100.0) / record.contract_amount : 0.0`,
       scale: 2,
     }),
 

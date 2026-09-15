@@ -28,7 +28,14 @@ export const Timesheet = ObjectSchema.create({
     owner_id: Field.lookup('sys_user', { label: 'Submitted By', group: 'basic', system: true, readonly: false }),
     crm_delivery_project: Field.masterDetail('crm_delivery_project', { label: 'Delivery Project', group: 'basic', required: true, storage: { notNull: true }, deleteBehavior: 'cascade' }),
     crm_presales_project: Field.lookup('crm_presales_project', { label: 'Presales Project', group: 'basic', description: 'Optional — presales hours are recorded but not rolled up (epic decision 4).' }),
+    crm_rate_card: Field.lookup('crm_rate_card', { label: 'Grade / Rate Card', group: 'basic', description: 'Fills the hourly rate from the rate card (timesheet_rate_fill).' }),
     period_month: Field.date({ label: 'Period (Month)', group: 'basic' }),
+    // Round 2 (step 33): attendance. `leave_hours` is written by the hook from
+    // approved leave requests; `hours` = standard − leave + overtime while the
+    // sheet is a draft and the caller did not set it.
+    standard_hours: Field.number({ label: 'Standard Hours', group: 'basic', defaultValue: 160 }),
+    leave_hours: Field.number({ label: 'Leave Hours', group: 'basic', description: 'Synced from approved leave requests of the submitter for this month.' }),
+    overtime_hours: Field.number({ label: 'Overtime Hours', group: 'basic' }),
     hours: Field.number({ label: 'Hours', group: 'basic' }),
     hourly_rate: Field.currency({ label: 'Hourly Rate', scale: 2, group: 'basic' }),
     cost: Field.currency({ label: 'Cost', scale: 2, group: 'basic', description: 'Hours × hourly rate; filled by the timesheet hook.' }),

@@ -242,6 +242,13 @@ export const AccountViews = defineView({
         ],
       },
       {
+        // Round 2 (step 3): the customer's business facts about an account.
+        name: 'business_info',
+        label: 'Business Information',
+        columns: 2,
+        fields: ['primary_vendor', 'it_budget_current_year', 'payment_cycle', 'ear_status', 'is_strategic_partner'],
+      },
+      {
         // `child_account_revenue` is a roll-up the engine maintains, so it is
         // read-only on the form by construction — it is here because a hierarchy
         // nobody can see the effect of is the decoration this field replaced.

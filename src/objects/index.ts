@@ -79,3 +79,13 @@ export { DeliveryProject } from './delivery_project.object';
 export { CostPlanLine } from './cost_plan_line.object';
 export { Timesheet } from './timesheet.object';
 export { TravelCost } from './travel_cost.object';
+// Round 2 (Chinese-only): master data, budget adjustments, finance, trips and leave.
+export { RateCard } from './rate_card.object';
+export { LegalEntity } from './legal_entity.object';
+export { BudgetAdjustment } from './budget_adjustment.object';
+export { Invoice } from './invoice.object';
+export { Collection } from './collection.object';
+export { PurchaseContract } from './purchase_contract.object';
+export { SalesOrder } from './sales_order.object';
+export { BusinessTrip } from './business_trip.object';
+export { LeaveRequest } from './leave_request.object';

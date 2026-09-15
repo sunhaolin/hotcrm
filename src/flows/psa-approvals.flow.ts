@@ -82,7 +82,13 @@ export const PresalesProjectApprovalFlow: Flow = approvalFlow({ name: 'presales_
 export const DeliveryProjectApprovalFlow: Flow = approvalFlow({ name: 'delivery_project_approval', label: '交付立项审批', objectName: 'crm_delivery_project', approver: 'executive', statusField: 'approval_status', dateField: 'approved_date', noun: '交付项目' });
 export const TimesheetApprovalFlow: Flow = approvalFlow({ name: 'timesheet_approval', label: '工时审批', objectName: 'crm_timesheet', approver: 'sales_manager', statusField: 'approval_status', dateField: 'approved_date', noun: '工时表' });
 
+// Round 2: budget adjustments (step 32), business trips and leave requests.
+export const BudgetAdjustmentApprovalFlow: Flow = approvalFlow({ name: 'budget_adjustment_approval', label: '预算调整审批', objectName: 'crm_budget_adjustment', approver: 'finance_lead', statusField: 'approval_status', dateField: 'approved_date', noun: '预算调整' });
+export const BusinessTripApprovalFlow: Flow = approvalFlow({ name: 'business_trip_approval', label: '出差审批', objectName: 'crm_business_trip', approver: 'project_manager', statusField: 'approval_status', dateField: 'approved_date', noun: '出差申请' });
+export const LeaveRequestApprovalFlow: Flow = approvalFlow({ name: 'leave_request_approval', label: '请假审批', objectName: 'crm_leave_request', approver: 'department_head', statusField: 'approval_status', dateField: 'approved_date', noun: '请假申请' });
+
 export const psaApprovalFlows: Flow[] = [
   AccountApprovalFlow, LeadApprovalFlow, OpportunityInitiationFlow,
   PresalesProjectApprovalFlow, DeliveryProjectApprovalFlow, TimesheetApprovalFlow,
+  BudgetAdjustmentApprovalFlow, BusinessTripApprovalFlow, LeaveRequestApprovalFlow,
 ];

@@ -174,7 +174,12 @@ export const OpportunityDetailPage: Page = {
                         {
                           name: 'classification',
                           label: 'Bid & Priority',
-                          fields: ['opportunity_number', 'is_bid', 'level', 'priority'],
+                          fields: ['opportunity_number', 'is_bid', 'level', 'priority', 'controllability', 'customer_initiation_date', 'expected_bid_date'],
+                        },
+                        {
+                          name: 'entity',
+                          label: 'Contracting Entity',
+                          fields: ['crm_legal_entity', 'business_category', 'revenue_recognition_type', 'subcontract_info'],
                         },
                         {
                           name: 'initiation',

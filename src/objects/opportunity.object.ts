@@ -1,6 +1,7 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { ObjectSchema, Field } from '@objectstack/spec/data';
+import { BUSINESS_CATEGORY_OPTIONS } from './_psa-picklists';
 import { F, P } from '@objectstack/spec';
 import { LEAD_SOURCE_OPTIONS, OPPORTUNITY_STAGE_OPTIONS } from './_picklists';
 
@@ -35,6 +36,7 @@ export const Opportunity = ObjectSchema.create({
     { key: 'notes',       label: 'Notes & Next Steps',  icon: 'file-text' },
     { key: 'crm_forecast',    label: 'Forecast & Metrics',  icon: 'bar-chart', collapse: 'collapsed' },
     { key: 'team',        label: 'Deal Team',           icon: 'users' },
+    { key: 'bid',         label: 'Bid & Contracting Entity', icon: 'briefcase' },
   ],
 
   fields: {
@@ -385,6 +387,31 @@ export const Opportunity = ObjectSchema.create({
     account_manager: Field.lookup('sys_user', { label: 'Account Manager (AR)', group: 'team' }),
     solution_manager: Field.lookup('sys_user', { label: 'Solution Manager (SR)', group: 'team' }),
     delivery_manager: Field.lookup('sys_user', { label: 'Delivery Manager (FR)', group: 'team' }),
+    // Round 2 (steps 8 / 9): the bid facts and the contracting entity.
+    controllability: Field.select({
+      label: 'Controllability',
+      group: 'bid',
+      options: [
+        { label: 'High', value: 'high', color: '#00AA00' },
+        { label: 'Medium', value: 'medium', color: '#FFA500' },
+        { label: 'Low', value: 'low', color: '#FF0000' },
+      ],
+    }),
+    customer_initiation_date: Field.date({ label: 'Customer Initiation Date', group: 'bid' }),
+    expected_bid_date: Field.date({ label: 'Expected Bid Date', group: 'bid' }),
+    subcontract_info: Field.textarea({ label: 'Subcontract Information', group: 'bid' }),
+    crm_legal_entity: Field.lookup('crm_legal_entity', { label: 'Contracting Entity', group: 'bid' }),
+    business_category: Field.select({ label: 'Business Category', group: 'bid', options: [...BUSINESS_CATEGORY_OPTIONS] }),
+    revenue_recognition_type: Field.select({
+      label: 'Revenue Recognition',
+      group: 'bid',
+      options: [
+        { label: 'By milestone', value: 'milestone' },
+        { label: 'Time & material', value: 'time_and_material' },
+        { label: 'On acceptance', value: 'acceptance' },
+        { label: 'Over the period', value: 'periodic' },
+      ],
+    }),
   },
   
   // Database indexes for performance

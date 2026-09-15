@@ -25,7 +25,7 @@ export const CostPlanLineViews = defineView({
     sections: [
       { name: 'basic', label: 'Cost Plan Line', columns: 2, fields: [
         { field: 'crm_delivery_project', required: true }, { field: 'category', required: true }, 'period_month',
-        { field: 'description', required: true }, 'quantity', 'unit_price', 'planned_amount', 'notes',
+        { field: 'description', required: true }, 'crm_rate_card', 'quantity', 'unit_price', 'planned_amount', 'notes',
       ] },
     ],
   },

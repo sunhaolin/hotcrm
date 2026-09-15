@@ -32,6 +32,7 @@ export const Account = ObjectSchema.create({
     { key: 'financials',   label: 'Financials',         icon: 'dollar-sign' },
     { key: 'contact_info', label: 'Contact Information', icon: 'phone' },
     { key: 'ownership',    label: 'Ownership & Status', icon: 'users' },
+    { key: 'business_info', label: 'Business Information', icon: 'briefcase' },
     { key: 'branding',     label: 'Branding',           icon: 'palette', collapse: 'collapsed' },
     { key: 'system',       label: 'System',             icon: 'settings', collapse: 'collapsed' },
   ],
@@ -465,6 +466,35 @@ export const Account = ObjectSchema.create({
     }),
     short_name: Field.text({ label: 'Short Name', group: 'basic' }),
     registration_number: Field.text({ label: 'Unified Social Credit Code', group: 'basic' }),
+    // Round 2 (step 3): the customer's business facts. `ear_status` follows
+    // semantics rule 8 — a machine hit is `suspected` and only warns; only a
+    // person's `confirmed` blocks the opportunity gate (opportunity.hook.ts).
+    primary_vendor: Field.text({ label: 'Current Primary Vendor', group: 'business_info' }),
+    it_budget_current_year: Field.currency({ label: 'IT Budget (Current Year)', scale: 2, group: 'business_info' }),
+    payment_cycle: Field.select({
+      label: 'Payment Cycle',
+      group: 'business_info',
+      options: [
+        { label: '30 days', value: 'days_30' },
+        { label: '60 days', value: 'days_60' },
+        { label: '90 days', value: 'days_90' },
+        { label: '180 days', value: 'days_180' },
+        { label: 'By milestone', value: 'milestone' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+    ear_status: Field.select({
+      label: 'US EAR Entity List',
+      group: 'business_info',
+      defaultValue: 'unknown',
+      options: [
+        { label: 'Not Checked', value: 'unknown', default: true },
+        { label: 'Not Listed', value: 'clear', color: '#00AA00' },
+        { label: 'Suspected (machine match)', value: 'suspected', color: '#FFA500' },
+        { label: 'Confirmed Listed', value: 'confirmed', color: '#FF0000' },
+      ],
+    }),
+    is_strategic_partner: Field.boolean({ label: 'Strategic Partner', group: 'business_info', defaultValue: false }),
     approval_status: Field.select({
       label: 'Approval Status',
       group: 'ownership',

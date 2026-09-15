@@ -112,6 +112,49 @@ export const Contact = ObjectSchema.create({
     // from the master `crm_account`, never from this lookup.
 
     // Contact Information
+    // Round 2 (step 2): the customer's four relationship facts about a person.
+    gender: Field.select({
+      label: 'Gender',
+      group: 'account_info',
+      options: [
+        { label: 'Male', value: 'male' },
+        { label: 'Female', value: 'female' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+    buying_influence: Field.select({
+      label: 'Buying Influence',
+      group: 'account_info',
+      options: [
+        { label: 'Decision Maker', value: 'decision_maker' },
+        { label: 'Influencer', value: 'influencer' },
+        { label: 'End User', value: 'end_user' },
+        { label: 'Procurement', value: 'procurement' },
+        { label: 'Technical Evaluator', value: 'technical_evaluator' },
+        { label: 'Champion', value: 'champion' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+    attitude: Field.select({
+      label: 'Attitude Toward Us',
+      group: 'account_info',
+      options: [
+        { label: 'Supportive', value: 'supportive', color: '#00AA00' },
+        { label: 'Neutral', value: 'neutral', color: '#999999' },
+        { label: 'Opposed', value: 'opposed', color: '#FF0000' },
+        { label: 'Unknown', value: 'unknown' },
+      ],
+    }),
+    relationship_strength: Field.select({
+      label: 'Relationship Strength',
+      group: 'account_info',
+      options: [
+        { label: 'Strong', value: 'strong', color: '#00AA00' },
+        { label: 'Medium', value: 'medium', color: '#FFA500' },
+        { label: 'Weak', value: 'weak', color: '#999999' },
+        { label: 'Not Established', value: 'none' },
+      ],
+    }),
     email: Field.email({
       label: 'Email',
       required: true,

@@ -20,3 +20,13 @@ export { DeliveryProjectViews } from './delivery_project.view';
 export { CostPlanLineViews } from './cost_plan_line.view';
 export { TimesheetViews } from './timesheet.view';
 export { TravelCostViews } from './travel_cost.view';
+// Round 2 (Chinese-only)
+export { RateCardViews } from './rate_card.view';
+export { LegalEntityViews } from './legal_entity.view';
+export { BudgetAdjustmentViews } from './budget_adjustment.view';
+export { InvoiceViews } from './invoice.view';
+export { CollectionViews } from './collection.view';
+export { PurchaseContractViews } from './purchase_contract.view';
+export { SalesOrderViews } from './sales_order.view';
+export { BusinessTripViews } from './business_trip.view';
+export { LeaveRequestViews } from './leave_request.view';

@@ -31,6 +31,7 @@ import { TravelCost } from '../objects/travel_cost.object';
 import { Task } from '../objects/task.object';
 import { Event } from '../objects/event.object';
 import { celDaysAgo, celDaysFromNow } from './_shared';
+import { CONTRACT_HX } from './psa-round2.seed';
 
 const CUSTOMER = '华信科技有限公司';
 const AGENCY = '中招国际招标代理有限公司';
@@ -61,6 +62,8 @@ export const psaAccounts = defineSeed(Account, {
       phone: '+86 10 8888 6666',
       website: 'https://www.huaxin-tech.example.com',
       approval_status: 'approved',
+      // Round 2 (step 3)
+      primary_vendor: '东软集团', it_budget_current_year: 120000000, payment_cycle: 'days_90', ear_status: 'clear', is_strategic_partner: true,
       description: '华北区重点客户，年度 IT 采购预算约 1.2 亿元，现有核心业务系统运行 8 年，2026 年启动升级。',
       is_active: true,
       last_activity_date: cel`today()`,
@@ -80,12 +83,14 @@ export const psaAccounts = defineSeed(Account, {
     {
       name: CUSTOMER_2, short_name: '北辰智造', registration_number: '91320500MA1WXYZ12P', classification: 'regular_customer',
       type: 'customer', industry: 'manufacturing', number_of_employees: 8600, annual_revenue: 2400000000,
-      approval_status: 'approved', description: '华东区制造业客户，MES 一期已上线，二期评估中。', is_active: true, last_activity_date: celDaysAgo(6),
+      approval_status: 'approved', primary_vendor: '西门子', it_budget_current_year: 60000000, payment_cycle: 'days_60', ear_status: 'clear', is_strategic_partner: false,
+      description: '华东区制造业客户，MES 一期已上线，二期评估中。', is_active: true, last_activity_date: celDaysAgo(6),
     },
     {
       name: CUSTOMER_3, short_name: '东方联合', registration_number: '91310000MA1FGHJ34K', classification: 'regular_customer',
       type: 'prospect', industry: 'finance', number_of_employees: 12000, annual_revenue: 5800000000,
-      approval_status: 'draft', description: '股份制银行，信贷风控平台选型阶段；客户信息待提交审批（演示：现场提交）。', is_active: true, last_activity_date: celDaysAgo(1),
+      approval_status: 'draft', primary_vendor: '恒生电子', it_budget_current_year: 300000000, payment_cycle: 'milestone', ear_status: 'suspected', is_strategic_partner: false,
+      description: '股份制银行，信贷风控平台选型阶段；客户信息待提交审批（演示：现场提交）。EAR 机器比对疑似命中，只提示不阻断。', is_active: true, last_activity_date: celDaysAgo(1),
     },
   ],
 });
@@ -94,10 +99,10 @@ export const psaContacts = defineSeed(Contact, {
   mode: 'upsert',
   externalId: 'email',
   records: [
-    { first_name: '志强', last_name: '王', crm_account: CUSTOMER, title: '信息中心主任', department: 'engineering', email: 'wang.zhiqiang@huaxin-tech.example.com', phone: '+86 10 8888 6601', is_primary: true },
-    { first_name: '晓燕', last_name: '李', crm_account: CUSTOMER, title: '采购部经理', department: 'operations', email: 'li.xiaoyan@huaxin-tech.example.com', phone: '+86 10 8888 6602' },
-    { first_name: '建国', last_name: '张', crm_account: CUSTOMER_2, title: '智能制造部总监', department: 'engineering', email: 'zhang.jianguo@beichen.example.com', phone: '+86 512 6666 8801', is_primary: true },
-    { first_name: '敏', last_name: '陈', crm_account: CUSTOMER_3, title: '科技部副总经理', department: 'executive', email: 'chen.min@dfub.example.com', phone: '+86 21 5555 0102', is_primary: true },
+    { first_name: '志强', last_name: '王', crm_account: CUSTOMER, title: '信息中心主任', department: 'engineering', email: 'wang.zhiqiang@huaxin-tech.example.com', phone: '+86 10 8888 6601', is_primary: true, gender: 'male', buying_influence: 'decision_maker', attitude: 'supportive', relationship_strength: 'strong' },
+    { first_name: '晓燕', last_name: '李', crm_account: CUSTOMER, title: '采购部经理', department: 'operations', email: 'li.xiaoyan@huaxin-tech.example.com', phone: '+86 10 8888 6602', gender: 'female', buying_influence: 'procurement', attitude: 'neutral', relationship_strength: 'medium' },
+    { first_name: '建国', last_name: '张', crm_account: CUSTOMER_2, title: '智能制造部总监', department: 'engineering', email: 'zhang.jianguo@beichen.example.com', phone: '+86 512 6666 8801', is_primary: true, gender: 'male', buying_influence: 'champion', attitude: 'supportive', relationship_strength: 'strong' },
+    { first_name: '敏', last_name: '陈', crm_account: CUSTOMER_3, title: '科技部副总经理', department: 'executive', email: 'chen.min@dfub.example.com', phone: '+86 21 5555 0102', is_primary: true, gender: 'female', buying_influence: 'decision_maker', attitude: 'unknown', relationship_strength: 'weak' },
   ],
 });
 
@@ -152,6 +157,10 @@ export const psaOpportunities = defineSeed(Opportunity, {
       level: 'level_a',
       priority: 'high',
       approval_status: 'approved', initiation_status: 'approved',
+      // Round 2 (steps 8 / 9)
+      controllability: 'high', customer_initiation_date: celDaysAgo(30), expected_bid_date: celDaysFromNow(20),
+      subcontract_info: '数据迁移拟分包给北京数联科技有限公司（约 25 万）。',
+      crm_legal_entity: '华软信息技术股份有限公司', business_category: 'government_enterprise', revenue_recognition_type: 'milestone',
       description: `客户简介：华北区重点客户，核心业务系统运行 8 年。
 项目背景：系统性能与合规双重压力，2026 年立项升级。
 风险分析：竞争对手已有驻场团队；付款周期 90 天。
@@ -241,6 +250,9 @@ export const deliveryProjects = defineSeed(DeliveryProject, {
       budget_baseline: 1000000,
       security_class: 'confidential',
       approval_status: 'approved',
+      // Round 2: the sales contract (contract_amount follows it), progress for revenue.
+      crm_contract: CONTRACT_HX,
+      progress_pct: 55,
     },
     {
       name: DLV_B,
@@ -260,6 +272,8 @@ export const deliveryProjects = defineSeed(DeliveryProject, {
       budget_baseline: 200000,
       security_class: 'internal',
       approval_status: 'approved',
+      contract_amount: 300000,
+      progress_pct: 90,
     },
   ],
 });
@@ -287,11 +301,16 @@ export const timesheets = defineSeed(Timesheet, {
   externalId: 'notes',
   records: [
     { crm_delivery_project: DLV_A, period_month: month1, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 1 月 · 架构师' },
-    { crm_delivery_project: DLV_A, period_month: month1, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 1 月 · 高级工程师' },
+    { crm_delivery_project: DLV_A, crm_rate_card: '高级工程师', period_month: month1, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 1 月 · 高级工程师' },
     { crm_delivery_project: DLV_A, period_month: month2, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 2 月 · 架构师' },
-    { crm_delivery_project: DLV_A, period_month: month2, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 2 月 · 高级工程师' },
-    { crm_delivery_project: DLV_B, period_month: month1, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 试点 · 第 1 月 · 数据工程师' },
-    { crm_delivery_project: DLV_B, period_month: month2, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 试点 · 第 2 月 · 数据工程师' },
+    { crm_delivery_project: DLV_A, crm_rate_card: '高级工程师', period_month: month2, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 一期 · 第 2 月 · 高级工程师' },
+    { crm_delivery_project: DLV_B, crm_rate_card: '数据工程师', period_month: month1, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 试点 · 第 1 月 · 数据工程师' },
+    { crm_delivery_project: DLV_B, crm_rate_card: '数据工程师', period_month: month2, hours: 160, hourly_rate: 800, cost: 128000, approval_status: 'approved', notes: 'TS · 试点 · 第 2 月 · 数据工程师' },
+    // Round 2: this month's DRAFT sheet for the project manager — no `hours`,
+    // so timesheet_attendance_sync derives them (standard − leave + overtime)
+    // and the approved-only rollup leaves it out of the project's actuals
+    // until it is approved. The staff script stamps 王强 as its submitter.
+    { crm_delivery_project: DLV_A, crm_rate_card: '项目经理', period_month: cel`today()`, standard_hours: 176, overtime_hours: 0, approval_status: 'draft', notes: 'TS · 一期 · 本月 · 项目经理（草稿，演示请假同步）' },
   ],
 });
 
@@ -299,8 +318,8 @@ export const travelCosts = defineSeed(TravelCost, {
   mode: 'upsert',
   externalId: 'receipt_number',
   records: [
-    { crm_delivery_project: DLV_A, expense_date: celDaysAgo(40), amount: 6800, receipt_number: 'BX-2026-0917', description: '北京—客户现场 · 需求调研 · 2 人 3 天' },
-    { crm_delivery_project: DLV_A, expense_date: celDaysAgo(12), amount: 9200, receipt_number: 'BX-2026-1042', description: '北京—客户现场 · 上线演练 · 3 人 2 天' },
-    { crm_delivery_project: DLV_B, expense_date: celDaysAgo(20), amount: 8000, receipt_number: 'BX-2026-0988', description: '上海—客户现场 · 数据中台试点评审' },
+    { crm_delivery_project: DLV_A, crm_business_trip: '华信现场需求调研', expense_date: celDaysAgo(40), amount: 6800, receipt_number: 'BX-2026-0917', description: '北京—客户现场 · 需求调研 · 2 人 3 天' },
+    { crm_delivery_project: DLV_A, crm_business_trip: '华信上线演练', expense_date: celDaysAgo(12), amount: 9200, receipt_number: 'BX-2026-1042', description: '北京—客户现场 · 上线演练 · 3 人 2 天' },
+    { crm_delivery_project: DLV_B, crm_business_trip: '数据中台试点评审', expense_date: celDaysAgo(20), amount: 8000, receipt_number: 'BX-2026-0988', description: '上海—客户现场 · 数据中台试点评审' },
   ],
 });

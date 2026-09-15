@@ -51,3 +51,12 @@ export const COST_CATEGORY_OPTIONS = [
   { label: 'Hardware/Software Procurement', value: 'procurement' },
   { label: 'Project Expense', value: 'expense' },
 ] as const;
+
+/** Round 2 (Chinese-only): the same approval ladder with Chinese source labels for the new objects. */
+export const APPROVAL_STATUS_OPTIONS_ZH = [
+  { label: '草稿', value: 'draft', default: true },
+  { label: '提交审批', value: 'submitted', color: '#4169E1' },
+  { label: '审批中', value: 'pending', color: '#FFA500' },
+  { label: '已审批', value: 'approved', color: '#00AA00' },
+  { label: '已驳回', value: 'rejected', color: '#FF0000' },
+] as const;

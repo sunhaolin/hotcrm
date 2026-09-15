@@ -120,7 +120,37 @@ export const CrmApp = App.create({
         { id: 'nav_delivery_project',       type: 'object',    objectName: 'crm_delivery_project',      label: 'Delivery Projects', icon: 'hammer' },
         { id: 'nav_timesheet',              type: 'object',    objectName: 'crm_timesheet',             label: 'Timesheets',        icon: 'clock' },
         { id: 'nav_travel_cost',            type: 'object',    objectName: 'crm_travel_cost',           label: 'Travel Costs',      icon: 'plane' },
+        { id: 'nav_business_trip',          type: 'object',    objectName: 'crm_business_trip',         label: 'Business Trips',    icon: 'map-pin' },
+        { id: 'nav_leave_request',          type: 'object',    objectName: 'crm_leave_request',         label: 'Leave Requests',    icon: 'calendar' },
+        { id: 'nav_budget_adjustment',      type: 'object',    objectName: 'crm_budget_adjustment',     label: 'Budget Adjustments', icon: 'trending-up' },
         { id: 'nav_project_cost_dashboard', type: 'dashboard', dashboardName: 'project_cost_dashboard', label: 'Project Cost',      icon: 'chart-bar' },
+      ],
+    },
+    {
+      // Round 2 (steps 37 / 38 / 40): contracts, invoicing and collections per project.
+      id: 'group_finance',
+      type: 'group',
+      label: 'Project Finance',
+      icon: 'dollar-sign',
+      expanded: true,
+      children: [
+        { id: 'nav_invoice',                   type: 'object',    objectName: 'crm_invoice',                 label: 'Invoices',          icon: 'file-text' },
+        { id: 'nav_collection',                type: 'object',    objectName: 'crm_collection',              label: 'Collections',       icon: 'dollar-sign' },
+        { id: 'nav_purchase_contract',         type: 'object',    objectName: 'crm_purchase_contract',       label: 'Purchase Contracts', icon: 'briefcase' },
+        { id: 'nav_sales_order',               type: 'object',    objectName: 'crm_sales_order',             label: 'Sales Orders',      icon: 'clipboard' },
+        { id: 'nav_project_finance_dashboard', type: 'dashboard', dashboardName: 'project_finance_dashboard', label: 'Project Finance',  icon: 'chart-bar' },
+      ],
+    },
+    {
+      // Round 2 master data: rate cards (steps 18 / 28) and contracting entities (step 9).
+      id: 'group_master',
+      type: 'group',
+      label: 'Master Data',
+      icon: 'tag',
+      expanded: false,
+      children: [
+        { id: 'nav_rate_card',    type: 'object', objectName: 'crm_rate_card',    label: 'Rate Cards',           icon: 'tag' },
+        { id: 'nav_legal_entity', type: 'object', objectName: 'crm_legal_entity', label: 'Contracting Entities', icon: 'building' },
       ],
     },
     {
