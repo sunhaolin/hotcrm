@@ -9,6 +9,7 @@ import businessTripHooks from '../src/objects/business_trip.hook';
 import travelCostHooks from '../src/objects/travel_cost.hook';
 import opportunityHooks from '../src/objects/opportunity.hook';
 import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
+import { makeSandboxEngine, runHookBody } from './helpers/action-sandbox';
 
 /**
  * Runtime tests for the PSA-side hooks (project-type sales demo, epic #2) —
@@ -101,18 +102,32 @@ describe('timesheet_attendance_sync', () => {
 
 describe('timesheet_budget_gate', () => {
   const hook = hookNamed(timesheetHooks, 'timesheet_budget_gate');
+  const costFill = hookNamed(timesheetHooks, 'timesheet_cost_fill');
   const store = () => ({
     crm_delivery_project: [{ id: 'dlv_1', name: '试点交付', budget_baseline: 200_000 }],
     crm_timesheet: [{ id: 'ts_1', crm_delivery_project: 'dlv_1', cost: 128_000 }],
     crm_travel_cost: [{ id: 'tc_1', crm_delivery_project: 'dlv_1', amount: 8_000 }],
   });
 
-  it('lets a sheet through while the project is under its baseline', async () => {
+  /**
+   * The insert the engine actually runs: the fillers first (ascending
+   * priority), then the gate on the SAME `input` they wrote `cost` onto. A
+   * test that calls the gate alone with a hand-written `cost` proves the
+   * comparison and nothing about the sheet a console user submits, which is
+   * the write this whole gate exists for.
+   */
+  const insert = async (api: ReturnType<typeof makeHarness>['api'], input: Rec) => {
+    await costFill.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api }));
+    return hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api }));
+  };
+
+  it('lets a sheet the remaining budget covers through', async () => {
     const h = makeHarness(store());
-    await expect(hook.handler(makeCtx({ event: 'beforeInsert', input: { crm_delivery_project: 'dlv_1' }, user: USER, api: h.api }))).resolves.toBeUndefined();
+    // 136,000 booked, 200,000 budgeted → 64,000 left, and this sheet costs 8,000.
+    await expect(insert(h.api, { crm_delivery_project: 'dlv_1', hours: 10, hourly_rate: 800 })).resolves.toBeUndefined();
   });
 
-  it('refuses a sheet once actual cost meets the baseline — invalid_value, with the numbers in the sentence', async () => {
+  it('refuses a sheet once actual cost meets the budget — invalid_value, with the numbers in the sentence', async () => {
     const s = store();
     s.crm_timesheet.push({ id: 'ts_2', crm_delivery_project: 'dlv_1', cost: 128_000 });
     const h = makeHarness(s);
@@ -123,10 +138,105 @@ describe('timesheet_budget_gate', () => {
     expect(String(err.userMessage)).toContain('264,000');
   });
 
-  it('ignores a sheet with no project or a project with no baseline', async () => {
+  /**
+   * The create-time hole. Every sheet ALREADY STORED counted against the
+   * budget and the one being inserted counted for nothing, so the sheet that
+   * blew the budget was accepted and only the next one was refused — 「新建工时表
+   * 记录时，未校验预算」, reported off a console create form.
+   */
+  it('refuses the sheet whose OWN cost would take the project past its budget', async () => {
+    const h = makeHarness(store());
+    // 64,000 of budget left; this sheet is 160 × 800 = 128,000.
+    const err = await insert(h.api, { crm_delivery_project: 'dlv_1', hours: 160, hourly_rate: 800 }).catch((e: unknown) => e) as Rec;
+    expect(err).toBeInstanceOf(Error);
+    expect([err.code, err.status]).toEqual(['VALIDATION_FAILED', 400]);
+    expect(String(err.userMessage)).toContain('试点交付');
+    expect(String(err.userMessage)).toContain('64,000');
+    expect(String(err.userMessage)).toContain('128,000');
+  });
+
+  it('spends the budget to the last yuan without refusing — the gate is > , not >=', async () => {
+    const h = makeHarness(store());
+    await expect(insert(h.api, { crm_delivery_project: 'dlv_1', hours: 80, hourly_rate: 800 })).resolves.toBeUndefined();
+  });
+
+  /**
+   * The documented way out, which the gate did not honour: it compared against
+   * the bare `budget_baseline`, so approving an adjustment moved
+   * `budget_current` on the project and changed nothing here. The control line
+   * is baseline + APPROVED adjustments, the same figure `budget_current` and
+   * the burn/variance formulas read.
+   */
+  it('counts an APPROVED budget adjustment into the control line, and ignores a draft one', async () => {
+    const over = () => {
+      const s = store() as Rec;
+      s.crm_timesheet.push({ id: 'ts_2', crm_delivery_project: 'dlv_1', cost: 128_000 });
+      return s;
+    };
+    const approved = over();
+    approved.crm_budget_adjustment = [{ id: 'ba_1', crm_delivery_project: 'dlv_1', amount: 150_000, approval_status: 'approved' }];
+    // 264,000 booked against 350,000 of current budget → 86,000 left.
+    await expect(insert(makeHarness(approved).api, { crm_delivery_project: 'dlv_1', hours: 10, hourly_rate: 800 })).resolves.toBeUndefined();
+
+    const draft = over();
+    draft.crm_budget_adjustment = [{ id: 'ba_1', crm_delivery_project: 'dlv_1', amount: 150_000, approval_status: 'draft' }];
+    // `toThrow` reads `message`, the English diagnostic; the Chinese sentence
+    // a user reads rides `userMessage`, asserted on the two cases above.
+    await expect(insert(makeHarness(draft).api, { crm_delivery_project: 'dlv_1', hours: 10, hourly_rate: 800 })).rejects.toThrow(/is over budget/);
+  });
+
+  /**
+   * Seed replay writes `isSystem: true` and 试点交付 is seeded deliberately over
+   * its budget — the very data interception ② is demonstrated on. A gated
+   * replay would refuse the second sheet and seed a project that is merely AT
+   * budget instead.
+   */
+  it('does not gate a system write — the seed materialises the over-budget project', async () => {
+    const h = makeHarness(store());
+    // The same sheet the case above refuses — 128,000 against 64,000 left.
+    const input: Rec = { crm_delivery_project: 'dlv_1', hours: 160, hourly_rate: 800 };
+    await costFill.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    await expect(
+      hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, session: { isSystem: true }, api: h.api })),
+    ).resolves.toBeUndefined();
+  });
+
+  /**
+   * The numbers, on the body that SHIPS.
+   *
+   * Every case above runs `hook.handler` on Node, where `toLocaleString()`
+   * groups digits — and the docs, the runbook and the deck all quote
+   * `264,000`. Measured through the real sandbox, it groups nothing there (no
+   * ICU in QuickJS), so the sentence a user actually read was `实际 264000`
+   * while the whole suite agreed with the docs. The grouping is written out in
+   * the body now, and this pins it where the gap was.
+   */
+  it('groups the figures through QuickJS, the way the docs quote them', async () => {
+    const engine = makeSandboxEngine({
+      crm_delivery_project: [{ id: 'dlv_1', name: '试点交付', budget_baseline: 200_000 }],
+      crm_timesheet: [
+        { id: 'ts_1', crm_delivery_project: 'dlv_1', cost: 128_000 },
+        { id: 'ts_2', crm_delivery_project: 'dlv_1', cost: 128_000 },
+      ],
+      crm_travel_cost: [{ id: 'tc_1', crm_delivery_project: 'dlv_1', amount: 8_000 }],
+      crm_budget_adjustment: [],
+    });
+    const err = await runHookBody(hook, {
+      event: 'beforeInsert',
+      input: { crm_delivery_project: 'dlv_1', hours: 8, hourly_rate: 800, cost: 6_400 },
+      user: USER,
+      engine,
+    }).then(() => null, (e: Rec) => e);
+    expect(err, 'the shipped body did not refuse').toBeTruthy();
+    expect(String(err!.userMessage)).toBe(
+      '项目「试点交付」成本已超预算（实际 264,000 ≥ 预算 200,000），工时填报已限制',
+    );
+  });
+
+  it('ignores a sheet with no project, or a project with no budget at all', async () => {
     const h = makeHarness({ crm_delivery_project: [{ id: 'dlv_0', name: 'x', budget_baseline: 0 }] });
     await expect(hook.handler(makeCtx({ event: 'beforeInsert', input: {}, user: USER, api: h.api }))).resolves.toBeUndefined();
-    await expect(hook.handler(makeCtx({ event: 'beforeInsert', input: { crm_delivery_project: 'dlv_0' }, user: USER, api: h.api }))).resolves.toBeUndefined();
+    await expect(insert(h.api, { crm_delivery_project: 'dlv_0', hours: 160, hourly_rate: 800 })).resolves.toBeUndefined();
   });
 });
 

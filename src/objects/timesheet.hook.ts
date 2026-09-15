@@ -24,10 +24,43 @@ import type { HookApi } from './_hook-api';
  * cross-object TRANSITION gate: a CEL predicate reads only the record under
  * write, so the parent's actuals are summed here. Existing rows are untouched
  * (semantics rule 7); the spec's 限制 reads as a block, stated so under rule 8.
- * Actuals are summed from the children directly rather than read off the
- * parent's summary fields, so the gate does not depend on when the platform
- * materialises a rollup. Its refusal is `invalid_value` (VALIDATION_FAILED /
- * 400): the project the user picked is one this object's own rule rejects.
+ * Actuals — and the approved adjustments that move the control line — are
+ * summed from the children directly rather than read off the parent's summary
+ * fields, so the gate does not depend on when the platform materialises a
+ * rollup. Its refusal is `invalid_value` (VALIDATION_FAILED / 400): the project
+ * the user picked is one this object's own rule rejects.
+ *
+ * It refuses TWO ways, and the second one is why a create is checked at all:
+ *
+ *   1. the project is already at or past its budget — the sheet is refused
+ *      whatever it costs;
+ *   2. the project still has budget left, but LESS than this sheet costs, so
+ *      saving it would take actual cost past the budget.
+ *
+ * Only (1) existed at first, which left the gate blind on exactly the write it
+ * fires on: every sheet already stored counted, and the one being inserted
+ * counted for nothing, so the sheet that blew the budget was always accepted
+ * and only the NEXT one was refused. A first sheet costing 900,000 on a project
+ * budgeted 200,000 saved without a word.
+ *
+ * The control line is the CURRENT budget — `budget_baseline` plus the APPROVED
+ * `crm_budget_adjustment` rows, which is what `crm_delivery_project`'s own
+ * `budget_current` formula and every burn/variance figure read (step 32). It
+ * was the bare baseline until the same repair, which is why the documented way
+ * out — 「项目要先有一条审批通过的预算调整，才能再往上记工时」 — did nothing at all.
+ * A project with no budget at all (baseline 0 and no approved adjustment) has
+ * no control line, so it is not gated; that is unchanged.
+ *
+ * ⚠️ A SYSTEM write is not gated — the one exemption, and the sheet-under-write
+ * check is why it had to be written down. Seed replay writes with
+ * `isSystem: true` (`skipTriggers` suppresses flows, not hooks), and 试点交付 is
+ * seeded DELIBERATELY over its budget: two 128,000 sheets against a 200,000
+ * baseline, which is the data interception ② demonstrates. Gating that replay
+ * would refuse the second sheet and quietly seed a project that is merely at
+ * budget — the gate rewriting the fixture it is demonstrated on. The rule
+ * behind the exemption is the spec's own: 「成本超预算时限制工时填报」 restricts a
+ * PERSON booking hours, and a replay of curated rows is not one. Same reflex,
+ * and same reasoning, as `delivery_project_cost_plan_carry`.
  *
  * Every handler closes over nothing — the number, rounding and calendar
  * helpers are inline per body — so each still lowers to metadata
@@ -134,7 +167,7 @@ const timesheetBudgetGate: Hook = {
   object: 'crm_timesheet',
   events: ['beforeInsert'],
   priority: 150,
-  description: 'Refuse a new timesheet on a delivery project whose actual cost already meets its budget baseline (demo, epic #2).',
+  description: 'Refuse a new timesheet a delivery project has no budget left for — one already over budget, or one this sheet would take over (demo, epic #2).',
   handler: async (ctx: HookContext) => {
     function refuse(
       message: string,
@@ -153,23 +186,50 @@ const timesheetBudgetGate: Hook = {
       return err;
     }
     const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
+    const round2 = (v: number): number => Math.round(v * 100) / 100;
+    // Thousands separators, written out rather than delegated. MEASURED on the
+    // shipped path: `toLocaleString()` groups nothing inside the sandbox (no
+    // ICU in QuickJS), so a user read `实际 264000` while every test on a Node
+    // runtime read back `264,000` and agreed with the docs — the suite
+    // certifying a sentence production does not emit. Grouping here makes the
+    // one sentence identical on both.
+    const money = (v: number): string => {
+      const parts = String(Math.abs(round2(v))).split('.');
+      return (v < 0 ? '-' : '') + parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (parts[1] ? `.${parts[1]}` : '');
+    };
     const api = ctx.api as HookApi | undefined;
     const { input } = ctx;
+    if (ctx.session?.isSystem === true) return;
     const projectId = typeof input?.crm_delivery_project === 'string' ? input.crm_delivery_project : '';
-    if (!api || !projectId) return;
+    if (!api || !input || !projectId) return;
     const project = await api.object('crm_delivery_project').findOne({ where: { id: projectId }, fields: ['name', 'budget_baseline'] });
-    const baseline = num(project?.budget_baseline);
-    if (baseline <= 0) return;
+    const adjustments = await api.object('crm_budget_adjustment').find({ where: { crm_delivery_project: projectId, approval_status: 'approved' }, fields: ['amount'] });
+    const budget = round2(num(project?.budget_baseline) + adjustments.reduce((s, r) => s + num(r.amount), 0));
+    if (budget <= 0) return;
     const sheets = await api.object('crm_timesheet').find({ where: { crm_delivery_project: projectId }, fields: ['cost'] });
     const travel = await api.object('crm_travel_cost').find({ where: { crm_delivery_project: projectId }, fields: ['amount'] });
-    const actual = sheets.reduce((s, r) => s + num(r.cost), 0) + travel.reduce((s, r) => s + num(r.amount), 0);
-    if (actual >= baseline) {
-      const name = typeof project?.name === 'string' ? project.name : projectId;
+    const actual = round2(sheets.reduce((s, r) => s + num(r.cost), 0) + travel.reduce((s, r) => s + num(r.amount), 0));
+    const name = typeof project?.name === 'string' ? project.name : projectId;
+    if (actual >= budget) {
       throw refuse(
-        `Delivery project ${name} is over budget (actual ${actual} >= baseline ${baseline}); timesheet entry is restricted.`,
+        `Delivery project ${name} is over budget (actual ${actual} >= budget ${budget}); timesheet entry is restricted.`,
         'VALIDATION_FAILED',
         400,
-        `项目「${name}」成本已超预算（实际 ${actual.toLocaleString()} ≥ 基线 ${baseline.toLocaleString()}），工时填报已限制`,
+        `项目「${name}」成本已超预算（实际 ${money(actual)} ≥ 预算 ${money(budget)}），工时填报已限制`,
+      );
+    }
+    // The sheet under write is the one row the sum above cannot carry: it has
+    // no id yet. `cost` is already filled by `timesheet_cost_fill` (priority
+    // 100, and the engine runs hooks in ascending priority); the product is
+    // recomputed here for a caller that reaches the engine another way.
+    const incoming = input.cost === undefined || input.cost === null || input.cost === '' ? round2(num(input.hours) * num(input.hourly_rate)) : num(input.cost);
+    const projected = round2(actual + incoming);
+    if (incoming > 0 && projected > budget) {
+      throw refuse(
+        `Delivery project ${name} has ${round2(budget - actual)} of budget left; this timesheet costs ${incoming} and would take actual cost to ${projected}.`,
+        'VALIDATION_FAILED',
+        400,
+        `项目「${name}」预算剩余 ${money(budget - actual)}，本次工时成本 ${money(incoming)} 已超出剩余预算，工时填报已限制；请调减工时，或先提交预算调整并审批通过`,
       );
     }
   },

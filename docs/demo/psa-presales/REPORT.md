@@ -96,7 +96,7 @@
 | 33 | 月度工时填报（TS 填写） | 工时表：`owner_id` 填报人、`period_month` 月份、`hours` 工时、`hourly_rate` 费率标准、`cost` 人工成本（**hook 自动计算** 工时 × 费率）、`crm_presales_project` 可选（售前 TS）。**简化**：请假 / 加班同步（考勤系统集成）未做 | 新增·简化 |
 | 34 | 工时审批 | 审批流 `timesheet_approval` | 新增 |
 | 35 | 差旅成本填报 | 差旅成本：`expense_date` 发生日期、`amount` 金额、`receipt_number` 报销单据号、`description`。**简化**：与报销系统对接未做 | 新增·简化 |
-| 36 | 成本超支预警与管控 | 交付项目 `labor_actual` 人工实际、`travel_actual` 差旅实际（平台汇总字段）、`actual_cost` 实际成本、`budget_burn_pct` 预算消耗 %、`budget_variance` 预算差异（公式）；**门禁 ②** `timesheet_budget_gate`（`timesheet.hook.ts`）：实际成本 ≥ 基线的项目拒绝新工时 | 新增 |
+| 36 | 成本超支预警与管控 | 交付项目 `labor_actual` 人工实际、`travel_actual` 差旅实际（平台汇总字段）、`actual_cost` 实际成本、`budget_burn_pct` 预算消耗 %、`budget_variance` 预算差异（公式）；**门禁 ②** `timesheet_budget_gate`（`timesheet.hook.ts`）：实际成本 ≥ 当前预算的项目拒绝新工时，剩余预算不够本张工时表成本的同样拒绝 | 新增 |
 
 ### 项目报表管理（步骤 37–40）→ 数据集 `project_cost_metrics` + 仪表板 `project_cost_dashboard` 项目成本
 

@@ -136,8 +136,11 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
 
   it('found every swept call site', () => {
     // 21 since the PSA demo (epic #2): timesheet_budget_gate, travel_cost_trip_fill
-    // and the two opportunity_account_classification_gate refusals.
-    expect(sites).toHaveLength(21);
+    // and the two opportunity_account_classification_gate refusals. 22 since
+    // timesheet_budget_gate grew its second refusal — the sheet under write
+    // costs more than the project's remaining budget, as opposed to a project
+    // that was already over it.
+    expect(sites).toHaveLength(22);
   });
 
   it('uses only members of the platform ErrorCode enum', () => {
