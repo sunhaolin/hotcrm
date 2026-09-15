@@ -339,6 +339,12 @@ function activityAction(spec: ActivitySpec, objectName: string): Action {
       // \`metadata\` no longer carries the attendee list: it is a display hint
       // beside a real record now, not the record itself. ADR-0052
       // source_object/source_id is the queryable drill to the crm_event row.
+      //
+      // The console does not render that drill as a working link today — its
+      // "View source ->" href is /objects/<object>/<id>, which no route serves.
+      // The pointer is still correct and still what every query reads; the fix
+      // is the renderer's. See the same note, with the measurement, beside the
+      // sys_email pointer in contact.actions.ts.
       const summary = duration ? subject + ' (' + duration + ' min)' : subject;
       const activity = await ctx.api.object('sys_activity').insert({
         type: EVENT_STATUS === 'held' ? 'completed' : 'scheduled',
@@ -450,6 +456,14 @@ function activityAction(spec: ActivitySpec, objectName: string): Action {
       },
     ],
     successMessage: spec.successMessage,
+    // The record itself is re-read when this returns; the ACTIVITY TIMELINE is
+    // not. The console's timeline effect keys on the record identity alone, so
+    // nothing re-runs it when an action succeeds and the entry step 3 just wrote
+    // stays invisible until the page is reloaded. There is no prop or flag that
+    // changes that (RecordActivityProps carries none), so this is the whole of
+    // what the app can declare — a platform defect, measured on
+    // @objectstack/console 17.4.0. Do not chase it with a redirectUrl return or
+    // a second write; both fake a refresh and neither is the fix.
     refreshAfter: true,
   };
 }
