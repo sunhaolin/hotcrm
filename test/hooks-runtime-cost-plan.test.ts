@@ -1,0 +1,189 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+/**
+ * 成本计划 hooks (steps 27–32) against the in-memory harness: the month
+ * decomposition per category, the rate resolved per month, the lock on a
+ * plan that left draft, the month ledger's derived keys, and the adjustment
+ * amount read off two plan versions. Business facts only (AGENTS.md scope 3).
+ */
+import { describe, it, expect } from 'vitest';
+import costPlanHooks from '../src/objects/cost_plan.hook';
+import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
+
+const USER = { id: 'user_1' };
+const withResult = (ctx: Rec, result: Rec): Rec => Object.assign(ctx, { result });
+const withObject = (ctx: Rec, object: string): Rec => Object.assign(ctx, { object });
+
+const cards = () => ({
+  crm_rate_card: [
+    { id: 'rc_se_2026', name: '高级工程师', rate_standard: 'standard', hourly_rate: 800, effective_from: '2026-01-01', effective_to: '2026-06-30', is_active: true },
+    { id: 'rc_se_h2', name: '高级工程师', rate_standard: 'standard', hourly_rate: 840, effective_from: '2026-07-01', is_active: true },
+  ],
+  crm_travel_standard: [{ id: 'ts_1', lodging_per_day: 500, meal_per_day: 100, local_transport_per_day: 80, fare_per_trip: 1500 }],
+  crm_cost_plan_month: [] as Rec[],
+});
+
+describe('cost_line_decompose', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_line_decompose');
+
+  it('splits a labor line into one month per month, priced by the card effective in that month', async () => {
+    const h = makeHarness(cards());
+    const line = { id: 'l1', crm_cost_plan: 'cp1', description: '高级工程师 × 2', crm_rate_card: 'rc_se_2026', headcount: 2, hours_per_month: 160, start_month: '2026-06-01', end_month: '2026-07-01' };
+    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_labor_cost_line'));
+    const rows = h.rows('crm_cost_plan_month');
+    expect(rows.map((r) => [r.period_month, r.unit_price, r.amount])).toEqual([
+      ['2026-06-01', 800, 256_000],
+      ['2026-07-01', 840, 268_800],
+    ]);
+    expect(rows.every((r) => r.category === 'labor' && r.crm_labor_cost_line === 'l1' && r.crm_cost_plan === 'cp1' && r.is_manual === false)).toBe(true);
+    expect(rows[0]!.description).toBe('高级工程师 × 2 · 2026-06');
+  });
+
+  it('lands a 人月 service line as unit price × headcount for `duration` months', async () => {
+    const h = makeHarness(cards());
+    const line = { id: 's1', crm_cost_plan: 'cp1', description: '分包', pricing_basis: 'per_month', unit_price: 62_500, headcount: 2, duration: 3, start_month: '2026-08-01' };
+    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_service_cost_line'));
+    expect(h.rows('crm_cost_plan_month').map((r) => [r.period_month, r.amount])).toEqual([
+      ['2026-08-01', 125_000], ['2026-09-01', 125_000], ['2026-10-01', 125_000],
+    ]);
+  });
+
+  it('spreads a procurement term evenly and gives the last month the rounding remainder', async () => {
+    const h = makeHarness(cards());
+    const line = { id: 'p1', crm_cost_plan: 'cp1', description: '云资源', quantity: 1, unit_price: 100_000, start_month: '2026-09-01', end_month: '2026-11-01' };
+    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_procurement_cost_line'));
+    const amounts = h.rows('crm_cost_plan_month').map((r) => r.amount as number);
+    expect(amounts).toEqual([33_333.33, 33_333.33, 33_333.34]);
+    expect(Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100).toBe(100_000);
+  });
+
+  it('computes 差旅 from the travel standard and carries the expense type down', async () => {
+    const h = makeHarness(cards());
+    const line = { id: 'e1', crm_cost_plan: 'cp1', description: '差旅', expense_type: 'travel', crm_travel_standard: 'ts_1', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' };
+    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_expense_cost_line'));
+    const rows = h.rows('crm_cost_plan_month');
+    expect(rows.map((r) => r.amount)).toEqual([14_160, 14_160]);
+    expect(rows.every((r) => r.expense_type === 'travel' && r.category === 'expense')).toBe(true);
+  });
+
+  it('keeps a 手工调整 month, refreshes the rest, and prunes months that left the range', async () => {
+    const store = cards();
+    store.crm_cost_plan_month = [
+      { id: 'm_jun', crm_cost_plan: 'cp1', crm_labor_cost_line: 'l1', period_month: '2026-06-01', amount: 1, is_manual: true },
+      { id: 'm_jul', crm_cost_plan: 'cp1', crm_labor_cost_line: 'l1', period_month: '2026-07-01', amount: 2, is_manual: false },
+      { id: 'm_aug', crm_cost_plan: 'cp1', crm_labor_cost_line: 'l1', period_month: '2026-08-01', amount: 3, is_manual: false },
+    ];
+    const h = makeHarness(store);
+    const previous = { id: 'l1', crm_cost_plan: 'cp1', description: 'SE', crm_rate_card: 'rc_se_2026', headcount: 1, hours_per_month: 100, start_month: '2026-06-01', end_month: '2026-08-01' };
+    await hook.handler(withObject(makeCtx({ event: 'afterUpdate', input: { end_month: '2026-07-01' }, previous, user: USER, api: h.api }), 'crm_labor_cost_line'));
+    const rows = h.rows('crm_cost_plan_month');
+    expect(rows.map((r) => [r.period_month, r.amount, r.is_manual])).toEqual([
+      ['2026-06-01', 1, true],
+      ['2026-07-01', 84_000, false],
+    ]);
+    expect(h.callsFor('crm_cost_plan_month', 'delete')).toHaveLength(1);
+  });
+});
+
+describe('cost_plan_month_fill', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_plan_month_fill');
+
+  it('normalises the month, pairs the category to the line lookup, derives the amount and the unique key', async () => {
+    const input: Rec = { crm_cost_plan: 'cp1', crm_procurement_cost_line: 'p1', period_month: '2026-08-17', headcount: 1, quantity: 6, unit_price: 30_000 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER }));
+    expect(input.period_month).toBe('2026-08-01');
+    expect(input.category).toBe('procurement');
+    expect(input.amount).toBe(180_000);
+    expect(input.allocation_key).toBe('procurement:p1:2026-08');
+    expect(input.description).toBe('procurement · 2026-08');
+  });
+
+  it('marks a month a person re-priced as 手工调整, and leaves the decomposition\'s explicit flag alone', async () => {
+    const typed: Rec = { amount: 99 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input: typed, previous: { crm_labor_cost_line: 'l1', period_month: '2026-06-01', amount: 100 }, user: USER }));
+    expect(typed.is_manual).toBe(true);
+    const generated: Rec = { amount: 99, is_manual: false };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input: generated, previous: { crm_labor_cost_line: 'l1', period_month: '2026-06-01', amount: 100 }, user: USER }));
+    expect(generated.is_manual).toBe(false);
+  });
+});
+
+describe('cost_plan_lock', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_plan_lock');
+  const plans = (status: string) => ({ crm_cost_plan: [{ id: 'cp1', name: '一期计划', approval_status: status }] });
+
+  it('lets a draft plan\'s lines be written, and refuses once the plan is approved', async () => {
+    const draft = makeHarness(plans('draft'));
+    await expect(hook.handler(withObject(makeCtx({ event: 'beforeInsert', input: { crm_cost_plan: 'cp1' }, user: USER, api: draft.api }), 'crm_labor_cost_line'))).resolves.toBeUndefined();
+    const approved = makeHarness(plans('approved'));
+    const err = await hook.handler(withObject(makeCtx({ event: 'beforeUpdate', input: { headcount: 3 }, previous: { crm_cost_plan: 'cp1' }, user: USER, api: approved.api }), 'crm_labor_cost_line')).then(() => null, (e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Rec).code).toBe('RECORD_LOCKED');
+    expect((err as Rec).status).toBe(409);
+    expect((err as Rec).userMessage).toContain('一期计划');
+  });
+
+  it('passes a system write — seed replay and the approval flow — on any status', async () => {
+    const h = makeHarness(plans('superseded'));
+    await expect(hook.handler(withObject(makeCtx({ event: 'beforeInsert', input: { crm_cost_plan: 'cp1' }, session: { isSystem: true }, api: h.api }), 'crm_cost_plan_month'))).resolves.toBeUndefined();
+  });
+});
+
+describe('cost_plan_defaults', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_plan_defaults');
+
+  it('numbers the version, sets the phase from the project, and retires the version a new current one replaces', async () => {
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_delivery_project: 'dlv_1', version_no: 1, is_current: true, approval_status: 'approved' }] });
+    const input: Rec = { crm_delivery_project: 'dlv_1', is_current: true };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.phase).toBe('delivery');
+    expect(input.version_no).toBe(2);
+    expect(h.rows('crm_cost_plan')[0]).toMatchObject({ id: 'v1', is_current: false, approval_status: 'superseded' });
+  });
+
+  it('refuses a change to a frozen baseline', async () => {
+    const err = await hook.handler(makeCtx({ event: 'beforeUpdate', input: { baseline_total: 5 }, previous: { id: 'v1', name: '一期计划', baseline_total: 1_000_000 }, user: USER })).then(() => null, (e: Error) => e);
+    expect((err as Rec)?.code).toBe('RECORD_LOCKED');
+  });
+});
+
+describe('budget_adjustment_amount', () => {
+  const hook = hookNamed(costPlanHooks, 'budget_adjustment_amount');
+
+  it('reads the amount off the named version minus the version in force', async () => {
+    const h = makeHarness({ crm_cost_plan: [
+      { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, planned_total: 1_000_000 },
+      { id: 'v2', crm_delivery_project: 'dlv_1', is_current: false, planned_total: 1_150_000 },
+    ] });
+    const input: Rec = { crm_cost_plan: 'v2', reason: 'scope_change' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.amount).toBe(150_000);
+    expect(input.crm_delivery_project).toBe('dlv_1');
+  });
+});
+
+describe('cost_line_rate_fill', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_line_rate_fill');
+
+  it('copies the hourly rate from the card the labor line names, and re-copies when the card changes', async () => {
+    const h = makeHarness(cards());
+    const input: Rec = { crm_rate_card: 'rc_se_h2', headcount: 2 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(840);
+    const untouched: Rec = { headcount: 3 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input: untouched, previous: { crm_rate_card: 'rc_se_h2', hourly_rate: 840 }, user: USER, api: h.api }));
+    expect(untouched.hourly_rate).toBeUndefined();
+  });
+});
+
+describe('budget_adjustment_version_flip', () => {
+  const hook = hookNamed(costPlanHooks, 'budget_adjustment_version_flip');
+
+  it('puts the named version in force once the adjustment is approved, and only then', async () => {
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v2', is_current: false, approval_status: 'draft' }] });
+    await hook.handler(makeCtx({ event: 'afterUpdate', input: { approval_status: 'pending' }, previous: { crm_cost_plan: 'v2', approval_status: 'submitted' }, user: USER, api: h.api }));
+    expect(h.rows('crm_cost_plan')[0]).toMatchObject({ is_current: false, approval_status: 'draft' });
+    await hook.handler(makeCtx({ event: 'afterUpdate', input: { approval_status: 'approved' }, previous: { crm_cost_plan: 'v2', approval_status: 'pending' }, session: { isSystem: true }, api: h.api }));
+    expect(h.rows('crm_cost_plan')[0]).toMatchObject({ is_current: true, approval_status: 'approved' });
+  });
+});

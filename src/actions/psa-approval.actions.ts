@@ -95,3 +95,4 @@ export const TimesheetSubmitApprovalAction: Action = submitApprovalAction({ obje
 export const BudgetAdjustmentSubmitApprovalAction: Action = submitApprovalAction({ objectName: 'crm_budget_adjustment', statusField: 'approval_status', noun: '预算调整' });
 export const BusinessTripSubmitApprovalAction: Action = submitApprovalAction({ objectName: 'crm_business_trip', statusField: 'approval_status', noun: '出差申请' });
 export const LeaveRequestSubmitApprovalAction: Action = submitApprovalAction({ objectName: 'crm_leave_request', statusField: 'approval_status', noun: '请假申请' });
+export const CostPlanSubmitApprovalAction: Action = submitApprovalAction({ objectName: 'crm_cost_plan', statusField: 'approval_status', noun: '成本计划' });

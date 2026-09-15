@@ -1,11 +1,11 @@
 ---
 title: Delivery Projects
-description: The project once won — budget baseline, cost plan lines carried in from the Bizcase, budget adjustments, labor and travel actuals, burn, the finance block, and the gate that stops timesheets on an over-budget project.
+description: The project once won — budget baseline, the cost plan imported from the Bizcase, budget adjustments, labor and travel actuals, burn, the finance block, and the gate that stops timesheets on an over-budget project.
 ---
 
 # Delivery Projects
 
-A **delivery project** (交付项目, `crm_delivery_project`) is the project that gets built once the deal is won. It links back to the presales project, the opportunity, the account and the sales contract, and it is the record everything else in this module rolls up to: **cost plan lines**, **budget adjustments**, timesheets, travel costs, invoices, collections, purchase contracts and sales orders.
+A **delivery project** (交付项目, `crm_delivery_project`) is the project that gets built once the deal is won. It links back to the presales project, the opportunity, the account and the sales contract, and it is the record everything else in this module rolls up to: the [**cost plan**](/docs/projects/cost-plans), **budget adjustments**, timesheets, travel costs, invoices, collections, purchase contracts and sales orders.
 
 ## What a delivery project record stores
 
@@ -21,29 +21,27 @@ A **delivery project** (交付项目, `crm_delivery_project`) is the project tha
 Most of the money fields are **rollups or formulas** and cannot be typed in:
 
 - **Approved Adjustments** sums the *approved* budget adjustments; **Current Budget** is the baseline plus that sum.
-- **Planned Total** sums the cost plan lines; **Labor Actual** sums the cost of *approved* timesheets; **Travel Actual** sums the travel costs booked to the project; **Actual Cost** adds the two; **Budget Burn %** is actual over baseline.
+- **Planned Total** is the total of the project's *current* [cost plan](/docs/projects/cost-plans) version; **Labor Actual** sums the cost of *approved* timesheets; **Travel Actual** sums the travel costs booked to the project; **Actual Cost** adds the two; **Budget Burn %** is actual over baseline.
 - **Revenue Recognized** is contract amount × progress %; **Receivable Balance** is invoiced minus collected; **Project Gross Margin %** is (contract amount − actual cost) ÷ contract amount.
 - **Invoiced Total** excludes *void* invoices and **Purchase Contracts Total** excludes *terminated* contracts, so a cancelled document stops counting the moment its status changes.
 
-## Cost plan lines
+## The cost plan
 
-A **cost plan line** (成本计划行, `crm_cost_plan_line`) is one budgeted item on the project: a category (labor, third-party service, procurement, expense), a description, quantity, unit price and planned amount. Lines are edited on the delivery project's record page — they have no sidebar entry and no visibility of their own: a line is *Controlled by Parent*, so whoever can see the project sees its lines.
-
-On a **labor** line, picking a grade from the [rate card](/docs/projects/master-data) fills the unit price from that card (`cost_plan_line_fill`); the planned amount then follows quantity × unit price.
+A delivery project's budget is planned on its [**cost plan**](/docs/projects/cost-plans): four line families (labor, third-party service, procurement, expense), each split by the system into a month ledger, versioned so that an approved plan is never edited in place. **Import Bizcase Budget** on the project creates version 1 from the approved presales Bizcase and freezes the baseline; **Planned Total** on the project reads the version currently in force.
 
 ## Budget adjustments
 
-A **budget adjustment** (预算调整, `crm_budget_adjustment`) asks for more (or less) budget on one project: an amount, a reason (*scope change, schedule extension, rate change, risk response, other*) and an analysis. It is approved by the **预算调整审批** flow — **Submit for Approval** on the record, a finance lead decides — and only an *approved* adjustment moves the project's Current Budget. A draft or rejected one changes nothing.
+A **budget adjustment** (预算调整, `crm_budget_adjustment`) asks for more (or less) budget on one project: a reason (*scope change, schedule extension, rate change, risk response, other*), an analysis, and — the normal case — the new cost plan version it puts in force, from which its amount is read (new total minus the version in force). An adjustment with no version names an amount directly. It is approved by the **预算调整审批** flow — **Submit for Approval** on the record, a finance lead decides — and only an *approved* adjustment moves the project's Current Budget and makes its plan version current. A draft or rejected one changes nothing.
 
 ## What the system does automatically
 
 ### On create — defaults from the Bizcase
-When a delivery project is created with a presales project and **no budget baseline**, the baseline is taken from that presales project's Total Cost, and the contract amount from the sales contract's value (`delivery_project_defaults`). Type a baseline yourself and it is kept.
+When a delivery project is created with a presales project and **no budget baseline**, the baseline defaults to that presales project's Total Cost, and the contract amount to the sales contract's value (`delivery_project_defaults`). Type a baseline yourself and it is kept. The baseline that counts is the one **Import Bizcase Budget** freezes together with cost plan v1 — see below.
 
 The same step fills the **Opportunity** and the **Account** from that presales project when you leave them empty (the Account also follows a sales contract). Both are filled when the record is saved, not when you pick the presales project, so the two pickers stay empty on screen until you create the record — open it afterwards and they are set. Pick either one yourself and your choice is kept.
 
-### On create — the cost plan carried in
-Right after that, when the presales project is *approved* and the baseline is exactly its Total Cost, the four Bizcase cost lines are carried in as four cost plan lines — labor, third-party service, procurement, expense — each with the Bizcase amount (`delivery_project_cost_plan_carry`). Nothing is carried for an unapproved Bizcase, for a baseline typed by hand, or for a system write such as a seed replay.
+### Importing the Bizcase
+**Import Bizcase Budget** at the top of the record — the requirement's step 27 — takes the presales project's current Bizcase cost plan, which must be *approved*, clones it as this project's cost plan v1 with every line and month, and writes the Bizcase total as the plan's frozen baseline and the project's Budget Baseline. It refuses a project that already has a plan, a presales project that is not approved, and a Bizcase with no plan. Seeds and other system writes never trigger it.
 
 ### The budget gate
 A timesheet cannot be booked against a project whose **Actual Cost has reached its Current Budget**: the save is refused with the project's name and both figures — *项目「…」成本已超预算（实际 … ≥ 预算 …），工时填报已限制*. Nor can one the remaining budget does not cover: a sheet costing more than **Current Budget − Actual Cost** is refused on create — *项目「…」预算剩余 …，本次工时成本 … 已超出剩余预算，工时填报已限制；请调减工时，或先提交预算调整并审批通过*. The gate measures against the **current** budget, so the way out is a budget adjustment, approved, which raises it; see [Timesheets & Leave](/docs/projects/timesheets-and-leave).
@@ -53,10 +51,10 @@ The project is approved by the **交付立项审批** flow, from the **Submit fo
 
 ## Sharing
 
-Delivery projects are **private**, like presales projects: the owner and the project roles named on the record read it through ownership only if they own it — a role lookup grants nothing by itself. The Sales Manager and the System Administrator read all. Every child that is *Controlled by Parent* (cost plan lines, travel costs, budget adjustments, invoices, collections, purchase contracts, sales orders) follows the project's own visibility. A [timesheet](/docs/projects/timesheets-and-leave) does not: the project is optional on a sheet, so a sheet is private to the person who filed it.
+Delivery projects are **private**, like presales projects: the owner and the project roles named on the record read it through ownership only if they own it — a role lookup grants nothing by itself. The Sales Manager and the System Administrator read all. Every child that is *Controlled by Parent* (travel costs, budget adjustments, invoices, collections, purchase contracts, sales orders) follows the project's own visibility; the [cost plan](/docs/projects/cost-plans) is a private record of its cost manager, and its lines follow the plan. A [timesheet](/docs/projects/timesheets-and-leave) does not: the project is optional on a sheet, so a sheet is private to the person who filed it.
 
 ## Tips for project managers
 
-- ✅ **Leave the baseline blank on the first save** so the Bizcase figure and its four lines come in; you can adjust the lines afterwards.
+- ✅ **Import the Bizcase once the project is open**, then refine the plan's lines and months on its own record; the frozen baseline stays put.
 - ✅ **Watch Budget Burn % on the [Project Cost dashboard](/docs/analytics/dashboards)** — a project at 100% is a project nobody can book hours to.
 - ✅ **Close the project** (*Closed*) once the last invoice is collected; closed projects stay in the dashboards' totals.

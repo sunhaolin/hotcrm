@@ -112,7 +112,12 @@ describe('one ownership column, and it is `owner_id`', () => {
       ['crm_product',               'shared catalog, public_read'],
       // PSA demo (epic #2): a plan line is a child of its delivery project; rate
       // cards and contracting entities are shared master data every seller reads.
-      ['crm_cost_plan_line',        'controlled_by_parent'],
+      ['crm_labor_cost_line',       'controlled_by_parent'],
+      ['crm_service_cost_line',     'controlled_by_parent'],
+      ['crm_procurement_cost_line', 'controlled_by_parent'],
+      ['crm_expense_cost_line',     'controlled_by_parent'],
+      ['crm_cost_plan_month',       'controlled_by_parent'],
+      ['crm_travel_standard',       'shared master data, public_read_write'],
       ['crm_rate_card',             'shared master data, public_read_write'],
       ['crm_legal_entity',          'shared master data, public_read_write'],
     ]);

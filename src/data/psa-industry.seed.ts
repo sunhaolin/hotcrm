@@ -33,7 +33,11 @@ import { Opportunity } from '../objects/opportunity.object';
 import { Contract } from '../objects/contract.object';
 import { PresalesProject } from '../objects/presales_project.object';
 import { DeliveryProject } from '../objects/delivery_project.object';
-import { CostPlanLine } from '../objects/cost_plan_line.object';
+import { CostPlan } from '../objects/cost_plan.object';
+import { LaborCostLine } from '../objects/labor_cost_line.object';
+import { ServiceCostLine } from '../objects/service_cost_line.object';
+import { ProcurementCostLine } from '../objects/procurement_cost_line.object';
+import { ExpenseCostLine } from '../objects/expense_cost_line.object';
 import { Timesheet } from '../objects/timesheet.object';
 import { TravelCost } from '../objects/travel_cost.object';
 import { BusinessTrip } from '../objects/business_trip.object';
@@ -202,13 +206,13 @@ export const industryPresalesProjects = defineSeed(PresalesProject, {
   mode: 'upsert',
   externalId: 'name',
   records: [
-    { name: PSP_BC, alias: 'BC-MES2-PS', crm_opportunity: OPP_BC, crm_account: BC, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(90), planned_end: celDaysAgo(35), expected_contract_amount: 2600000, labor_cost: 1300000, third_party_service_cost: 300000, procurement_cost: 200000, project_expense: 60000, quote_amount: 2600000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 186 万，报价 260 万，毛利率 28.5%。MES 一期团队续作，产线集成分包。' },
-    { name: PSP_CJ, alias: 'CJ-DMS-PS', crm_opportunity: OPP_CJ, crm_account: CJ, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(120), planned_end: celDaysAgo(55), expected_contract_amount: 3200000, labor_cost: 1400000, third_party_service_cost: 350000, procurement_cost: 250000, project_expense: 80000, quote_amount: 3200000, security_class: 'confidential', security_note: '涉及经销商销售数据，签署保密协议。', approval_status: 'approved', description: 'Bizcase：总成本 208 万，报价 320 万，毛利率 35%。' },
-    { name: PSP_JN, alias: 'JN-GMP-PS', crm_opportunity: OPP_JN, crm_account: JN, project_type: 'software_development', business_category: 'manufacturing', planned_start: celDaysAgo(15), planned_end: celDaysFromNow(30), expected_contract_amount: 2400000, labor_cost: 1100000, third_party_service_cost: 200000, procurement_cost: 150000, project_expense: 50000, quote_amount: 2400000, security_class: 'confidential', security_note: 'GMP 记录属受监管数据，开发环境使用脱敏数据。', approval_status: 'draft', description: 'Bizcase 编制中：总成本 150 万，报价 240 万，毛利率 37.5%（演示：可现场发起审批）。' },
-    { name: PSP_ZY, alias: 'ZY-MB5-PS', crm_opportunity: OPP_ZY, crm_account: ZY, project_type: 'software_development', business_category: 'finance', planned_start: celDaysAgo(80), planned_end: celDaysFromNow(10), expected_contract_amount: 5600000, labor_cost: 2600000, third_party_service_cost: 600000, procurement_cost: 500000, project_expense: 120000, quote_amount: 5600000, security_class: 'secret', security_note: '银行客户数据，投标文件与方案受控发放。', approval_status: 'approved', description: 'Bizcase：总成本 382 万，报价 560 万，毛利率 31.8%。渗透测试分包。' },
-    { name: PSP_TQ, alias: 'TQ-TMS-PS', crm_opportunity: OPP_TQ, crm_account: TQ, project_type: 'implementation', business_category: 'government_enterprise', planned_start: celDaysAgo(270), planned_end: celDaysAgo(210), expected_contract_amount: 1800000, labor_cost: 800000, third_party_service_cost: 200000, procurement_cost: 150000, project_expense: 50000, quote_amount: 1800000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 120 万，报价 180 万，毛利率 33.3%。' },
-    { name: PSP_XH, alias: 'XH-ARCH-PS', crm_opportunity: OPP_XH, crm_account: XH, project_type: 'consulting', business_category: 'finance', planned_start: celDaysAgo(100), planned_end: celDaysAgo(75), expected_contract_amount: 450000, labor_cost: 280000, third_party_service_cost: 0, procurement_cost: 0, project_expense: 20000, quote_amount: 450000, security_class: 'confidential', approval_status: 'approved', description: 'Bizcase：总成本 30 万，报价 45 万，毛利率 33.3%。两名架构师 8 周。' },
-    { name: PSP_HDL, alias: 'HDL-OPS-PS', crm_opportunity: OPP_HDL, crm_account: HDL, project_type: 'operations', business_category: 'government_enterprise', planned_start: celDaysAgo(50), planned_end: celDaysAgo(25), expected_contract_amount: 900000, labor_cost: 600000, third_party_service_cost: 0, procurement_cost: 0, project_expense: 30000, quote_amount: 900000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 63 万，报价 90 万，毛利率 30%。一名驻场工程师 + 7×24 值守轮班。' },
+    { name: PSP_BC, alias: 'BC-MES2-PS', crm_opportunity: OPP_BC, crm_account: BC, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(90), planned_end: celDaysAgo(35), expected_contract_amount: 2600000, quote_amount: 2600000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 185 万，报价 260 万，毛利率 28.8%。MES 一期团队续作，产线集成分包。' },
+    { name: PSP_CJ, alias: 'CJ-DMS-PS', crm_opportunity: OPP_CJ, crm_account: CJ, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(120), planned_end: celDaysAgo(55), expected_contract_amount: 3200000, quote_amount: 3200000, security_class: 'confidential', security_note: '涉及经销商销售数据，签署保密协议。', approval_status: 'approved', description: 'Bizcase：总成本 215.5 万，报价 320 万，毛利率 32.6%。' },
+    { name: PSP_JN, alias: 'JN-GMP-PS', crm_opportunity: OPP_JN, crm_account: JN, project_type: 'software_development', business_category: 'manufacturing', planned_start: celDaysAgo(15), planned_end: celDaysFromNow(30), expected_contract_amount: 2400000, quote_amount: 2400000, security_class: 'confidential', security_note: 'GMP 记录属受监管数据，开发环境使用脱敏数据。', approval_status: 'draft', description: 'Bizcase：总成本 145.7 万，报价 240 万，毛利率 39.3%（演示：可现场发起审批）。' },
+    { name: PSP_ZY, alias: 'ZY-MB5-PS', crm_opportunity: OPP_ZY, crm_account: ZY, project_type: 'software_development', business_category: 'finance', planned_start: celDaysAgo(80), planned_end: celDaysFromNow(10), expected_contract_amount: 5600000, quote_amount: 5600000, security_class: 'secret', security_note: '银行客户数据，投标文件与方案受控发放。', approval_status: 'approved', description: 'Bizcase：总成本 344.6 万，报价 560 万，毛利率 38.5%。渗透测试分包。' },
+    { name: PSP_TQ, alias: 'TQ-TMS-PS', crm_opportunity: OPP_TQ, crm_account: TQ, project_type: 'implementation', business_category: 'government_enterprise', planned_start: celDaysAgo(270), planned_end: celDaysAgo(210), expected_contract_amount: 1800000, quote_amount: 1800000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 136.9 万，报价 180 万，毛利率 24.0%。' },
+    { name: PSP_XH, alias: 'XH-ARCH-PS', crm_opportunity: OPP_XH, crm_account: XH, project_type: 'consulting', business_category: 'finance', planned_start: celDaysAgo(100), planned_end: celDaysAgo(75), expected_contract_amount: 450000, quote_amount: 450000, security_class: 'confidential', approval_status: 'approved', description: 'Bizcase：总成本 30.7 万，报价 45 万，毛利率 31.8%。两名架构师 8 周。' },
+    { name: PSP_HDL, alias: 'HDL-OPS-PS', crm_opportunity: OPP_HDL, crm_account: HDL, project_type: 'operations', business_category: 'government_enterprise', planned_start: celDaysAgo(50), planned_end: celDaysAgo(25), expected_contract_amount: 900000, quote_amount: 900000, security_class: 'internal', approval_status: 'approved', description: 'Bizcase：总成本 60.6 万，报价 90 万，毛利率 32.7%。一名驻场工程师 + 7×24 值守轮班。' },
   ],
 });
 
@@ -216,13 +220,13 @@ export const industryDeliveryProjects = defineSeed(DeliveryProject, {
   mode: 'upsert',
   externalId: 'name',
   records: [
-    // No `budget_baseline` here on purpose: delivery_project_defaults imports
-    // the presales Bizcase total (1,860,000) — the step-27 behaviour, seeded.
-    { name: DLV_BC, alias: 'BC-MES2-D1', crm_presales_project: PSP_BC, crm_opportunity: OPP_BC, crm_account: BC, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(28), planned_end: celDaysFromNow(240), status: 'active', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_manufacturing', security_class: 'internal', approval_status: 'approved', crm_contract: CT_BC, progress_pct: 45 },
-    { name: DLV_CJ, alias: 'CJ-DMS-D1', crm_presales_project: PSP_CJ, crm_opportunity: OPP_CJ, crm_account: CJ, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(25), planned_end: celDaysFromNow(300), status: 'active', impl_cost_center: 'dc_south', accounting_cost_center: 'dc_south', department: 'bu_manufacturing', budget_baseline: 2080000, security_class: 'confidential', approval_status: 'approved', crm_contract: CT_CJ, progress_pct: 20 },
-    { name: DLV_TQ, alias: 'TQ-TMS-D1', crm_presales_project: PSP_TQ, crm_opportunity: OPP_TQ, crm_account: TQ, project_type: 'implementation', business_category: 'government_enterprise', planned_start: celDaysAgo(195), planned_end: celDaysAgo(30), status: 'closed', impl_cost_center: 'dc_south', accounting_cost_center: 'dc_south', department: 'bu_government', budget_baseline: 1200000, security_class: 'internal', approval_status: 'approved', crm_contract: CT_TQ, progress_pct: 100 },
-    { name: DLV_HDL, alias: 'HDL-OPS-2026', crm_presales_project: PSP_HDL, crm_opportunity: OPP_HDL, crm_account: HDL, project_type: 'operations', business_category: 'government_enterprise', planned_start: celDaysAgo(18), planned_end: celDaysFromNow(347), status: 'active', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_government', budget_baseline: 630000, security_class: 'internal', approval_status: 'approved', crm_contract: CT_HDL, progress_pct: 15 },
-    { name: DLV_XH, alias: 'XH-ARCH-D1', crm_presales_project: PSP_XH, crm_opportunity: OPP_XH, crm_account: XH, project_type: 'consulting', business_category: 'finance', planned_start: celDaysAgo(68), planned_end: celDaysAgo(12), status: 'closed', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_finance', budget_baseline: 300000, security_class: 'confidential', approval_status: 'approved', crm_contract: CT_XH, progress_pct: 100 },
+    // `budget_baseline` is each project's Bizcase total, the figure 导入 Bizcase
+    // 预算 freezes (step 27); the plan v1 below carries the same baseline_total.
+    { name: DLV_BC, alias: 'BC-MES2-D1', crm_presales_project: PSP_BC, crm_opportunity: OPP_BC, crm_account: BC, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(28), planned_end: celDaysFromNow(240), status: 'active', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_manufacturing', budget_baseline: 1849920, security_class: 'internal', approval_status: 'approved', crm_contract: CT_BC, progress_pct: 45 },
+    { name: DLV_CJ, alias: 'CJ-DMS-D1', crm_presales_project: PSP_CJ, crm_opportunity: OPP_CJ, crm_account: CJ, project_type: 'implementation', business_category: 'manufacturing', planned_start: celDaysAgo(25), planned_end: celDaysFromNow(300), status: 'active', impl_cost_center: 'dc_south', accounting_cost_center: 'dc_south', department: 'bu_manufacturing', budget_baseline: 2155200, security_class: 'confidential', approval_status: 'approved', crm_contract: CT_CJ, progress_pct: 20 },
+    { name: DLV_TQ, alias: 'TQ-TMS-D1', crm_presales_project: PSP_TQ, crm_opportunity: OPP_TQ, crm_account: TQ, project_type: 'implementation', business_category: 'government_enterprise', planned_start: celDaysAgo(195), planned_end: celDaysAgo(30), status: 'closed', impl_cost_center: 'dc_south', accounting_cost_center: 'dc_south', department: 'bu_government', budget_baseline: 1368700, security_class: 'internal', approval_status: 'approved', crm_contract: CT_TQ, progress_pct: 100 },
+    { name: DLV_HDL, alias: 'HDL-OPS-2026', crm_presales_project: PSP_HDL, crm_opportunity: OPP_HDL, crm_account: HDL, project_type: 'operations', business_category: 'government_enterprise', planned_start: celDaysAgo(18), planned_end: celDaysFromNow(347), status: 'active', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_government', budget_baseline: 606000, security_class: 'internal', approval_status: 'approved', crm_contract: CT_HDL, progress_pct: 15 },
+    { name: DLV_XH, alias: 'XH-ARCH-D1', crm_presales_project: PSP_XH, crm_opportunity: OPP_XH, crm_account: XH, project_type: 'consulting', business_category: 'finance', planned_start: celDaysAgo(68), planned_end: celDaysAgo(12), status: 'closed', impl_cost_center: 'dc_east', accounting_cost_center: 'dc_east', department: 'bu_finance', budget_baseline: 306880, security_class: 'confidential', approval_status: 'approved', crm_contract: CT_XH, progress_pct: 100 },
   ],
 });
 
@@ -241,33 +245,135 @@ export const industryBusinessTrips = defineSeed(BusinessTrip, {
   ],
 });
 
-const m = (daysAgo: number) => celDaysAgo(daysAgo);
+// Cost plans (steps 27–31): one Bizcase per presales project, and the delivery
+// plan v1 imported from it on every delivery project. Lines only — the month
+// ledger is generated by `cost_line_decompose`; 江南 GMP stays a draft Bizcase.
+const PLAN_BC_BIZCASE = '北辰 MES 二期 · Bizcase 成本计划 v1';
+const PLAN_BC_DELIVERY = '北辰 MES 二期 · 交付成本计划 v1';
+const PLAN_CJ_BIZCASE = '长江 DMS · Bizcase 成本计划 v1';
+const PLAN_CJ_DELIVERY = '长江 DMS · 交付成本计划 v1';
+const PLAN_JN_BIZCASE = '江南 GMP · Bizcase 成本计划 v1';
+const PLAN_ZY_BIZCASE = '中原手机银行 5.0 · Bizcase 成本计划 v1';
+const PLAN_TQ_BIZCASE = '天启 TMS · Bizcase 成本计划 v1';
+const PLAN_TQ_DELIVERY = '天启 TMS · 交付成本计划 v1';
+const PLAN_XH_BIZCASE = '星海架构咨询 · Bizcase 成本计划 v1';
+const PLAN_XH_DELIVERY = '星海架构咨询 · 交付成本计划 v1';
+const PLAN_HDL_BIZCASE = '华东电力运维 · Bizcase 成本计划 v1';
+const PLAN_HDL_DELIVERY = '华东电力运维 · 交付成本计划 v1';
 
-export const industryCostPlanLines = defineSeed(CostPlanLine, {
+export const industryCostPlans = defineSeed(CostPlan, {
   mode: 'upsert',
-  externalId: 'description',
+  externalId: 'name',
   records: [
-    { crm_delivery_project: DLV_BC, category: 'labor', crm_rate_card: '项目经理', period_month: m(75), description: '人工 · 北辰二期 · 项目经理 · 第 1 月', quantity: 160, unit_price: 900, planned_amount: 144000 },
-    { crm_delivery_project: DLV_BC, category: 'labor', crm_rate_card: '高级工程师', period_month: m(75), description: '人工 · 北辰二期 · 高级工程师 × 2 · 第 1 月', quantity: 320, unit_price: 800, planned_amount: 256000 },
-    { crm_delivery_project: DLV_BC, category: 'labor', crm_rate_card: '工程师', period_month: m(45), description: '人工 · 北辰二期 · 工程师 × 2 · 第 2 月', quantity: 320, unit_price: 600, planned_amount: 192000 },
-    { crm_delivery_project: DLV_BC, category: 'third_party_service', period_month: m(45), description: '第三方 · 北辰二期 · 产线集成分包 · 第 2 月', quantity: 1, unit_price: 160000, planned_amount: 160000 },
-    { crm_delivery_project: DLV_BC, category: 'procurement', period_month: m(75), description: '采购 · 北辰二期 · 数据采集网关 · 第 1 月', quantity: 6, unit_price: 30000, planned_amount: 180000 },
-    { crm_delivery_project: DLV_BC, category: 'expense', period_month: m(75), description: '费用 · 北辰二期 · 差旅与驻场 · 第 1 月', quantity: 1, unit_price: 20000, planned_amount: 20000 },
-    { crm_delivery_project: DLV_CJ, category: 'labor', crm_rate_card: '架构师', period_month: m(15), description: '人工 · 长江 DMS · 架构师 · 第 1 月', quantity: 80, unit_price: 1000, planned_amount: 80000 },
-    { crm_delivery_project: DLV_CJ, category: 'labor', crm_rate_card: '高级工程师', period_month: m(15), description: '人工 · 长江 DMS · 高级工程师 × 3 · 第 1 月', quantity: 480, unit_price: 800, planned_amount: 384000 },
-    { crm_delivery_project: DLV_CJ, category: 'third_party_service', period_month: m(15), description: '第三方 · 长江 DMS · 地图与短信服务 · 第 1 月', quantity: 1, unit_price: 40000, planned_amount: 40000 },
-    { crm_delivery_project: DLV_CJ, category: 'expense', period_month: m(15), description: '费用 · 长江 DMS · 差旅 · 第 1 月', quantity: 1, unit_price: 15000, planned_amount: 15000 },
-    { crm_delivery_project: DLV_TQ, category: 'labor', crm_rate_card: '项目经理', period_month: m(190), description: '人工 · 天启 TMS · 项目经理 · 第 1 月', quantity: 160, unit_price: 900, planned_amount: 144000 },
-    { crm_delivery_project: DLV_TQ, category: 'labor', crm_rate_card: '工程师', period_month: m(190), description: '人工 · 天启 TMS · 工程师 × 2 · 第 1 月', quantity: 320, unit_price: 600, planned_amount: 192000 },
-    { crm_delivery_project: DLV_TQ, category: 'procurement', period_month: m(160), description: '采购 · 天启 TMS · 车载 GPS 终端 · 第 2 月', quantity: 300, unit_price: 500, planned_amount: 150000 },
-    { crm_delivery_project: DLV_TQ, category: 'expense', period_month: m(60), description: '费用 · 天启 TMS · 上线驻场 · 第 5 月', quantity: 1, unit_price: 40000, planned_amount: 40000 },
-    { crm_delivery_project: DLV_HDL, category: 'labor', crm_rate_card: '工程师', period_month: m(15), description: '人工 · 华东电力运维 · 驻场工程师 · 第 1 月', quantity: 160, unit_price: 600, planned_amount: 96000 },
-    { crm_delivery_project: DLV_HDL, category: 'expense', period_month: m(15), description: '费用 · 华东电力运维 · 值守补贴 · 第 1 月', quantity: 1, unit_price: 6000, planned_amount: 6000 },
-    { crm_delivery_project: DLV_XH, category: 'labor', crm_rate_card: '架构师', period_month: m(70), description: '人工 · 星海咨询 · 架构师 × 2 · 第 1 月', quantity: 160, unit_price: 1000, planned_amount: 160000 },
-    { crm_delivery_project: DLV_XH, category: 'labor', crm_rate_card: '架构师', period_month: m(40), description: '人工 · 星海咨询 · 架构师 · 第 2 月', quantity: 120, unit_price: 1000, planned_amount: 120000 },
+    { name: PLAN_BC_BIZCASE, crm_presales_project: PSP_BC, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_BC_DELIVERY, crm_delivery_project: DLV_BC, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 1849920, approval_status: 'approved' },
+    { name: PLAN_CJ_BIZCASE, crm_presales_project: PSP_CJ, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_CJ_DELIVERY, crm_delivery_project: DLV_CJ, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 2155200, approval_status: 'approved' },
+    { name: PLAN_JN_BIZCASE, crm_presales_project: PSP_JN, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'draft' },
+    { name: PLAN_ZY_BIZCASE, crm_presales_project: PSP_ZY, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_TQ_BIZCASE, crm_presales_project: PSP_TQ, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_TQ_DELIVERY, crm_delivery_project: DLV_TQ, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 1368700, approval_status: 'approved' },
+    { name: PLAN_XH_BIZCASE, crm_presales_project: PSP_XH, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_XH_DELIVERY, crm_delivery_project: DLV_XH, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 306880, approval_status: 'approved' },
+    { name: PLAN_HDL_BIZCASE, crm_presales_project: PSP_HDL, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved' },
+    { name: PLAN_HDL_DELIVERY, crm_delivery_project: DLV_HDL, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 606000, approval_status: 'approved' },
   ],
 });
 
+export const industryLaborCostLines = defineSeed(LaborCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 160, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 工程师 × 2', crm_rate_card: '工程师', headcount: 2, hours_per_month: 150, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 160, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 工程师 × 2', crm_rate_card: '工程师', headcount: 2, hours_per_month: 150, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 架构师', crm_rate_card: '架构师', headcount: 1, hours_per_month: 80, start_month: '2026-09-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 高级工程师 × 3', crm_rate_card: '高级工程师', headcount: 3, hours_per_month: 160, start_month: '2026-09-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 架构师', crm_rate_card: '架构师', headcount: 1, hours_per_month: 80, start_month: '2026-09-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 高级工程师 × 3', crm_rate_card: '高级工程师', headcount: 3, hours_per_month: 160, start_month: '2026-09-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 高级工程师 × 2', crm_rate_card: '高级工程师', headcount: 2, hours_per_month: 160, start_month: '2026-10-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 数据工程师', crm_rate_card: '数据工程师', headcount: 1, hours_per_month: 80, start_month: '2026-10-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 40, start_month: '2026-10-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 架构师', crm_rate_card: '架构师', headcount: 1, hours_per_month: 80, start_month: '2026-10-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 高级工程师 × 2', crm_rate_card: '高级工程师', headcount: 2, hours_per_month: 160, start_month: '2026-10-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 120, start_month: '2026-10-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 100, start_month: '2026-03-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 工程师', crm_rate_card: '工程师', headcount: 1, hours_per_month: 160, start_month: '2026-03-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 100, start_month: '2026-03-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 工程师', crm_rate_card: '工程师', headcount: 1, hours_per_month: 160, start_month: '2026-03-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_XH_BIZCASE, description: 'Bizcase · 星海咨询 · 架构师 × 2', crm_rate_card: '架构师', headcount: 2, hours_per_month: 70, start_month: '2026-07-01', end_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_XH_DELIVERY, description: '交付 · 星海咨询 · 架构师 × 2', crm_rate_card: '架构师', headcount: 2, hours_per_month: 70, start_month: '2026-07-01', end_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_HDL_BIZCASE, description: 'Bizcase · 华东电力运维 · 驻场工程师', crm_rate_card: '工程师', headcount: 1, hours_per_month: 80, start_month: '2026-09-01', end_month: '2027-08-01' },
+    { crm_cost_plan: PLAN_HDL_DELIVERY, description: '交付 · 华东电力运维 · 驻场工程师', crm_rate_card: '工程师', headcount: 1, hours_per_month: 80, start_month: '2026-09-01', end_month: '2027-08-01' },
+  ],
+});
+
+export const industryServiceCostLines = defineSeed(ServiceCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 产线集成分包', vendor: '苏州智造工程', pricing_basis: 'lump_sum', unit_price: 300000, headcount: 1, start_month: '2026-09-01', end_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 产线集成分包', vendor: '苏州智造工程', pricing_basis: 'lump_sum', unit_price: 300000, headcount: 1, start_month: '2026-09-01', end_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 地图与短信服务', vendor: '云图信息', pricing_basis: 'per_month', unit_price: 35000, headcount: 1, start_month: '2026-09-01', duration: 10 },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 地图与短信服务', vendor: '云图信息', pricing_basis: 'per_month', unit_price: 35000, headcount: 1, start_month: '2026-09-01', duration: 10 },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 验证顾问', vendor: '合规咨询', pricing_basis: 'per_day', unit_price: 5000, headcount: 1, start_month: '2026-11-01', duration: 40, end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 渗透测试分包', vendor: '安鉴安全', pricing_basis: 'lump_sum', unit_price: 600000, headcount: 1, start_month: '2027-01-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 电子面单接口', vendor: '速通数据', pricing_basis: 'per_month', unit_price: 40000, headcount: 1, start_month: '2026-03-01', duration: 5 },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 电子面单接口', vendor: '速通数据', pricing_basis: 'per_month', unit_price: 40000, headcount: 1, start_month: '2026-03-01', duration: 5 },
+  ],
+});
+
+export const industryProcurementCostLines = defineSeed(ProcurementCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 数据采集网关', procurement_category: 'hardware', quantity: 6, unit_price: 30000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 边缘计算节点', procurement_category: 'hardware', quantity: 1, unit_price: 20000, start_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 数据采集网关', procurement_category: 'hardware', quantity: 6, unit_price: 30000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 边缘计算节点', procurement_category: 'hardware', quantity: 1, unit_price: 20000, start_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 经销商终端', procurement_category: 'hardware', quantity: 50, unit_price: 3000, start_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 云资源（年）', procurement_category: 'cloud_service', quantity: 1, unit_price: 100000, start_month: '2026-09-01', end_month: '2027-08-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 经销商终端', procurement_category: 'hardware', quantity: 50, unit_price: 3000, start_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 云资源（年）', procurement_category: 'cloud_service', quantity: 1, unit_price: 100000, start_month: '2026-09-01', end_month: '2027-08-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 数据库许可', procurement_category: 'software_license', quantity: 3, unit_price: 50000, start_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 移动安全组件', procurement_category: 'software_license', quantity: 1, unit_price: 300000, start_month: '2026-10-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 测试真机', procurement_category: 'hardware', quantity: 40, unit_price: 5000, start_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 车载 GPS 终端', procurement_category: 'hardware', quantity: 300, unit_price: 500, start_month: '2026-04-01' },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 车载 GPS 终端', procurement_category: 'hardware', quantity: 300, unit_price: 500, start_month: '2026-04-01' },
+  ],
+});
+
+export const industryExpenseCostLines = defineSeed(ExpenseCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 8, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_BIZCASE, description: 'Bizcase · 北辰二期 · 驻场与会议', expense_type: 'meeting', budget_amount: 12000, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 8, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_BC_DELIVERY, description: '交付 · 北辰二期 · 驻场与会议', expense_type: 'meeting', budget_amount: 12000, start_month: '2026-08-01', end_month: '2026-11-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 10, travelers: 2, days: 4, start_month: '2026-09-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_CJ_BIZCASE, description: 'Bizcase · 长江 DMS · 培训', expense_type: 'training', budget_amount: 20000, start_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 10, travelers: 2, days: 4, start_month: '2026-09-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_CJ_DELIVERY, description: '交付 · 长江 DMS · 培训', expense_type: 'training', budget_amount: 20000, start_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 6, travelers: 2, days: 3, start_month: '2026-10-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_JN_BIZCASE, description: 'Bizcase · 江南 GMP · 办公与通讯', expense_type: 'office', budget_amount: 8000, start_month: '2026-10-01', end_month: '2026-12-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 差旅', expense_type: 'travel', crm_travel_standard: '二线城市标准', trips: 12, travelers: 3, days: 4, start_month: '2026-10-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_ZY_BIZCASE, description: 'Bizcase · 中原手机银行 · 业务招待', expense_type: 'entertainment', budget_amount: 12000, start_month: '2026-10-01', end_month: '2027-02-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 上线驻场差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 5, travelers: 3, days: 6, start_month: '2026-06-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_BIZCASE, description: 'Bizcase · 天启 TMS · 验收会议', expense_type: 'meeting', budget_amount: 5000, start_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 上线驻场差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 5, travelers: 3, days: 6, start_month: '2026-06-01', end_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_TQ_DELIVERY, description: '交付 · 天启 TMS · 验收会议', expense_type: 'meeting', budget_amount: 5000, start_month: '2026-07-01' },
+    { crm_cost_plan: PLAN_XH_BIZCASE, description: 'Bizcase · 星海咨询 · 差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 4, travelers: 2, days: 2, start_month: '2026-07-01', end_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_XH_BIZCASE, description: 'Bizcase · 星海咨询 · 蓝图评审会', expense_type: 'meeting', budget_amount: 4000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_XH_DELIVERY, description: '交付 · 星海咨询 · 差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 4, travelers: 2, days: 2, start_month: '2026-07-01', end_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_XH_DELIVERY, description: '交付 · 星海咨询 · 蓝图评审会', expense_type: 'meeting', budget_amount: 4000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_HDL_BIZCASE, description: 'Bizcase · 华东电力运维 · 值守补贴', expense_type: 'other', budget_amount: 30000, start_month: '2026-09-01', end_month: '2027-08-01' },
+    { crm_cost_plan: PLAN_HDL_DELIVERY, description: '交付 · 华东电力运维 · 值守补贴', expense_type: 'other', budget_amount: 30000, start_month: '2026-09-01', end_month: '2027-08-01' },
+  ],
+});
+
+const m = (daysAgo: number) => celDaysAgo(daysAgo);
 // Every sheet is `approved` so it counts toward its project's actuals; each
 // project's running total stays under its baseline for the budget gate.
 export const industryTimesheets = defineSeed(Timesheet, {

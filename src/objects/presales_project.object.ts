@@ -10,6 +10,13 @@ import { APPROVAL_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS, BUSINESS_CATEGORY_OPTION
  * `total_cost` and `gross_margin_pct` as formulas; both inline the sum rather
  * than reading one formula from another.
  */
+const bizcaseTotal = (label: string, field: string) => Field.summary({
+  label,
+  group: 'cost_estimate',
+  scale: 2,
+  summaryOperations: { object: 'crm_cost_plan', field, function: 'sum', relationshipField: 'crm_presales_project', filter: { is_current: true } },
+});
+
 export const PresalesProject = ObjectSchema.create({
   name: 'crm_presales_project',
   label: '售前项目',
@@ -73,10 +80,15 @@ export const PresalesProject = ObjectSchema.create({
     project_qa: Field.lookup('sys_user', { label: 'Project QA', group: 'roles' }),
     pricing_manager: Field.lookup('sys_user', { label: 'Pricing Owner', group: 'roles' }),
 
-    labor_cost: Field.currency({ label: 'Labor Service Cost', scale: 2, group: 'cost_estimate' }),
-    third_party_service_cost: Field.currency({ label: 'Third-party Service Cost', scale: 2, group: 'cost_estimate' }),
-    procurement_cost: Field.currency({ label: 'Hardware/Software Procurement Cost', scale: 2, group: 'cost_estimate' }),
-    project_expense: Field.currency({ label: 'Project Expense', scale: 2, group: 'cost_estimate' }),
+    // Steps 18 / 27: the four Bizcase figures are ROLLUPS of the presales
+    // project's current 成本计划 (phase bizcase) — never typed in. Each is a
+    // summary over a plan total that is itself a summary of the month ledger;
+    // the engine recomputes a parent through a real update, so the cascade
+    // reaches here.
+    labor_cost: bizcaseTotal('Labor Service Cost', 'labor_total'),
+    third_party_service_cost: bizcaseTotal('Third-party Service Cost', 'service_total'),
+    procurement_cost: bizcaseTotal('Hardware/Software Procurement Cost', 'procurement_total'),
+    project_expense: bizcaseTotal('Project Expense', 'expense_total'),
     total_cost: Field.formula({
       label: 'Total Cost',
       group: 'cost_estimate',

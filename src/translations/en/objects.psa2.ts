@@ -26,6 +26,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
     },
     _actions: {
       submit_approval: { confirmText: 'Submit the delivery project for approval? The record is locked until the approval completes.', label: 'Submit for Approval', successMessage: 'The delivery project has been submitted for approval.' },
+      import_bizcase_budget: { confirmText: 'Generate delivery cost plan v1 from the presales project\'s approved Bizcase cost plan and use it as the control baseline? The baseline cannot be changed once imported.', label: 'Import Bizcase Budget', successMessage: 'Bizcase budget imported: the baseline is frozen and cost plan v1 has been generated.' },
     },
   },
   crm_timesheet: {
@@ -44,7 +45,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
     description: 'A request to add to or cut a delivery project\'s budget: amount, reason and variance analysis; counted into the current budget once approved',
     fields: {
       adjustment_number: { label: 'Adjustment #' },
-      amount: { help: 'Positive to add, negative to cut', label: 'Adjustment Amount' },
+      amount: { help: 'Positive to add, negative to cut; with a plan version attached, the system writes the difference between the version totals', label: 'Adjustment Amount' },
       analysis: { help: 'Why the budget falls short, the variance from baseline and its impact', label: 'Variance Analysis' },
       approval_status: {
         label: 'Approval Status',
@@ -57,6 +58,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
         },
       },
       approved_date: { label: 'Approved Date' },
+      crm_cost_plan: { help: 'The draft version produced by New Plan Version on the cost plan; once approved it becomes the current version, and the adjustment amount is the difference between the new and old version totals.', label: 'Adjusted Plan Version' },
       crm_delivery_project: { label: 'Delivery Project' },
       notes: { label: 'Notes' },
       owner_id: { label: 'Requester' },
@@ -164,10 +166,6 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
     _views: {
       all_collections: { label: 'All Collections' },
     },
-  },
-  crm_cost_plan_line: {
-    label: 'Cost Plan Line',
-    pluralLabel: 'Cost Plan Lines',
   },
   crm_invoice: {
     label: 'Invoice',
@@ -363,6 +361,11 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
       is_active: { label: 'Active' },
       name: { label: 'Grade' },
       notes: { label: 'Notes' },
+      rate_standard: {
+        help: 'One grade may carry one row per standard; a labor cost line resolves the rate in force for each month by grade and standard.',
+        label: 'Rate Standard',
+        options: { discount: 'Discount', outsourced: 'Outsourced', standard: 'Standard' },
+      },
     },
     _sections: {
       basic: { label: 'Rate Card' },

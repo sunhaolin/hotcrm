@@ -76,7 +76,6 @@ export { Task } from './task.object';
 // Demo PSA objects (epic #2)
 export { PresalesProject } from './presales_project.object';
 export { DeliveryProject } from './delivery_project.object';
-export { CostPlanLine } from './cost_plan_line.object';
 export { Timesheet } from './timesheet.object';
 export { TravelCost } from './travel_cost.object';
 // Round 2 (Chinese-only): master data, budget adjustments, finance, trips and leave.
@@ -89,3 +88,11 @@ export { PurchaseContract } from './purchase_contract.object';
 export { SalesOrder } from './sales_order.object';
 export { BusinessTrip } from './business_trip.object';
 export { LeaveRequest } from './leave_request.object';
+// Cost plan (steps 27–32): versioned plan, four typed line objects, the month ledger, travel standards.
+export { TravelStandard } from './travel_standard.object';
+export { CostPlan } from './cost_plan.object';
+export { LaborCostLine } from './labor_cost_line.object';
+export { ServiceCostLine } from './service_cost_line.object';
+export { ProcurementCostLine } from './procurement_cost_line.object';
+export { ExpenseCostLine } from './expense_cost_line.object';
+export { CostPlanMonth } from './cost_plan_month.object';

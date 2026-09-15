@@ -215,6 +215,7 @@ const CLAIMED_OBJECTS: ReadonlyArray<[key: string, objectName: string, label: st
   ['collections', 'crm_collection', 'Collections'],
   ['purchase_contracts', 'crm_purchase_contract', 'Purchase Contracts'],
   ['sales_orders', 'crm_sales_order', 'Sales Orders'],
+  ['cost_plans', 'crm_cost_plan', 'Cost Plans'],
 ];
 
 /** One pass per object. */

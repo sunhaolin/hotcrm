@@ -36,15 +36,17 @@ import { campaigns, campaignMembersFromLeads, campaignMembersFromContacts } from
 import { contracts, quotes, quoteLineItems, forecasts } from './revenue.seed';
 import {
   psaAccounts, psaContacts, psaLeads, psaOpportunities, psaTasks, psaEvents,
-  presalesProjects, deliveryProjects, costPlanLines, timesheets, travelCosts,
+  presalesProjects, deliveryProjects, timesheets, travelCosts,
+  costPlans, laborCostLines, serviceCostLines, procurementCostLines, expenseCostLines,
 } from './psa.seed';
 import {
-  rateCards, legalEntities, psaContracts, budgetAdjustments, invoices, collections,
+  rateCards, travelStandards, legalEntities, psaContracts, budgetAdjustments, invoices, collections,
   purchaseContracts, salesOrders, businessTrips, leaveRequests,
 } from './psa-round2.seed';
 import {
   industryAccounts, industryContacts, industryLeads, industryOpportunities, industryContracts,
-  industryPresalesProjects, industryDeliveryProjects, industryBusinessTrips, industryCostPlanLines,
+  industryPresalesProjects, industryDeliveryProjects, industryBusinessTrips,
+  industryCostPlans, industryLaborCostLines, industryServiceCostLines, industryProcurementCostLines, industryExpenseCostLines,
   industryTimesheets, industryTravelCosts, industryBudgetAdjustments, industryInvoices, industryCollections,
   industryPurchaseContracts, industrySalesOrders, industryLeaveRequests, industryProducts, industryQuotes,
   industryQuoteLineItems, industryTasks, industryEvents,
@@ -118,7 +120,11 @@ const zhContracts = union(psaContracts, industryContracts);
 const zhPresalesProjects = union(presalesProjects, industryPresalesProjects);
 const zhDeliveryProjects = union(deliveryProjects, industryDeliveryProjects);
 const zhBusinessTrips = union(businessTrips, industryBusinessTrips);
-const zhCostPlanLines = union(costPlanLines, industryCostPlanLines);
+const zhCostPlans = union(costPlans, industryCostPlans);
+const zhLaborCostLines = union(laborCostLines, industryLaborCostLines);
+const zhServiceCostLines = union(serviceCostLines, industryServiceCostLines);
+const zhProcurementCostLines = union(procurementCostLines, industryProcurementCostLines);
+const zhExpenseCostLines = union(expenseCostLines, industryExpenseCostLines);
 const zhTimesheets = union(timesheets, industryTimesheets);
 const zhTravelCosts = union(travelCosts, industryTravelCosts);
 const zhBudgetAdjustments = union(budgetAdjustments, industryBudgetAdjustments);
@@ -146,6 +152,7 @@ export const ZhDemoSeedData: Seed[] = [
   zhTasks,
   zhEvents,
   rateCards,
+  travelStandards,
   legalEntities,
   zhContracts,
   industryQuotes,
@@ -153,7 +160,11 @@ export const ZhDemoSeedData: Seed[] = [
   zhPresalesProjects,
   zhDeliveryProjects,
   zhBusinessTrips,
-  zhCostPlanLines,
+  zhCostPlans,
+  zhLaborCostLines,
+  zhServiceCostLines,
+  zhProcurementCostLines,
+  zhExpenseCostLines,
   zhTimesheets,
   zhTravelCosts,
   zhBudgetAdjustments,
@@ -184,6 +195,7 @@ export const CrmSeedData: Seed[] = [
   campaignMembersFromLeads,
   campaignMembersFromContacts,
   rateCards,
+  travelStandards,
   legalEntities,
   union(contracts, zhContracts),
   union(quotes, industryQuotes),
@@ -193,7 +205,11 @@ export const CrmSeedData: Seed[] = [
   zhPresalesProjects,
   zhDeliveryProjects,
   zhBusinessTrips,
-  zhCostPlanLines,
+  zhCostPlans,
+  zhLaborCostLines,
+  zhServiceCostLines,
+  zhProcurementCostLines,
+  zhExpenseCostLines,
   zhTimesheets,
   zhTravelCosts,
   zhBudgetAdjustments,

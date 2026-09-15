@@ -48,6 +48,7 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_business_trip: { label: '出差申请' },
         nav_leave_request: { label: '请假申请' },
         nav_budget_adjustment: { label: '预算调整' },
+        nav_cost_plan: { label: '成本计划' },
         nav_project_cost_dashboard: { label: '项目成本' },
         group_finance: { label: '项目财务' },
         nav_contract: { label: '合同' },
@@ -58,6 +59,7 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_project_finance_dashboard: { label: '项目财务' },
         group_master: { label: '主数据' },
         nav_rate_card: { label: '费率卡' },
+        nav_travel_standard: { label: '差旅标准' },
         nav_legal_entity: { label: '签约主体' },
 
         group_work: { label: '我的工作' },

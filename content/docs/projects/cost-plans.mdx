@@ -1,0 +1,60 @@
+---
+title: Cost Plans
+description: The versioned cost plan behind a Bizcase and a delivery project — four typed line families, the month-by-month ledger the system derives from them, the frozen baseline, and how a budget adjustment becomes a new version.
+---
+
+# Cost Plans
+
+A **cost plan** (成本计划, `crm_cost_plan`) is one version of what a project is expected to cost, month by month. A presales project carries one as its **Bizcase**; a delivery project gets its first version by importing that Bizcase, and every later change to the budget is a new version. The plan is where the four cost categories are actually planned — the project records only read its totals.
+
+## What a cost plan stores
+
+| Group | What's in it |
+| --- | --- |
+| **Plan Information** | Plan Number, Name, Cost Manager, the Presales Project *or* the Delivery Project it belongs to, Phase (*Bizcase / Delivery*), Version Number, Current Version, the plan it was cloned from, the budget adjustment that produced it |
+| **Plan Amounts** | Frozen Baseline, Planned Total, and the four category totals — Labor Service, Third-party Service, Hardware/Software Procurement, Project Expense — plus *of which Travel* |
+| **Approval** | Approval Status *(read-only)*, Approved Date |
+
+A plan belongs to exactly one project: a Bizcase hangs off a presales project, a delivery plan off a delivery project, and the phase is set from whichever you picked. Every amount on the plan is a **rollup of the month ledger** described below; none is typed in.
+
+## Four line families, one per cost category
+
+The requirement's four configuration screens are four objects, because the four categories are priced from different sources:
+
+| Line | What you enter | Where the price comes from |
+| --- | --- | --- |
+| **Labor cost line** (人工服务成本行, `crm_labor_cost_line`) | Grade, headcount, hours per person per month, start and end month | The [rate card](/docs/projects/master-data): the hourly rate is copied onto the line and re-resolved for each month, so a card that changes mid-project prices the later months at the new rate |
+| **Service cost line** (第三方服务成本行, `crm_service_cost_line`) | Service name, vendor, pricing basis (*per person-month, per person-day, lump sum*), unit price, headcount, duration | The supplier's quote, typed in; attach the quote to the plan |
+| **Procurement cost line** (软硬件采购成本行, `crm_procurement_cost_line`) | Category (*hardware, software license, cloud service, maintenance*), optional product, quantity, unit price, delivery month and an optional amortisation end month | The product's list price when a product is picked, otherwise typed in |
+| **Expense cost line** (项目费用成本行, `crm_expense_cost_line`) | Expense type; for **travel**: a travel standard, trips, travellers per trip, days per trip; for every **reimbursement** type (meetings, training, office, communications, entertainment, other): a budget amount | Travel is computed from the [travel standard](/docs/projects/master-data) — trips × travellers × (return fare + days × daily standard); reimbursements are budgeted directly |
+
+Each line carries a description, a month range and a planned amount. The planned amount is the sum of the line's months, so the line and its split can never disagree.
+
+## The month ledger
+
+Saving a line generates its **cost plan months** (月度分解行, `crm_cost_plan_month`): one row per month in the line's range, each with the month, the category, the expense type for an expense line, the factors used and the amount.
+
+- A labor month is headcount × hours × the rate effective in that month.
+- A per-person-month service is unit price × headcount in each of its `duration` months; a per-person-day or lump-sum service, a procurement term and any expense line are spread evenly, with the last month taking the rounding remainder. A one-off purchase with no end month lands in its delivery month.
+- Edit a month's amount and it is marked **Manually Adjusted**: re-saving the line refreshes the other months and leaves that one alone. **Re-split** (重新分解) on the line clears the marks and regenerates every month.
+- Months that fall outside the range after a change are removed, unless manually adjusted.
+
+Every total on the plan, the presales project's four Bizcase figures and the delivery project's Planned Total read this ledger, and the [Project Cost dashboard](/docs/analytics/dashboards) compares it with actuals by project, category and month.
+
+## Versions, the baseline and adjustments
+
+**Importing the Bizcase (step 27).** On a delivery project whose presales project is *approved*, **Import Bizcase Budget** clones the presales project's current Bizcase plan as delivery plan v1 — lines and manually adjusted months included — and writes the Bizcase total as the plan's **Frozen Baseline** and the project's Budget Baseline. The frozen baseline cannot be changed afterwards; a project that already has a plan refuses a second import.
+
+**Editing (steps 28–31).** A plan's lines and months can be edited while the plan is a draft (or was sent back). Submit it with **Submit for Approval**; the finance lead approves it through the **成本计划审批** flow, and from then on its lines and months are frozen.
+
+**Adjusting (step 32).** To change an approved plan, **New Plan Version** clones it into the next draft version. Adjust the lines there, then raise a [budget adjustment](/docs/projects/delivery-projects#budget-adjustments) that names the new version: its amount is read off the two versions (new total minus the version in force), and when the adjustment is approved the new version becomes the **current version** and the old one is marked *Superseded*. The project's Planned Total follows the current version only; a draft changes nothing until it is in force.
+
+## Sharing
+
+A cost plan is **private** to the cost manager who owns it; the sales manager and the system administrator read all. Its four line families and the month ledger are *Controlled by Parent*: whoever can see the plan can see, and while it is a draft edit, its lines. Travel standards, like rate cards, are shared master data.
+
+## Tips for cost managers
+
+- ✅ **Plan the Bizcase on the presales project first.** The presales project's Labor Cost, Third-Party Service Cost, Procurement Cost and Project Expense are the Bizcase plan's totals — there is nothing to type on the project itself.
+- ✅ **Import once, then split.** The imported v1 already carries the Bizcase months; refine headcounts, months and unit prices on the lines and let the ledger follow.
+- ✅ **Adjust by version, not by editing an approved plan.** A new version plus an approved adjustment keeps the frozen baseline and the audit trail intact.

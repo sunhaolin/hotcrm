@@ -12,7 +12,8 @@ The **Projects** module is what a software or professional-services company runs
 | Area | What it does |
 | --- | --- |
 | [**Presales Projects**](/docs/projects/presales-projects) | The bid: roles, the cost estimate and quote, information security class, and the presales approval. |
-| [**Delivery Projects**](/docs/projects/delivery-projects) | The project once won: budget baseline, cost plan lines, budget adjustments, actuals, burn and margin — and the gate that stops timesheets on an over-budget project. |
+| [**Delivery Projects**](/docs/projects/delivery-projects) | The project once won: budget baseline, the imported cost plan, budget adjustments, actuals, burn and margin — and the gate that stops timesheets on an over-budget project. |
+| [**Cost Plans**](/docs/projects/cost-plans) | The versioned plan behind a Bizcase and a delivery project: four typed line families, the month ledger derived from them, the frozen baseline, and adjustments as new versions |
 | [**Timesheets & Leave**](/docs/projects/timesheets-and-leave) | Monthly hours per person and project, priced from the rate card; approved leave flows into the month's timesheet. |
 | [**Trips & Travel Costs**](/docs/projects/trips-and-travel-costs) | A business trip is requested and approved first; travel costs are then booked against it and roll up into the project. |
 | [**Project Finance**](/docs/projects/project-finance) | Invoices, collections, purchase contracts and sales orders, each rolled up onto the delivery project. |
@@ -27,7 +28,7 @@ Opportunity (initiated)
 Presales project ── cost estimate + quote ── approval (售前立项审批)
    │ (approved)
    ▼
-Delivery project ── budget baseline + cost plan lines carried in ── approval (交付立项审批)
+Delivery project ── Import Bizcase Budget → cost plan v1 + frozen baseline ── approval (交付立项审批)
    │
    ├── timesheets (approved → labor actual)
    ├── business trips → travel costs (→ travel actual)
@@ -37,7 +38,7 @@ Delivery project ── budget baseline + cost plan lines carried in ── appr
 
 1. **Initiate the opportunity** — an opportunity carries an *Initiation status* of its own (see [Opportunities](/docs/sales/opportunities)); an account classified as a bidding agency or *other*, or one confirmed on the US EAR entity list, cannot open an opportunity at all.
 2. **Open a presales project** on the opportunity, estimate the four cost lines and the quote, and submit it for approval.
-3. **Open the delivery project** once the Bizcase is approved — leave the budget baseline blank and it is taken from the Bizcase total, with one cost plan line per cost category carried in.
+3. **Open the delivery project** once the Bizcase is approved, then **Import Bizcase Budget**: the Bizcase becomes cost plan v1 — four line families split by month — and its total the frozen baseline.
 4. **Book the work** — timesheets, trips and travel costs, purchases — and let the rollups do the arithmetic.
 5. **Adjust the budget** through a budget adjustment when the scope moves; the current budget only moves on an approved adjustment.
 6. **Read the two dashboards** — [Project Cost and Project Finance](/docs/analytics/dashboards) — for the portfolio view.

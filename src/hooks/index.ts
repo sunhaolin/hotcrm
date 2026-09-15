@@ -29,7 +29,7 @@ import quoteHook from '../objects/quote.hook';
 import quoteLineItemHook from '../objects/quote_line_item.hook';
 import taskHook from '../objects/task.hook';
 import timesheetHook from '../objects/timesheet.hook';
-import costPlanLineHook from '../objects/cost_plan_line.hook';
+import costPlanHook from '../objects/cost_plan.hook';
 import presalesProjectHook from '../objects/presales_project.hook';
 import deliveryProjectHook from '../objects/delivery_project.hook';
 import leaveRequestHook from '../objects/leave_request.hook';
@@ -55,7 +55,7 @@ const entries: Array<Hook | Hook[]> = [
   quoteLineItemHook,
   taskHook,
   timesheetHook,
-  costPlanLineHook,
+  costPlanHook,
   presalesProjectHook,
   deliveryProjectHook,
   leaveRequestHook,

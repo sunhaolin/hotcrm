@@ -3,7 +3,7 @@
 import type { ObjectTranslationData } from '@objectstack/spec/system';
 
 /**
- * es-ES — the PSA family (demo, epic #2): the fourteen project / finance objects in full, and the keys the demo added to crm_account, crm_contact, crm_lead and crm_opportunity (merged over the base pack at the locale root).
+ * es-ES — the PSA family (demo, epic #2): the twenty project / finance objects in full, and the keys the demo added to crm_account, crm_contact, crm_lead and crm_opportunity (merged over the base pack at the locale root).
  */
 export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_presales_project: {
@@ -38,7 +38,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       crm_opportunity: { label: 'Oportunidad' },
       expected_contract_amount: { label: 'Importe previsto del contrato' },
       gross_margin_pct: { help: '(Cotización − coste total) ÷ cotización × 100. Muestra 0 hasta que haya una cotización positiva.', label: 'Margen bruto (%)' },
-      labor_cost: { label: 'Coste de servicio de personal' },
+      labor_cost: { label: 'Coste de servicio de personal', help: 'Total de servicio de personal del plan de costes Bizcase vigente; nunca se escribe a mano.' },
       name: { label: 'Nombre del proyecto' },
       owner_id: { label: 'Propietario del proyecto' },
       planned_end: { label: 'Fin previsto' },
@@ -46,9 +46,9 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       presales_hours: { label: 'Horas de preventa' },
       presales_labor_actual: { label: 'Coste real de personal de preventa' },
       pricing_manager: { label: 'Responsable de precios' },
-      procurement_cost: { label: 'Coste de compra de hardware/software' },
+      procurement_cost: { label: 'Coste de compra de hardware/software', help: 'Total de adquisición de hardware/software del plan de costes Bizcase vigente; nunca se escribe a mano.' },
       project_director: { label: 'Director de proyecto' },
-      project_expense: { label: 'Gastos del proyecto' },
+      project_expense: { label: 'Gastos del proyecto', help: 'Total de gastos del proyecto del plan de costes Bizcase vigente; nunca se escribe a mano.' },
       project_manager: { label: 'Jefe de proyecto' },
       project_number: { label: 'Número de proyecto' },
       project_qa: { label: 'QA del proyecto' },
@@ -72,7 +72,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         },
       },
       security_note: { label: 'Nota de seguridad' },
-      third_party_service_cost: { label: 'Coste de servicios de terceros' },
+      third_party_service_cost: { label: 'Coste de servicios de terceros', help: 'Total de servicios de terceros del plan de costes Bizcase vigente; nunca se escribe a mano.' },
       total_cost: { label: 'Coste total' },
     },
     _sections: {
@@ -113,7 +113,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: 'Fecha de aprobación' },
       budget_adjustment_total: { label: 'Ajustes aprobados' },
-      budget_baseline: { help: 'Coste total del Bizcase aprobado, trasladado como línea base de control. Déjelo vacío al crear y se trasladará desde el proyecto de preventa aprobado, junto con ese Bizcase como líneas del plan de costes (paso 27 de la especificación).', label: 'Línea base del presupuesto' },
+      budget_baseline: { help: 'Coste total del Bizcase aprobado, la línea base de control. Déjelo vacío al crear y se tomará del proyecto de preventa aprobado; «Importar presupuesto del Bizcase» lo escribe junto con el plan de costes v1 (paso 27 de la especificación).', label: 'Línea base del presupuesto' },
       budget_burn_pct: { help: 'Real ÷ presupuesto vigente × 100. Muestra 0 hasta que haya un presupuesto positivo.', label: '% de presupuesto consumido' },
       budget_current: { help: 'Línea base del presupuesto + ajustes aprobados.', label: 'Presupuesto vigente' },
       budget_variance: { label: 'Desviación presupuestaria' },
@@ -147,7 +147,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       owner_id: { label: 'Propietario del proyecto' },
       planned_end: { label: 'Fin previsto' },
       planned_start: { label: 'Inicio previsto' },
-      planned_total: { label: 'Total planificado' },
+      planned_total: { label: 'Total planificado', help: 'Total de la versión del plan de costes vigente; un borrador no cambia nada aquí hasta que se aprueba.' },
       pricing_manager: { label: 'Responsable de precios' },
       progress_pct: { help: '0–100, mantenido por el jefe de proyecto.', label: 'Progreso (%)' },
       project_director: { label: 'Director de proyecto' },
@@ -198,15 +198,196 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       project_overview: { label: 'Vista general de proyectos' },
     },
     _actions: {
+      import_bizcase_budget: { confirmText: '¿Generar el plan de costes de entrega v1 tomando como línea base de control el plan de costes Bizcase aprobado del proyecto de preventa? Una vez importada, la línea base no se puede modificar.', label: 'Importar presupuesto del Bizcase', successMessage: 'Presupuesto del Bizcase importado: la línea base queda congelada y se ha generado el plan de costes v1.' },
       submit_approval: { confirmText: '¿Enviar el proyecto de entrega a aprobación? El registro quedará bloqueado hasta que termine la aprobación.', label: 'Enviar a aprobación', successMessage: 'El proyecto de entrega se envió a aprobación; pendiente del aprobador.' },
     },
   },
-  crm_cost_plan_line: {
-    label: 'Línea del plan de costes',
-    pluralLabel: 'Línea del plan de costes',
-    description: 'Un importe de coste planificado de un proyecto de entrega, por categoría y mes',
+  crm_cost_plan: {
+    label: 'Plan de costes',
+    pluralLabel: 'Plan de costes',
+    description: 'Una versión del plan de costes de un proyecto: fase, número de versión, línea base congelada y totales de las cuatro categorías de líneas y de los meses del plan',
     fields: {
-      description: { help: 'Categoría, nombre del servicio o tipo de compra al que corresponde la línea.', label: 'Descripción' },
+      approval_status: {
+        label: 'Estado de aprobación',
+        options: {
+          approved: 'Aprobado',
+          draft: 'Borrador',
+          pending: 'Pendiente',
+          rejected: 'Rechazado',
+          submitted: 'Enviado',
+          superseded: 'Anulado',
+        },
+      },
+      approved_date: { label: 'Fecha de aprobación' },
+      baseline_total: { help: 'Línea base de control escrita al importar el presupuesto del Bizcase; no se puede modificar después.', label: 'Línea base congelada' },
+      crm_budget_adjustment: { label: 'Ajuste presupuestario que originó esta versión' },
+      crm_delivery_project: { help: 'Un plan en fase de entrega se vincula al proyecto de entrega; excluyente con el proyecto de preventa.', label: 'Proyecto de entrega' },
+      crm_presales_project: { help: 'Un plan en fase Bizcase se vincula al proyecto de preventa; excluyente con el proyecto de entrega.', label: 'Proyecto de preventa' },
+      expense_total: { label: 'Total de gastos del proyecto' },
+      is_current: { help: 'El proyecto solo lee los importes de la versión actual; al marcarla, las demás versiones quedan anuladas automáticamente.', label: 'Versión actual' },
+      labor_total: { label: 'Total de servicio de personal' },
+      name: { label: 'Nombre del plan' },
+      notes: { label: 'Notas' },
+      owner_id: { label: 'Administrador de costes' },
+      phase: {
+        help: 'Se rellena automáticamente al guardar según el proyecto vinculado.',
+        label: 'Fase',
+        options: {
+          bizcase: 'Bizcase (preventa)',
+          delivery: 'Entrega',
+        },
+      },
+      plan_number: { label: 'N.º de plan' },
+      planned_total: { label: 'Total planificado' },
+      procurement_total: { label: 'Total de compra de hardware/software' },
+      service_total: { label: 'Total de servicios de terceros' },
+      source_plan: { label: 'Origen de la copia' },
+      travel_total: { label: 'De los cuales, viajes' },
+      version_no: { help: 'Correlativo dentro del mismo proyecto; si se deja vacío se numera automáticamente al guardar.', label: 'N.º de versión' },
+    },
+    _sections: {
+      approval: { label: 'Aprobación' },
+      basic: { label: 'Información del plan' },
+      totals: { label: 'Importes del plan' },
+    },
+    _views: {
+      all_cost_plans: { label: 'Todos los planes de costes' },
+    },
+    _actions: {
+      create_plan_version: { confirmText: '¿Clonar la versión actual como borrador de una nueva versión? La nueva versión solo pasará a ser la actual cuando se apruebe.', label: 'Nueva versión del plan', successMessage: 'Se creó la nueva versión del plan; ajuste las líneas en la nueva versión y envíe después el ajuste presupuestario a aprobación.' },
+      submit_approval: { confirmText: '¿Enviar el plan de costes a aprobación? El registro quedará bloqueado hasta que termine la aprobación.', label: 'Enviar a aprobación', successMessage: 'El plan de costes se envió a aprobación; pendiente del aprobador.' },
+    },
+    _validations: { one_project_per_plan: { message: 'Un plan de costes debe pertenecer a un solo proyecto: el proyecto de preventa o el proyecto de entrega' } },
+  },
+  crm_labor_cost_line: {
+    label: 'Línea de coste de servicio de personal',
+    pluralLabel: 'Línea de coste de servicio de personal',
+    description: 'Línea del plan de personal: categoría × tarifa × n.º de personas × horas por mes, desglosada por mes',
+    fields: {
+      description: { label: 'Descripción' },
+      crm_cost_plan: { label: 'Plan de costes' },
+      crm_rate_card: { help: 'El estándar de tarifa se toma de la tarifa; cada mes se resuelve la tarifa vigente.', label: 'Categoría / tarifa' },
+      end_month: { help: 'Último mes de la descomposición; en blanco, todo cae en el mes de inicio.', label: 'Mes de fin' },
+      headcount: { label: 'N.º de personas' },
+      hourly_rate: { help: 'Tarifa por hora de la tarifa vigente en el mes de inicio; se rellena automáticamente al guardar.', label: 'Tarifa estándar (hora)' },
+      hours_per_month: { label: 'Horas por persona y mes' },
+      notes: { label: 'Notas' },
+      planned_amount: { label: 'Importe planificado', help: 'Suma de los meses de esta línea; nunca se escribe a mano.' },
+      start_month: { help: 'Primer mes de la descomposición; se registra como el día 1 de ese mes.', label: 'Mes de inicio' },
+    },
+    _sections: {
+      basic: { label: 'Línea de coste de servicio de personal' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: '¿Borrar todos los meses ajustados manualmente de esta línea y volver a descomponerla según n.º de personas, precio unitario y meses de inicio y fin?', label: 'Volver a descomponer', successMessage: 'La descomposición mensual se ha regenerado.' },
+    },
+  },
+  crm_service_cost_line: {
+    label: 'Línea de coste de servicios de terceros',
+    pluralLabel: 'Línea de coste de servicios de terceros',
+    description: 'Línea del plan de servicios de terceros: modalidad de precio × precio unitario × n.º de personas × duración, desglosada por mes',
+    fields: {
+      description: { label: 'Descripción' },
+      crm_cost_plan: { label: 'Plan de costes' },
+      duration: { help: 'Número de meses si se factura por persona-mes, número de persona-días si es por persona-día; en blanco a precio cerrado.', label: 'Duración' },
+      end_month: { help: 'Último mes de la descomposición; en blanco, todo cae en el mes de inicio.', label: 'Mes de fin' },
+      headcount: { label: 'N.º de personas' },
+      notes: { label: 'Notas' },
+      planned_amount: { label: 'Importe planificado', help: 'Suma de los meses de esta línea; nunca se escribe a mano.' },
+      pricing_basis: {
+        label: 'Modalidad de precio',
+        options: {
+          lump_sum: 'Precio cerrado',
+          per_day: 'Persona-día',
+          per_month: 'Persona-mes',
+        },
+      },
+      start_month: { help: 'Primer mes de la descomposición; se registra como el día 1 de ese mes.', label: 'Mes de inicio' },
+      unit_price: { help: 'Precio por persona-mes o persona-día, o importe total a precio cerrado; procede de la oferta del proveedor.', label: 'Precio unitario' },
+      vendor: { label: 'Proveedor' },
+    },
+    _sections: {
+      basic: { label: 'Línea de coste de servicios de terceros' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: '¿Borrar todos los meses ajustados manualmente de esta línea y volver a descomponerla según n.º de personas, precio unitario y meses de inicio y fin?', label: 'Volver a descomponer', successMessage: 'La descomposición mensual se ha regenerado.' },
+    },
+  },
+  crm_procurement_cost_line: {
+    label: 'Línea de coste de compra de hardware/software',
+    pluralLabel: 'Línea de coste de compra de hardware/software',
+    description: 'Línea del plan de compra de hardware/software: categoría × cantidad × precio unitario, imputada en el mes de entrega o amortizada',
+    fields: {
+      description: { label: 'Descripción' },
+      crm_cost_plan: { label: 'Plan de costes' },
+      crm_product: { help: 'Si se elige un producto, el precio unitario se toma de la lista de precios; si no, se introduce a mano.', label: 'Producto' },
+      end_month: { help: 'Último mes de la descomposición; en blanco, todo cae en el mes de inicio.', label: 'Mes de fin' },
+      notes: { label: 'Notas' },
+      planned_amount: { label: 'Importe planificado', help: 'Suma de los meses de esta línea; nunca se escribe a mano.' },
+      procurement_category: {
+        label: 'Categoría de compra',
+        options: {
+          cloud_service: 'Servicio en la nube',
+          hardware: 'Hardware',
+          maintenance: 'Mantenimiento',
+          software_license: 'Licencia de software',
+        },
+      },
+      quantity: { label: 'Cantidad' },
+      start_month: { help: 'Primer mes de la descomposición; se registra como el día 1 de ese mes.', label: 'Mes de inicio' },
+      unit_price: { label: 'Precio unitario' },
+    },
+    _sections: {
+      basic: { label: 'Línea de coste de compra de hardware/software' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: '¿Borrar todos los meses ajustados manualmente de esta línea y volver a descomponerla según n.º de personas, precio unitario y meses de inicio y fin?', label: 'Volver a descomponer', successMessage: 'La descomposición mensual se ha regenerado.' },
+    },
+  },
+  crm_expense_cost_line: {
+    label: 'Línea de coste de gastos del proyecto',
+    pluralLabel: 'Línea de coste de gastos del proyecto',
+    description: 'Línea del plan de gastos del proyecto: viajes calculados a partir de un estándar de viaje, tipos de reembolso presupuestados directamente, desglosada por mes',
+    fields: {
+      description: { label: 'Descripción' },
+      budget_amount: { help: 'Para gastos de reembolso, introduzca el presupuesto total; los viajes se calculan según el estándar de viaje y se dejan en blanco.', label: 'Importe presupuestado' },
+      crm_cost_plan: { label: 'Plan de costes' },
+      crm_travel_standard: { label: 'Estándar de viaje' },
+      days: { label: 'Días por viaje' },
+      end_month: { help: 'Último mes de la descomposición; en blanco, todo cae en el mes de inicio.', label: 'Mes de fin' },
+      expense_type: {
+        label: 'Tipo de gasto',
+        options: {
+          communication: 'Comunicaciones',
+          entertainment: 'Atenciones a clientes',
+          meeting: 'Reuniones',
+          office: 'Material de oficina',
+          other: 'Otros reembolsos',
+          training: 'Formación',
+          travel: 'Viajes',
+        },
+      },
+      notes: { label: 'Notas' },
+      planned_amount: { label: 'Importe planificado', help: 'Suma de los meses de esta línea; nunca se escribe a mano.' },
+      start_month: { help: 'Primer mes de la descomposición; se registra como el día 1 de ese mes.', label: 'Mes de inicio' },
+      travelers: { label: 'Personas por viaje' },
+      trips: { label: 'N.º de viajes' },
+    },
+    _sections: {
+      basic: { label: 'Línea de coste de gastos del proyecto' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: '¿Borrar todos los meses ajustados manualmente de esta línea y volver a descomponerla según n.º de personas, precio unitario y meses de inicio y fin?', label: 'Volver a descomponer', successMessage: 'La descomposición mensual se ha regenerado.' },
+    },
+  },
+  crm_cost_plan_month: {
+    label: 'Mes del plan de costes',
+    pluralLabel: 'Mes del plan de costes',
+    description: 'Un importe planificado de una línea de coste en un mes; el libro que leen todos los totales del plan, los acumulados del proyecto y los informes',
+    fields: {
+      description: { help: 'Descripción de la línea más el año y mes; se rellena automáticamente al guardar.', label: 'Descripción' },
+      allocation_key: { help: 'Categoría, línea y año-mes; una fila por mes.', label: 'Clave de descomposición' },
+      amount: { label: 'Importe' },
       category: {
         label: 'Categoría de coste',
         options: {
@@ -216,19 +397,32 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
           third_party_service: 'Servicio de terceros',
         },
       },
-      crm_delivery_project: { label: 'Proyecto de entrega' },
-      crm_rate_card: { help: 'Líneas de personal: toma el precio unitario de la tarifa (cost_plan_line_fill).', label: 'Categoría / tarifa' },
-      notes: { label: 'Notas' },
-      period_month: { label: 'Periodo (mes)' },
-      planned_amount: { label: 'Importe planificado' },
-      quantity: { label: 'Cantidad' },
-      unit_price: { label: 'Precio unitario' },
+      crm_cost_plan: { label: 'Plan de costes' },
+      crm_expense_cost_line: { label: 'Línea de coste de gastos del proyecto' },
+      crm_labor_cost_line: { label: 'Línea de coste de servicio de personal' },
+      crm_procurement_cost_line: { label: 'Línea de coste de compra de hardware/software' },
+      crm_service_cost_line: { label: 'Línea de coste de servicios de terceros' },
+      expense_type: {
+        help: 'Copiado de la línea de gastos para totalizar viajes y reembolsos por separado.',
+        label: 'Tipo de gasto',
+        options: {
+          communication: 'Comunicaciones',
+          entertainment: 'Atenciones a clientes',
+          meeting: 'Reuniones',
+          office: 'Material de oficina',
+          other: 'Otros reembolsos',
+          training: 'Formación',
+          travel: 'Viajes',
+        },
+      },
+      headcount: { label: 'N.º de personas' },
+      is_manual: { help: 'Si está marcado, volver a descomponer no sobrescribe esta fila.', label: 'Ajustado manualmente' },
+      period_month: { help: 'Se normaliza al día 1 del mes al guardar.', label: 'Mes' },
+      quantity: { label: 'Cantidad / horas' },
+      unit_price: { help: 'Instantánea de ese mes; en las líneas de personal se resuelve la tarifa vigente cada mes.', label: 'Precio unitario / tarifa' },
     },
     _sections: {
-      basic: { label: 'Línea del plan de costes' },
-    },
-    _views: {
-      all_cost_plan_lines: { label: 'Líneas del plan de costes' },
+      basic: { label: 'Mes del plan de costes' },
     },
   },
   crm_timesheet: {
@@ -306,12 +500,53 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       is_active: { label: 'Activo' },
       name: { label: 'Categoría' },
       notes: { label: 'Notas' },
+      rate_standard: {
+        help: 'Una misma categoría puede tener una fila por estándar; las líneas de coste de personal resuelven la tarifa vigente del mes por categoría y estándar.',
+        label: 'Estándar de tarifa',
+        options: {
+          discount: 'Preferencial',
+          outsourced: 'Subcontratado',
+          standard: 'Estándar',
+        },
+      },
     },
     _sections: {
       basic: { label: 'Tarifa' },
     },
     _views: {
       all_rate_cards: { label: 'Todas las tarifas' },
+    },
+  },
+  crm_travel_standard: {
+    label: 'Estándar de viaje',
+    pluralLabel: 'Estándar de viaje',
+    description: 'Estándares diarios de alojamiento, dietas y transporte local por nivel de ciudad, más la estimación del transporte de ida y vuelta: origen del precio unitario de los gastos de viaje del proyecto',
+    fields: {
+      city_tier: {
+        label: 'Nivel de ciudad',
+        options: {
+          overseas: 'Extranjero',
+          tier_1: 'Ciudad de primer nivel',
+          tier_2: 'Ciudad de segundo nivel',
+          tier_3: 'Tercer nivel o inferior',
+        },
+      },
+      daily_total: { label: 'Total del estándar diario' },
+      effective_from: { label: 'Fecha de inicio de vigencia' },
+      effective_to: { label: 'Fecha de fin de vigencia' },
+      fare_per_trip: { label: 'Transporte de ida y vuelta / persona-viaje' },
+      is_active: { label: 'Activo' },
+      local_transport_per_day: { label: 'Transporte local / día' },
+      lodging_per_day: { label: 'Alojamiento / día' },
+      meal_per_day: { label: 'Dietas / día' },
+      name: { label: 'Nombre del estándar' },
+      notes: { label: 'Notas' },
+    },
+    _sections: {
+      basic: { label: 'Estándar de viaje' },
+    },
+    _views: {
+      all_travel_standards: { label: 'Todos los estándares de viaje' },
     },
   },
   crm_legal_entity: {
@@ -343,7 +578,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
     description: 'Solicitud de aumento o recorte del presupuesto de un proyecto de entrega: importe, motivo y análisis de desviación; se incorpora al presupuesto vigente una vez aprobada',
     fields: {
       adjustment_number: { label: 'N.º de ajuste' },
-      amount: { help: 'Positivo para añadir, negativo para recortar', label: 'Importe del ajuste' },
+      amount: { help: 'Positivo para añadir, negativo para recortar; si hay una versión del plan vinculada, el sistema lo escribe como la diferencia entre los totales de las versiones.', label: 'Importe del ajuste' },
       analysis: { help: 'Motivo del déficit presupuestario, desviación respecto a la línea base e impacto', label: 'Análisis de desviación' },
       approval_status: {
         label: 'Estado de aprobación',
@@ -356,6 +591,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         },
       },
       approved_date: { label: 'Fecha de aprobación' },
+      crm_cost_plan: { help: 'Versión borrador obtenida con «Nueva versión del plan» en el plan de costes; al aprobarse pasa a ser la versión actual y el importe del ajuste = diferencia entre los totales de la nueva y la antigua versión.', label: 'Versión del plan ajustada' },
       crm_delivery_project: { label: 'Proyecto de entrega' },
       notes: { label: 'Notas' },
       owner_id: { label: 'Solicitante' },

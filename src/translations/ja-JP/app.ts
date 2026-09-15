@@ -32,6 +32,7 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_budget_adjustment: { label: '予算調整' },
         nav_business_trip: { label: '出張申請' },
         nav_collection: { label: '入金' },
+        nav_cost_plan: { label: 'コスト計画' },
         nav_delivery_project: { label: 'デリバリープロジェクト' },
         nav_invoice: { label: '請求書' },
         nav_leave_request: { label: '休暇申請' },
@@ -44,6 +45,7 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_sales_order: { label: '受注' },
         nav_timesheet: { label: 'タイムシート' },
         nav_travel_cost: { label: '旅費' },
+        nav_travel_standard: { label: '出張基準' },
         nav_home: { label: 'ホーム' },
 
         group_sales: { label: '営業' },

@@ -5,8 +5,8 @@
 # HotCRM
 
 > **The reference app for AI-written enterprise software.** A complete CRM —
-> 32 objects, 38 flows, 7 dashboards, 6 AI skills, 4 languages — carries its
-> whole business semantics (objects, flows, actions, hooks) in **~108k tokens**
+> 38 objects, 39 flows, 7 dashboards, 6 AI skills, 4 languages — carries its
+> whole business semantics (objects, flows, actions, hooks) in **~118k tokens**
 > of typed [ObjectStack](https://github.com/objectstack-ai/objectstack) metadata,
 > and its whole interaction layer (views, pages, dashboards, app shell) in
 > another **~48k**. An agent holds every business rule of a real enterprise CRM
@@ -49,7 +49,7 @@ HotCRM is a complete, opinionated CRM built as the **first official application*
 
 ## ✨ What you get
 
-**32 business objects** spanning the full Lead-to-Cash cycle, plus the project (PSA) family a software or services company runs its delivery on:
+**38 business objects** spanning the full Lead-to-Cash cycle, plus the project (PSA) family a software or services company runs its delivery on:
 
 | Sales | Service | Marketing | Revenue | Projects (PSA) |
 |---|---|---|---|---|
@@ -68,7 +68,7 @@ HotCRM is a complete, opinionated CRM built as the **first official application*
 | | | | | `crm_rate_card` |
 | | | | | `crm_legal_entity` |
 
-Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **7 dashboards**, **38 flows**, **40 actions**, **11 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **12 positions**, and **9 sharing rules**.
+Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **7 dashboards**, **39 flows**, **47 actions**, **11 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **12 positions**, and **9 sharing rules**.
 
 > **Business reader?** The ObjectStack docs tour every one of these capabilities in plain business language — [What Can It Do?](https://objectstack.ai/docs/capabilities) — with HotCRM as the running example on every page.
 
@@ -135,9 +135,9 @@ See [docs: Publishing your first marketplace app](content/docs/marketplace/publi
 hotcrm/
 ├── objectstack.config.ts         # manifest + defineStack() — single source of truth
 ├── src/
-│   ├── objects/                  # *.object.ts — data model (32 objects)
-│   ├── actions/                  # *.actions.ts — server actions + AI tools (40)
-│   ├── flows/                    # *.flow.ts — visual flows (38): screen, record-change, scheduled & subflow
+│   ├── objects/                  # *.object.ts — data model (38 objects)
+│   ├── actions/                  # *.actions.ts — server actions + AI tools (47)
+│   ├── flows/                    # *.flow.ts — visual flows (39): screen, record-change, scheduled & subflow
 │   ├── hooks/                    # hook registry barrel
 │   ├── skills/                   # *.skill.ts — AI skills (6) — skills-only surface, no agents
 │   ├── datasets/                 # *.dataset.ts — analytics semantic layer (11)

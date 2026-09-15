@@ -38,7 +38,16 @@ export const SalesRepProfile = {
     // Demo PSA objects (epic #2)
     crm_presales_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
     crm_delivery_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
-    crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    // Cost plans are private to the cost manager who authored them (`owner_id`); the
+    // line objects and the month ledger are controlled by the plan. Travel standards
+    // are shared master data, read like rate cards.
+    crm_cost_plan: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
+    crm_labor_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_service_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_procurement_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_expense_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_cost_plan_month: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_travel_standard: { allowCreate: false, allowRead: true, allowEdit: false, allowDelete: false, viewAllRecords: true, modifyAllRecords: false },
     // `readScope: 'own'` since the sheet stopped being parent-derived: its
     // delivery project is optional now, so `crm_timesheet` is `private` with
     // its own `owner_id` (the submitter) as the anchor — the same shape as
