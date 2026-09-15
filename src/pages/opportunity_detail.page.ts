@@ -156,15 +156,30 @@ export const OpportunityDetailPage: Page = {
                       sections: [
                         // Demo (epic #2 / T1): this list is the whole body, so
                         // the fields added to the object reach this tab only by
-                        // being named here.
+                        // being named here — as the four demo sections below,
+                        // one per customer notion (跟单信息 / 立项 / 铁三角 / 赢丢单).
                         {
                           name: 'info',
                           label: 'Opportunity Information',
-                          fields: [
-                            'opportunity_number', 'level', 'priority', 'is_bid',
-                            'initiation_status', 'initiated_date',
-                            'type', 'lead_source', 'crm_campaign',
-                          ],
+                          fields: ['type', 'lead_source', 'crm_campaign'],
+                        },
+                        {
+                          name: 'crm_forecast',
+                          label: 'Stage & Forecast',
+                          fields: ['stage', 'forecast_category'],
+                        },
+                        // Demo (epic #2): the customer's 跟单信息 / 立项 / 铁三角 / 赢丢单
+                        // fields, which the sections above never listed — a
+                        // `record:details` renders ONLY the fields its sections name.
+                        {
+                          name: 'classification',
+                          label: 'Bid & Priority',
+                          fields: ['opportunity_number', 'is_bid', 'level', 'priority'],
+                        },
+                        {
+                          name: 'initiation',
+                          label: 'Initiation',
+                          fields: ['initiation_status', 'initiated_date'],
                         },
                         {
                           name: 'team',
@@ -172,9 +187,10 @@ export const OpportunityDetailPage: Page = {
                           fields: ['account_manager', 'solution_manager', 'delivery_manager'],
                         },
                         {
-                          name: 'crm_forecast',
-                          label: 'Stage & Forecast',
-                          fields: ['stage', 'forecast_category'],
+                          name: 'win_loss',
+                          label: 'Win / Loss',
+                          columns: 1,
+                          fields: ['win_reason', 'loss_reason', 'loss_details'],
                         },
                         {
                           name: 'description',

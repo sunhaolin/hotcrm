@@ -157,6 +157,7 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       info: { label: '线索信息' },
       crm_contact: { label: '联系方式' },
       detail: { label: '线索详情' },
+      demand: { label: '需求与审批' },
       address: { label: '地址' },
       description: { label: '描述' },
       // Object-level section keys (lead.object.ts) used by record forms
@@ -337,10 +338,11 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       basic: { label: '基本信息' },
       financials: { label: '财务信息' },
       sales_process: { label: '销售流程' },
-      classification: { label: '分类' },
+      classification: { label: '跟单信息' },
       campaign: { label: '营销活动' },
       notes: { label: '备注与下一步' },
       team: { label: '铁三角' },
+      initiation: { label: '商机立项' },
       // opportunity.view.ts 表单区块名称 (#1100)
       overview: { label: '概览' },
       forecast: { label: '预测' },

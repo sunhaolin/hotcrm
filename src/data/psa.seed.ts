@@ -12,8 +12,10 @@
  *     project ends at 256,000 + travel — over budget for the dashboard, and a
  *     THIRD timesheet added live is what the gate refuses.
  *
- * Statuses are seeded `approved` directly; the T5 flows fire only on
- * `submitted`, so replay opens no approval requests.
+ * Statuses are seeded `approved` directly; the T5 flows fire only on the
+ * transition to `submitted`, so replay opens no approval requests. The three
+ * records the presenter submits LIVE (东方联合银行 · 张建国 · 东方联合银行信贷风控平台)
+ * are seeded `draft`, so the submit gesture is a real draft → submitted edit.
  */
 import { defineSeed } from '@objectstack/spec/data';
 import { cel } from '@objectstack/spec';
@@ -83,7 +85,7 @@ export const psaAccounts = defineSeed(Account, {
     {
       name: CUSTOMER_3, short_name: '东方联合', registration_number: '91310000MA1FGHJ34K', classification: 'regular_customer',
       type: 'prospect', industry: 'finance', number_of_employees: 12000, annual_revenue: 5800000000,
-      approval_status: 'submitted', description: '股份制银行，信贷风控平台选型阶段；客户信息待审批。', is_active: true, last_activity_date: celDaysAgo(1),
+      approval_status: 'draft', description: '股份制银行，信贷风控平台选型阶段；客户信息待提交审批（演示：现场提交）。', is_active: true, last_activity_date: celDaysAgo(1),
     },
   ],
 });
@@ -99,31 +101,39 @@ export const psaContacts = defineSeed(Contact, {
   ],
 });
 
+// Lead emails/phones deliberately differ from the contacts' (the same people,
+// pre-conversion): `lead_duplicate_check` flags a re-captured address as a
+// suspected duplicate and the record page then carries a warning banner.
 export const psaLeads = defineSeed(Lead, {
   mode: 'upsert',
   externalId: 'email',
   records: [
     {
       first_name: '志强', last_name: '王', company: CUSTOMER, title: '信息中心主任',
-      email: 'wang.zhiqiang@huaxin-tech.example.com', phone: '+86 10 8888 6601',
+      email: 'wangzq@huaxin-tech.example.com', phone: '+86 139 1088 6601',
       status: 'qualified', lead_source: 'partner', industry: 'technology',
       estimated_amount: 1400000, demand_type: 'software_development',
       approval_status: 'approved',
       description: '客户意向：核心业务系统升级，含 AI 审批助手；预计 Q4 招标，希望 2027 年 Q2 上线。',
     },
     {
-      first_name: '建国', last_name: '张', company: CUSTOMER_2, title: '智能制造部总监', email: 'zhang.jianguo@beichen.example.com', phone: '+86 512 6666 8801',
+      first_name: '建国', last_name: '张', company: CUSTOMER_2, title: '智能制造部总监', email: 'zhangjg@beichen.example.com', phone: '+86 138 6266 8801',
       status: 'contacted', lead_source: 'event', industry: 'manufacturing', estimated_amount: 2600000, demand_type: 'implementation',
-      approval_status: 'submitted', description: '客户意向：MES 二期覆盖三个新工厂；行业展会上获取。',
+      approval_status: 'draft', description: '客户意向：MES 二期覆盖三个新工厂；行业展会上获取（演示：现场提交审批）。',
     },
     {
-      first_name: '敏', last_name: '陈', company: CUSTOMER_3, title: '科技部副总经理', email: 'chen.min@dfub.example.com', phone: '+86 21 5555 0102',
+      first_name: '敏', last_name: '陈', company: CUSTOMER_3, title: '科技部副总经理', email: 'chenmin@dfub.example.com', phone: '+86 135 5555 0102',
       status: 'new', lead_source: 'web', industry: 'finance', estimated_amount: 4800000, demand_type: 'consulting',
       approval_status: 'draft', description: '客户意向：信贷风控平台咨询 + 实施，先做架构咨询。',
     },
   ],
 });
 
+// `approval_status: 'approved'` on every opportunity: the standard Large Deal
+// Approval fires on create for amounts >= 100,000 and routes to positions the
+// demo org does not staff, which would lock all three records behind the
+// admin's override buttons. Seeding the stamp keeps the demo on the customer's
+// own 立项 gate (initiation_status), which is the one the script walks through.
 export const psaOpportunities = defineSeed(Opportunity, {
   mode: 'upsert',
   externalId: 'name',
@@ -141,7 +151,7 @@ export const psaOpportunities = defineSeed(Opportunity, {
       is_bid: true,
       level: 'level_a',
       priority: 'high',
-      initiation_status: 'approved',
+      approval_status: 'approved', initiation_status: 'approved',
       description: `客户简介：华北区重点客户，核心业务系统运行 8 年。
 项目背景：系统性能与合规双重压力，2026 年立项升级。
 风险分析：竞争对手已有驻场团队；付款周期 90 天。
@@ -152,13 +162,13 @@ export const psaOpportunities = defineSeed(Opportunity, {
     {
       name: OPP_2, crm_account: CUSTOMER_2, amount: 2600000, stage: 'closed_won', probability: 100, close_date: celDaysAgo(30),
       type: 'existing_expansion', forecast_category: 'closed', stage_entry_date: celDaysAgo(30), is_bid: true, level: 'level_a', priority: 'high',
-      initiation_status: 'approved', win_reason: 'relationship', loss_details: '一期口碑 + 本地交付团队；价格略高于竞对但客户选择了续作。',
+      approval_status: 'approved', initiation_status: 'approved', win_reason: 'relationship', loss_details: '一期口碑 + 本地交付团队；价格略高于竞对但客户选择了续作。',
       description: 'MES 一期客户续作二期：三个新工厂产线数字化。', next_step: '启动交付立项。',
     },
     {
       name: OPP_3, crm_account: CUSTOMER_3, amount: 4800000, stage: 'qualification', probability: 25, close_date: celDaysFromNow(120),
       type: 'new_business', forecast_category: 'pipeline', stage_entry_date: celDaysAgo(5), is_bid: true, level: 'level_b', priority: 'medium',
-      initiation_status: 'submitted', description: '信贷风控平台：规则引擎 + 模型管理；招标预计下季度。', next_step: '等待商机立项审批；准备 POC 方案。',
+      approval_status: 'approved', initiation_status: 'draft', description: '信贷风控平台：规则引擎 + 模型管理；招标预计下季度。', next_step: '提交商机立项审批（演示：现场提交）；准备 POC 方案。',
     },
   ],
 });

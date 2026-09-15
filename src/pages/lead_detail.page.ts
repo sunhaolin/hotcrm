@@ -193,100 +193,11 @@ export const LeadDetailPage: Page = {
         // pinned against the option labels read out of the locale packs in
         // `test/lead-duplicate-visibility.test.ts`, so renaming an option
         // re-aims the assertion rather than retiring it.
-        {
-          type: 'record:alert',
-          id: 'lead_duplicate_alert_suspected',
-          label: 'Suspected Duplicate Alert',
-          properties: {
-            // `warning`, not `error`: conversion still PROCEEDS on this
-            // verdict, and the renderer maps `error` to `role="alert"` /
-            // `aria-live="assertive"` — an interruption this state has not
-            // earned.
-            severity: 'warning',
-            visible: P`has(record.duplicate_status) && record.duplicate_status == "suspected"`,
-            title: {
-              en: 'Suspected duplicate — compare before you convert',
-              'zh-CN': '疑似重复——转换前请先比对',
-              'ja-JP': '重複の疑い — 変換する前に照合してください',
-              'es-ES': 'Duplicado Sospechoso: compare antes de convertir',
-            },
-            body: {
-              en:
-                'Intake matched this lead to a record this app already has. Duplicate '
-                + 'Management below links that record — open it and compare. You can still '
-                + 'convert this lead: this is the match intake guessed at, not a reviewer\'s '
-                + 'decision. But if it is the same buyer, disqualify it instead, because '
-                + 'converting creates a second account, contact and opportunity for them.',
-              'zh-CN':
-                '录入时发现该线索与系统中已有记录匹配。下方「重复线索管理」中是它重复的那条记录，'
-                + '请先打开比对。该线索仍然可以转换：这是录入时的自动判断，不是审核人的结论。'
-                + '但若确属同一客户，请改为取消资格——转换会为同一客户再创建一套客户、联系人和商机。',
-              'ja-JP':
-                '登録時に、このリードが既存レコードと一致しました。下の「重複管理」に重複先の'
-                + 'レコードがあります。まず開いて照合してください。このリードはまだ変換できます。'
-                + 'これは登録時の自動判定であり、担当者の結論ではありません。ただし同じ相手で'
-                + 'あれば、変換せず不適格にしてください。変換すると同じ相手に取引先・取引先'
-                + '責任者・商談がもう一組作成されます。',
-              'es-ES':
-                'La captura encontró que este prospecto coincide con un registro que ya '
-                + 'existe. Gestión de Duplicados, más abajo, enlaza ese registro: ábralo y '
-                + 'compárelo. Todavía puede convertir este prospecto, porque se trata de una '
-                + 'coincidencia automática de la captura y no del veredicto de una persona. '
-                + 'Pero si es el mismo comprador, descalifíquelo en su lugar: convertirlo '
-                + 'crea una segunda cuenta, contacto y oportunidad para él.',
-            },
-          },
-        },
-        {
-          type: 'record:alert',
-          id: 'lead_duplicate_alert_confirmed',
-          label: 'Confirmed Duplicate Alert',
-          properties: {
-            // `error`, and the level is the message: this is the state on which
-            // the app REFUSES the rep's next click, and the renderer gives
-            // `error` `role="alert"` / `aria-live="assertive"` rather than the
-            // polite `role="status"` every other level gets. ⛔ The severity is
-            // presentation only — what the app refuses was ruled by #1288 and
-            // shipped by PR #1555, and nothing here changes it.
-            severity: 'error',
-            visible: P`has(record.duplicate_status) && record.duplicate_status == "confirmed"`,
-            title: {
-              en: 'Confirmed duplicate — conversion will be refused',
-              'zh-CN': '已确认重复——转换将被拒绝',
-              'ja-JP': '重複確定 — 変換は拒否されます',
-              'es-ES': 'Duplicado Confirmado: la conversión será rechazada',
-            },
-            body: {
-              // ⭐ The only place a rep learns the Convert button will refuse
-              // them BEFORE they press it — until this banner, the refusal
-              // dialog was the first they heard of it.
-              en:
-                'A reviewer checked this lead and recorded that it repeats a record this app '
-                + 'already has, so Convert Lead refuses it — this banner is the only warning '
-                + 'you get before you press the button. Disqualify this lead instead, naming '
-                + 'the surviving record from Duplicate Management below. If the verdict is '
-                + 'wrong, a reviewer revises Duplicate Status; there is no override here.',
-              'zh-CN':
-                '审核人已核实该线索与系统中已有记录重复，因此「转换线索」会拒绝执行——'
-                + '本提示是你按下按钮前唯一的预警。请改为取消该线索的资格，并在下方'
-                + '「重复线索管理」中注明保留的那条记录。若判定有误，应由审核人修改'
-                + '「重复状态」，此处不提供强制转换的入口。',
-              'ja-JP':
-                '担当者が確認し、このリードは既存レコードの重複であると記録されました。'
-                + 'そのため「リード変換」は拒否されます。この通知が、ボタンを押す前に得られる'
-                + '唯一の警告です。このリードは不適格にしたうえで、下の「重複管理」で残す'
-                + 'レコードを明記してください。判定が誤っている場合は担当者が「重複ステータス」'
-                + 'を修正します。ここに強制変換の手段はありません。',
-              'es-ES':
-                'Una persona verificó que este prospecto repite un registro que ya existe, '
-                + 'por lo que Convertir Prospecto lo rechazará: este aviso es la única '
-                + 'advertencia antes de pulsar el botón. Descalifique el prospecto e indique '
-                + 'el registro que sobrevive desde Gestión de Duplicados, más abajo. Si el '
-                + 'veredicto es incorrecto, una persona debe cambiar el Estado del Duplicado; '
-                + 'aquí no hay forma de forzar la conversión.',
-            },
-          },
-        },
+        // Demo (epic #2): the two duplicate banners (`lead_duplicate_alert_suspected` /
+        // `lead_duplicate_alert_confirmed`) are left out on this branch — measured on
+        // the demo console, both rendered on every lead regardless of `duplicate_status`
+        // (null included), which would open the 线索 scene under a red banner. They
+        // ship unchanged on `main`; see `test/lead-duplicate-visibility.test.ts`.
         // Salesforce-style Highlights Panel: a horizontal strip of the
         // most-important key facts directly under the header. Pulled out
         // of the sidebar so it can use the full page width.
@@ -450,13 +361,12 @@ export const LeadDetailPage: Page = {
                           // recorded reason, not just the red status chip.
                           fields: ['status', 'disqualification_reason', 'rating', 'lead_source', 'owner_id', 'annual_revenue', 'number_of_employees'],
                         },
-                        // Demo (epic #2 / T1): the sections above are the whole
-                        // body, so fields added to the object reach this tab
-                        // only by being named here.
+                        // Demo (epic #2): the customer's demand-shaped lead fields
+                        // and the lead approval stamp (steps 6 / 7).
                         {
-                          name: 'qualification',
-                          label: 'Qualification',
-                          fields: ['estimated_amount', 'demand_type', 'approval_status', 'approved_date'],
+                          name: 'demand',
+                          label: 'Demand & Approval',
+                          fields: ['demand_type', 'estimated_amount', 'approval_status', 'approved_date'],
                         },
                         {
                           name: 'address',
