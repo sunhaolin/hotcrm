@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import stack from '../objectstack.config';
 import { CLAIMABLE_TARGET_STATUSES } from '../src/objects/_case-assignment';
+import { packFor } from './helpers/metadata-fixtures';
 
 /**
  * ═══ Ownership has exactly ONE writer, and the Claim button is not it ═══════
@@ -191,10 +192,13 @@ describe('claim_case is a button over the claim seam, not a second writer of own
     ).toEqual([...CLAIMABLE_TARGET_STATUSES]);
 
     // The half the constant cannot carry. `crm_case.status` is where an agent
-    // reads these words everywhere else in the app.
-    const declared: AnyRec[] =
-      named(objects, 'crm_case', 'object').fields?.status?.options ?? [];
-    const labelOf = (value: string) => declared.find((o) => o.value === value)?.label;
+    // reads these words everywhere else in the app — and on this demo branch
+    // (epic #2) the app renders in zh-CN while the dialog copy is authored in
+    // Chinese, so the words to match are the zh-CN pack's, not the English
+    // declaration's.
+    const declared: Record<string, string> = packFor('zh-CN')?.objects?.crm_case?.fields?.status?.options ?? {};
+    expect(Object.keys(declared), 'zh-CN no longer labels crm_case.status').not.toHaveLength(0);
+    const labelOf = (value: string) => declared[value];
     for (const option of options) {
       expect(
         option.label,

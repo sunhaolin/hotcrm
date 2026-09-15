@@ -89,8 +89,9 @@ export const OpportunityWonAlertFlow: Flow = {
         channels: ['inbox', 'email'],
         severity: 'info',
         topic: 'large_deal_won',
-        title: 'Large deal won: {record.name}',
-        message: '{record.name} closed at {record.amount}. Congratulations to the team.',
+        // Demo branch (epic #2): inbox copy is Chinese.
+        title: '大额商机赢单：{record.name}',
+        message: '{record.name} 以 {record.amount} 成交，恭喜团队！',
         actionUrl: '/crm_opportunity/{record.id}',
       },
     },

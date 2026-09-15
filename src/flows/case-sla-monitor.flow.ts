@@ -262,8 +262,10 @@ export const CaseSlaMonitorFlow: Flow = {
                 channels: ['inbox', 'email'],
                 severity: 'critical',
                 topic: 'case_sla_breach',
-                title: 'SLA breached: case {currentCase.case_number}',
-                message: 'Case {currentCase.case_number} ({currentCase.priority}) passed its SLA due date and has been auto-escalated.',
+                // Demo branch (epic #2): inbox copy is Chinese. `{…priority}` is dropped —
+                // it interpolates the stored value (`critical`), not its label.
+                title: 'SLA 已超时：工单 {currentCase.case_number}',
+                message: '工单 {currentCase.case_number} 已超过 SLA 截止时间，系统已自动升级。',
                 actionUrl: '/crm_case/{currentCase.id}',
               },
             },

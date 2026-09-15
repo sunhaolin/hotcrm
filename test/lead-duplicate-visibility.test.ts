@@ -5,7 +5,7 @@ import { AutomationEngine } from '@objectstack/service-automation';
 import { ExpressionEngine } from '@objectstack/formula';
 import { LeadConversionFlow } from '../src/flows/lead-conversion.flow';
 import { makeFlowHarness, type FlowHarness, type Rec } from './helpers/flow-harness';
-import { type AnyRec, localePacks, objects, pages } from './helpers/metadata-fixtures';
+import { type AnyRec, localePacks, objects, packFor, pages } from './helpers/metadata-fixtures';
 import stack from '../objectstack.config';
 
 /**
@@ -489,10 +489,10 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
     expect(screen, 'the conversion screen never suspended').toBeTruthy();
     const description = String(screen!.description ?? '');
     expect(description, 'the conversion screen says nothing about the duplicate')
-      .toContain('Suspected duplicate');
+      .toContain('疑似重复');
     expect(description, 'the warning does not name the record it repeats')
       .toContain('theo.park@skylinemedia.example.com');
-    expect(description).toContain('second account, contact and opportunity');
+    expect(description).toContain('再创建一套客户、联系人和商机');
 
     // #1243's house rule: a sentence a user reads names a record the way the UI
     // names it. The id belongs in `duplicate_of_lead` — the relationship field
@@ -513,7 +513,7 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
     }));
 
     const description = String(screen!.description ?? '');
-    expect(description).toContain('Suspected duplicate');
+    expect(description).toContain('疑似重复');
     expect(description).not.toContain(SURVIVOR_CONTACT_ID);
   });
 
@@ -623,27 +623,32 @@ describe('lead_conversion — a confirmed duplicate is refused (#1288)', () => {
 
     const description = String(screen!.description ?? '');
     expect(String(screen!.title ?? ''), 'the refusal dialog has no title of its own')
-      .toContain('refused');
+      .toContain('拒绝');
 
     // The ruling's item 1, both halves. The VERDICT, in the vocabulary the
-    // record itself publishes: `duplicate_status`'s label is "Duplicate Status"
-    // and its `confirmed` option's label is "Confirmed" in every locale pack,
-    // so the sentence is readable against the field the rep can see.
+    // record itself publishes. Demo branch: the flow copy is Chinese, so the
+    // vocabulary is the zh-CN pack's `duplicate_status` label and its
+    // `confirmed` option label — the words the rep sees on the field.
+    const zhLead = packFor('zh-CN')?.objects?.crm_lead as AnyRec | undefined;
+    const verdictField = zhLead?.fields?.duplicate_status as AnyRec | undefined;
+    expect(verdictField?.label, 'zh-CN no longer labels `duplicate_status`').toBeTruthy();
     expect(description, 'the refusal never says which verdict stopped it')
-      .toContain('Duplicate Status is Confirmed');
+      .toContain(`${verdictField!.label}为「${verdictField!.options.confirmed}」`);
     expect(description, 'the refusal does not say a person recorded the verdict')
-      .toMatch(/reviewer/);
+      .toMatch(/审核人/);
 
     // The SURVIVOR, named through the fields that carry it. `duplicate_of_lead`
     // / `duplicate_of_contact` hold ids, and #1243's house rule keeps an id out
     // of any sentence a user reads — so the copy names the `duplicates` field
     // group by its shipped label and sends the rep to the links themselves.
-    const groupLabel = ((objects.find((o) => o.name === 'crm_lead') as AnyRec)
-      ?.fieldGroups as AnyRec[] | undefined)?.find((g) => g.key === 'duplicates')?.label;
-    expect(groupLabel, 'crm_lead no longer declares a `duplicates` field group').toBeTruthy();
+    expect(((objects.find((o) => o.name === 'crm_lead') as AnyRec)
+      ?.fieldGroups as AnyRec[] | undefined)?.some((g) => g.key === 'duplicates'),
+    'crm_lead no longer declares a `duplicates` field group').toBe(true);
+    const groupLabel = zhLead?._sections?.duplicates?.label;
+    expect(groupLabel, 'zh-CN no longer labels the `duplicates` field group').toBeTruthy();
     expect(description, 'the refusal does not point at the surviving record')
       .toContain(String(groupLabel));
-    expect(description).toContain('surviving record');
+    expect(description).toContain('保留的记录');
 
     // …and no id reached it, on either lookup.
     expect(description).not.toContain(SURVIVOR_LEAD_ID);
@@ -653,7 +658,7 @@ describe('lead_conversion — a confirmed duplicate is refused (#1288)', () => {
     // ⛔ No override hatch is offered — AGENTS.md metadata rule 8. The way out
     // is revising the verdict itself, which is a reviewer's edit on a field
     // that carries `trackHistory: true`, not a flag on this dialog.
-    expect(description.toLowerCase()).not.toMatch(/convert anyway|override|ignore this|proceed anyway/);
+    expect(description.toLowerCase()).not.toMatch(/convert anyway|override|ignore this|proceed anyway|仍然转化|强制转化|忽略/);
   });
 
   it('leaves the machine\'s guess alone: suspected still warns AND converts', async () => {
@@ -666,7 +671,7 @@ describe('lead_conversion — a confirmed duplicate is refused (#1288)', () => {
     }));
 
     expect(screen!.nodeId, 'a suspected duplicate was routed to the refusal').toBe('screen_1');
-    expect(String(screen!.description ?? '')).toContain('Suspected duplicate');
+    expect(String(screen!.description ?? '')).toContain('疑似重复');
     expect(done.error ?? null, 'a suspected lead could no longer be converted').toBeNull();
     expect(products, 'the warn-and-allow branch stopped converting').toEqual(FULLY_CONVERTED);
   });

@@ -411,7 +411,7 @@ describe('opportunity_stagnation — daily stalled-deal nudge', () => {
 
     expect(h.store.crm_task).toHaveLength(1);
     const [task] = h.store.crm_task;
-    expect(task.subject).toBe('Advance stalled deal: Stalled Deal');
+    expect(task.subject).toBe('推进停滞商机：Stalled Deal');
     expect(task.related_to_opportunity).toBe('o_stalled');
     expect(task.related_to_type).toBe('crm_opportunity');
     expect(task.owner_id).toBe('rep1');
@@ -457,7 +457,7 @@ describe('opportunity_stagnation — daily stalled-deal nudge', () => {
         crm_opportunity: seedOpps(),
         crm_task: [{
           id: 't_done', related_to_opportunity: 'o_stalled',
-          subject: 'Advance stalled deal: Stalled Deal', status: 'completed',
+          subject: '推进停滞商机：Stalled Deal', status: 'completed',
         }],
       },
     );
@@ -512,7 +512,7 @@ describe('contract_renewal — daily notice-window sweep', () => {
 
     expect(h.store.crm_task).toHaveLength(1);
     const [task] = h.store.crm_task;
-    expect(task.subject).toBe('Renewal due: contract CTR-1');
+    expect(task.subject).toBe('续约提醒：合同 CTR-1');
     expect(task.related_to_account).toBe('acc1');
     expect(task.owner_id).toBe('rep1');
     expect(task.priority).toBe('high');
@@ -530,8 +530,8 @@ describe('contract_renewal — daily notice-window sweep', () => {
       contract({ id: 'k_late', contract_number: 'CTR-30', end_date: day(+80), renewal_notice_days: 30 }),
     ]);
     const subjects = h.store.crm_task.map((t) => t.subject);
-    expect(subjects, 'the 90-day-notice contract is in window').toContain('Renewal due: contract CTR-90');
-    expect(subjects, 'the 30-day-notice contract is still 80 days out').not.toContain('Renewal due: contract CTR-30');
+    expect(subjects, 'the 90-day-notice contract is in window').toContain('续约提醒：合同 CTR-90');
+    expect(subjects, 'the 30-day-notice contract is still 80 days out').not.toContain('续约提醒：合同 CTR-30');
   });
 
   it('opens a pre-filled renewal opportunity only when auto_renewal is on', async () => {

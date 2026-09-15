@@ -71,7 +71,9 @@ export const ContractRenewalFlow: Flow = {
                 objectName: 'crm_task',
                 filter: {
                   related_to_account: '{currentContract.crm_account}',
-                  subject: 'Renewal due: contract {currentContract.contract_number}',
+                  // Demo branch (epic #2): task and inbox copy is Chinese. This subject is
+                  // the idempotency key — it MUST match `create_renewal_task` verbatim.
+                  subject: '续约提醒：合同 {currentContract.contract_number}',
                   status: { $nin: ['completed'] },
                 },
                 outputVariable: 'existingRenewalTask',
@@ -86,7 +88,7 @@ export const ContractRenewalFlow: Flow = {
               config: {
                 objectName: 'crm_task',
                 fields: {
-                  subject: 'Renewal due: contract {currentContract.contract_number}',
+                  subject: '续约提醒：合同 {currentContract.contract_number}',
                   type: 'follow_up', priority: 'high', status: 'not_started',
                   due_date: '{currentContract.end_date}',
                   owner_id: '{currentContract.owner_id}',
@@ -115,8 +117,8 @@ export const ContractRenewalFlow: Flow = {
                 recipients: ['{currentContract.owner_id}'],
                 channels: ['inbox', 'email'],
                 topic: 'contract_renewal',
-                title: 'Contract renewal due: {currentContract.contract_number}',
-                message: 'Contract {currentContract.contract_number} ends on {currentContract.end_date}. Start the renewal conversation now.',
+                title: '合同待续约：{currentContract.contract_number}',
+                message: '合同 {currentContract.contract_number} 将于 {currentContract.end_date} 到期，请尽快启动续约沟通。',
                 actionUrl: '/crm_contract/{currentContract.id}',
               },
             },

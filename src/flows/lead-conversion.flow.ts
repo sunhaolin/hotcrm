@@ -54,9 +54,9 @@ export const LeadConversionFlow: Flow = {
   ],
 
   nodes: [
-    { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_lead' } },
+    { id: 'start', type: 'start', label: '开始', config: { objectName: 'crm_lead' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Conversion Details',
+      id: 'screen_1', type: 'screen', label: '转化详情',
       config: {
         // The suspected-duplicate warning. `lead_duplicate_check` flags a
         // re-captured email at intake and links the record the lead repeats;
@@ -109,9 +109,9 @@ export const LeadConversionFlow: Flow = {
           // client receives boolean `false`, byte-identical to what the literal
           // sent. (`visibleWhen` below is the opposite case: forwarded raw,
           // never interpolated. Same node, two different dialects.)
-          { name: 'createOpportunity', label: 'Create Opportunity?', type: 'boolean', defaultValue: '{createOpportunity}' },
-          { name: 'opportunityName', label: 'Opportunity Name', type: 'text', required: true, visibleWhen: 'createOpportunity == true' },
-          { name: 'opportunityAmount', label: 'Opportunity Amount', type: 'currency', visibleWhen: 'createOpportunity == true' },
+          { name: 'createOpportunity', label: '是否创建商机？', type: 'boolean', defaultValue: '{createOpportunity}' },
+          { name: 'opportunityName', label: '商机名称', type: 'text', required: true, visibleWhen: 'createOpportunity == true' },
+          { name: 'opportunityAmount', label: '商机金额', type: 'currency', visibleWhen: 'createOpportunity == true' },
           // The close date, DEFAULTED AND VISIBLE. `close_date` is what files
           // an opportunity into a forecast PERIOD, so ⛔ never stamp it silently
           // inside `create_opportunity`: a hidden +90 days files every converted
@@ -142,7 +142,7 @@ export const LeadConversionFlow: Flow = {
           // when `visibleWhen` evaluates false, and so does the console, which
           // is the untouched-checkbox path this screen has always had to keep
           // working.
-          { name: 'closeDate', label: 'Close Date', type: 'date', required: true, defaultValue: '{TODAY() + 90}', visibleWhen: 'createOpportunity == true' },
+          { name: 'closeDate', label: '预计成交日期', type: 'date', required: true, defaultValue: '{TODAY() + 90}', visibleWhen: 'createOpportunity == true' },
         ],
       },
     },
@@ -151,7 +151,7 @@ export const LeadConversionFlow: Flow = {
       // reads `leadRecord`, and a screen that suspends before the fetch has
       // nothing to read. The fetch itself never depended on the screen —
       // `{recordId}` is an input variable, seeded before the run starts.
-      id: 'get_lead', type: 'get_record', label: 'Get Lead Record',
+      id: 'get_lead', type: 'get_record', label: '读取线索',
       config: { objectName: 'crm_lead', filter: { id: '{recordId}' }, outputVariable: 'leadRecord' },
     },
     {
@@ -160,7 +160,7 @@ export const LeadConversionFlow: Flow = {
       // of fact and they get different answers: the machine's `suspected` guess
       // warns and lets the rep decide (`e21`), a person's `confirmed` verdict
       // refuses outright (`e25`), and everything else converts silently (`e22`).
-      id: 'decision_duplicate', type: 'decision', label: 'Duplicate Verdict?',
+      id: 'decision_duplicate', type: 'decision', label: '重复判定？',
     },
     {
       // The warning names the record the way the UI names a person — by the
@@ -176,17 +176,20 @@ export const LeadConversionFlow: Flow = {
       // reads "Suspected = flagged automatically at intake" in all four
       // locales, and `lead_duplicate_check` is insert-only by design.
       //
-      // Flow copy is English-only in this repo, deliberately and consistently:
-      // flows carry no entry in the locale packs (`src/translations/*.ts`
-      // translate objects, fields, views and actions), which
-      // `test/automation-docs-coverage.test.ts` records as the reason its
-      // Chinese flow labels are authored in the test itself. The banner on the
-      // record page — which DOES have a locale channel — carries all four.
-      id: 'warn_duplicate', type: 'assignment', label: 'Compose Duplicate Warning',
+      // Demo branch (epic #2): flow copy is authored in CHINESE here, the same
+      // deviation `psa-approvals.flow.ts` takes. Measured on 17.4.0: the spec
+      // accepts `flows.<name>.screens.<nodeId>` in a locale pack, but only lint
+      // reads it — the screen executor puts `node.label` / `field.label` on the
+      // wire raw and `FlowRunner` renders `screen.title` as received, so a pack
+      // entry would leave this dialog in its source language. Only the flow's
+      // own `label` stays English: `test/automation-docs-coverage.test.ts`
+      // resolves the docs' `**Lead Conversion Process**` against it. On `main`
+      // this copy is English and the gap is the platform's to close.
+      id: 'warn_duplicate', type: 'assignment', label: '生成重复提醒',
       config: {
         assignments: {
           duplicateWarning:
-            'Suspected duplicate — intake flagged this lead as repeating an existing record with this email address ({leadRecord.email}). Converting creates a second account, contact and opportunity for the same buyer; compare the linked record on the lead page before you continue.',
+            '疑似重复 — 录入时系统发现此线索的邮箱（{leadRecord.email}）与已有记录相同，已标记为重复。继续转化会为同一买方再创建一套客户、联系人和商机；请先在线索页面核对关联的记录再继续。',
         },
       },
     },
@@ -195,7 +198,7 @@ export const LeadConversionFlow: Flow = {
       // CONDITIONAL: `interp` maps it to `undefined` and the dialog renders no
       // description. Same shape as `no_opportunity` below — both branches
       // write the variable so no downstream read ever meets an unset one.
-      id: 'no_duplicate_warning', type: 'assignment', label: 'No Duplicate Warning',
+      id: 'no_duplicate_warning', type: 'assignment', label: '无重复提醒',
       config: { assignments: { duplicateWarning: null } },
     },
     {
@@ -246,7 +249,7 @@ export const LeadConversionFlow: Flow = {
       // refusal names the survivor through the relationship fields that exist
       // to carry it (`test/record-id-not-in-prose.test.ts`: "the id goes in the
       // relationship field that exists to carry it, or nowhere"), naming the
-      // `duplicates` field group by its shipped label, "Duplicate Management".
+      // `duplicates` field group by its zh-CN pack label, 「重复线索管理」.
       // That sentence also stays true on the `erased` tombstone, where the
       // verdict survives its pointer (`lead.hook.ts`, job 1c).
       //
@@ -256,13 +259,13 @@ export const LeadConversionFlow: Flow = {
       // section this line points at, and a hand-copied machine list in prose is
       // the drift AGENTS.md documentation rule 5 forbids.
       //
-      // Flow copy is English-only in this repo — see `warn_duplicate` above for
-      // the measurement; a flow has no entry in `src/translations/*.ts`.
-      id: 'refuse_confirmed_duplicate', type: 'screen', label: 'Conversion Refused',
+      // Flow copy is Chinese on this demo branch — see `warn_duplicate` above
+      // for why a locale-pack entry would not reach this dialog.
+      id: 'refuse_confirmed_duplicate', type: 'screen', label: '拒绝转化',
       config: {
-        title: 'Conversion refused',
+        title: '已拒绝转化',
         description:
-          "This lead's Duplicate Status is Confirmed: a reviewer compared it against an existing record and recorded that it repeats one. Converting would create a second account, contact and opportunity for the same buyer. The Duplicate Management section on this lead names the surviving record; disqualify this lead as a duplicate instead. Only a reviewer revising that verdict reopens conversion.",
+          '此线索的重复状态为「已确认重复」：审核人已将其与已有记录比对，并判定为重复。继续转化会为同一买方再创建一套客户、联系人和商机。此线索的「重复线索管理」分组中列出了保留的记录，请改为以重复为由将此线索标记为未通过。只有审核人修改该判定后才能重新转化。',
         // A message-only screen: no fields, so the pause has to be asked for.
         // `waitForInput` is what turns a field-less screen from a server-side
         // pass-through into the dialog the rep reads (the executor's
@@ -310,13 +313,13 @@ export const LeadConversionFlow: Flow = {
       // raw `name`: a missing key means the producer did not run, and a
       // tolerant consumer path would hide that while restoring the exact bug
       // this node exists to fix.
-      id: 'find_account', type: 'get_record', label: 'Find Existing Account',
+      id: 'find_account', type: 'get_record', label: '查找已有客户',
       config: { objectName: 'crm_account', filter: { name_normalized: '{leadRecord.company_normalized}' }, outputVariable: 'matchedAccount' },
     },
     {
       // Branching is on edges `e5` / `e6`. No `config.condition` here: a
       // `decision` node's singular one is never evaluated.
-      id: 'decision_account', type: 'decision', label: 'Account Already Exists?',
+      id: 'decision_account', type: 'decision', label: '客户是否已存在？',
     },
     {
       // NEW-account branch. outputVariable is `createdAccount`; the assignment
@@ -328,7 +331,7 @@ export const LeadConversionFlow: Flow = {
       // hook-owned, and `account_protection` derives it from the `name` written
       // here, so an account created by this node is immediately findable by the
       // next conversion.
-      id: 'create_account', type: 'create_record', label: 'Create Account',
+      id: 'create_account', type: 'create_record', label: '创建客户',
       config: {
         objectName: 'crm_account',
         fields: {
@@ -343,11 +346,11 @@ export const LeadConversionFlow: Flow = {
       },
     },
     {
-      id: 'use_new_account', type: 'assignment', label: 'Use New Account',
+      id: 'use_new_account', type: 'assignment', label: '使用新建客户',
       config: { assignments: { accountId: '{createdAccount.id}' } },
     },
     {
-      id: 'use_existing_account', type: 'assignment', label: 'Reuse Existing Account',
+      id: 'use_existing_account', type: 'assignment', label: '复用已有客户',
       config: { assignments: { accountId: '{matchedAccount.id}' } },
     },
     {
@@ -357,7 +360,7 @@ export const LeadConversionFlow: Flow = {
       // another account and `create_contact` then explodes on the DB index
       // AFTER the account has been created, orphaning it. Leads require an
       // email, so the match key is reliable.
-      id: 'find_contact', type: 'get_record', label: 'Find Existing Contact',
+      id: 'find_contact', type: 'get_record', label: '查找已有联系人',
       config: {
         objectName: 'crm_contact',
         filter: { email: '{leadRecord.email}' },
@@ -366,11 +369,11 @@ export const LeadConversionFlow: Flow = {
     },
     {
       // Branching is on edges `e11` / `e12` — see `decision_account`.
-      id: 'decision_contact', type: 'decision', label: 'Contact Already Exists?',
+      id: 'decision_contact', type: 'decision', label: '联系人是否已存在？',
     },
     {
       // `accountId` is a bare id string from whichever account branch ran.
-      id: 'create_contact', type: 'create_record', label: 'Create Contact',
+      id: 'create_contact', type: 'create_record', label: '创建联系人',
       config: {
         objectName: 'crm_contact',
         fields: {
@@ -383,16 +386,16 @@ export const LeadConversionFlow: Flow = {
       },
     },
     {
-      id: 'use_new_contact', type: 'assignment', label: 'Use New Contact',
+      id: 'use_new_contact', type: 'assignment', label: '使用新建联系人',
       config: { assignments: { contactId: '{createdContact.id}' } },
     },
     {
-      id: 'use_existing_contact', type: 'assignment', label: 'Reuse Existing Contact',
+      id: 'use_existing_contact', type: 'assignment', label: '复用已有联系人',
       config: { assignments: { contactId: '{matchedContact.id}' } },
     },
     {
       // Branching is on edges `e16` / `e17` — see `decision_account`.
-      id: 'decision_opportunity', type: 'decision', label: 'Create Opportunity?',
+      id: 'decision_opportunity', type: 'decision', label: '是否创建商机？',
     },
     {
       // `close_date` comes from the screen field, which is the only layer that
@@ -400,7 +403,7 @@ export const LeadConversionFlow: Flow = {
       // declaration. An unbound `{closeDate}` resolves to nothing and the
       // platform refuses the write rather than inventing a quarter, which is
       // the failure this node is allowed to have.
-      id: 'create_opportunity', type: 'create_record', label: 'Create Opportunity',
+      id: 'create_opportunity', type: 'create_record', label: '创建商机',
       config: {
         objectName: 'crm_opportunity',
         fields: {
@@ -417,15 +420,15 @@ export const LeadConversionFlow: Flow = {
       // `{createdOpportunity.id}` downstream instead: on the "No" branch the
       // create node never ran, and the unresolved token interpolates into the
       // `converted_opportunity` lookup as a placeholder.
-      id: 'use_new_opportunity', type: 'assignment', label: 'Use New Opportunity',
+      id: 'use_new_opportunity', type: 'assignment', label: '使用新建商机',
       config: { assignments: { opportunityId: '{createdOpportunity.id}' } },
     },
     {
-      id: 'no_opportunity', type: 'assignment', label: 'No Opportunity',
+      id: 'no_opportunity', type: 'assignment', label: '不创建商机',
       config: { assignments: { opportunityId: null } },
     },
     {
-      id: 'mark_converted', type: 'update_record', label: 'Mark Lead as Converted',
+      id: 'mark_converted', type: 'update_record', label: '标记线索为已转化',
       config: {
         objectName: 'crm_lead', filter: { id: '{recordId}' },
         fields: {
@@ -441,17 +444,17 @@ export const LeadConversionFlow: Flow = {
     {
       // ADR-0012: deliver via the `notify` node (inbox + email). The legacy
       // `script` + `actionType:'email'` shape is a no-op stub in 7.4.
-      id: 'send_notification', type: 'notify', label: 'Send Confirmation',
+      id: 'send_notification', type: 'notify', label: '发送转化通知',
       config: {
         recipients: ['{$User.Id}'],
         channels: ['inbox', 'email'],
         topic: 'lead_converted',
-        title: 'Lead converted: {leadRecord.first_name} {leadRecord.last_name}',
-        message: 'Lead {leadRecord.first_name} {leadRecord.last_name} was converted into an account and contact.',
+        title: '线索已转化：{leadRecord.last_name}{leadRecord.first_name}',
+        message: '线索 {leadRecord.last_name}{leadRecord.first_name} 已转化为客户和联系人。',
         actionUrl: '/crm_account/{accountId}',
       },
     },
-    { id: 'end', type: 'end', label: 'End' },
+    { id: 'end', type: 'end', label: '结束' },
   ],
 
   edges: [
@@ -494,9 +497,9 @@ export const LeadConversionFlow: Flow = {
     // refusal and converting the lead in the same run. Measured on
     // `AutomationEngine.evaluateCondition` across all seven record shapes; the
     // pin is in `test/lead-duplicate-visibility.test.ts`.
-    { id: 'e21', source: 'decision_duplicate', target: 'warn_duplicate', type: 'default', condition: P`has(vars.leadRecord) && has(vars.leadRecord.duplicate_status) && vars.leadRecord.duplicate_status == "suspected"`, label: 'Suspected' },
-    { id: 'e25', source: 'decision_duplicate', target: 'refuse_confirmed_duplicate', type: 'default', condition: P`has(vars.leadRecord) && has(vars.leadRecord.duplicate_status) && vars.leadRecord.duplicate_status == "confirmed"`, label: 'Confirmed' },
-    { id: 'e22', source: 'decision_duplicate', target: 'no_duplicate_warning', type: 'default', condition: P`!has(vars.leadRecord) || !has(vars.leadRecord.duplicate_status) || (vars.leadRecord.duplicate_status != "suspected" && vars.leadRecord.duplicate_status != "confirmed")`, label: 'Clean' },
+    { id: 'e21', source: 'decision_duplicate', target: 'warn_duplicate', type: 'default', condition: P`has(vars.leadRecord) && has(vars.leadRecord.duplicate_status) && vars.leadRecord.duplicate_status == "suspected"`, label: '疑似重复' },
+    { id: 'e25', source: 'decision_duplicate', target: 'refuse_confirmed_duplicate', type: 'default', condition: P`has(vars.leadRecord) && has(vars.leadRecord.duplicate_status) && vars.leadRecord.duplicate_status == "confirmed"`, label: '已确认重复' },
+    { id: 'e22', source: 'decision_duplicate', target: 'no_duplicate_warning', type: 'default', condition: P`!has(vars.leadRecord) || !has(vars.leadRecord.duplicate_status) || (vars.leadRecord.duplicate_status != "suspected" && vars.leadRecord.duplicate_status != "confirmed")`, label: '无重复' },
     { id: 'e23', source: 'warn_duplicate', target: 'screen_1', type: 'default' },
     { id: 'e24', source: 'no_duplicate_warning', target: 'screen_1', type: 'default' },
     // The refusal branch rejoins nothing: it goes straight to `end`, so no
@@ -507,21 +510,21 @@ export const LeadConversionFlow: Flow = {
     { id: 'e2', source: 'screen_1', target: 'find_account', type: 'default' },
     { id: 'e4', source: 'find_account', target: 'decision_account', type: 'default' },
     // Existing account → reuse; no account → create. Both converge on create_contact.
-    { id: 'e5', source: 'decision_account', target: 'use_existing_account', type: 'default', condition: P`vars.matchedAccount != null`, label: 'Existing' },
-    { id: 'e6', source: 'decision_account', target: 'create_account', type: 'default', condition: P`vars.matchedAccount == null`, label: 'New' },
+    { id: 'e5', source: 'decision_account', target: 'use_existing_account', type: 'default', condition: P`vars.matchedAccount != null`, label: '已存在' },
+    { id: 'e6', source: 'decision_account', target: 'create_account', type: 'default', condition: P`vars.matchedAccount == null`, label: '新建' },
     { id: 'e7', source: 'create_account', target: 'use_new_account', type: 'default' },
     // Both account branches converge on the contact-dedupe lookup.
     { id: 'e8', source: 'use_new_account', target: 'find_contact', type: 'default' },
     { id: 'e9', source: 'use_existing_account', target: 'find_contact', type: 'default' },
     { id: 'e10', source: 'find_contact', target: 'decision_contact', type: 'default' },
     // Existing contact → reuse; none → create. Both converge on decision_opportunity.
-    { id: 'e11', source: 'decision_contact', target: 'use_existing_contact', type: 'default', condition: P`vars.matchedContact != null`, label: 'Existing' },
-    { id: 'e12', source: 'decision_contact', target: 'create_contact', type: 'default', condition: P`vars.matchedContact == null`, label: 'New' },
+    { id: 'e11', source: 'decision_contact', target: 'use_existing_contact', type: 'default', condition: P`vars.matchedContact != null`, label: '已存在' },
+    { id: 'e12', source: 'decision_contact', target: 'create_contact', type: 'default', condition: P`vars.matchedContact == null`, label: '新建' },
     { id: 'e13', source: 'create_contact', target: 'use_new_contact', type: 'default' },
     { id: 'e14', source: 'use_new_contact', target: 'decision_opportunity', type: 'default' },
     { id: 'e15', source: 'use_existing_contact', target: 'decision_opportunity', type: 'default' },
-    { id: 'e16', source: 'decision_opportunity', target: 'create_opportunity', type: 'default', condition: P`vars.createOpportunity == true`, label: 'Yes' },
-    { id: 'e17', source: 'decision_opportunity', target: 'no_opportunity', type: 'default', condition: P`vars.createOpportunity != true`, label: 'No' },
+    { id: 'e16', source: 'decision_opportunity', target: 'create_opportunity', type: 'default', condition: P`vars.createOpportunity == true`, label: '是' },
+    { id: 'e17', source: 'decision_opportunity', target: 'no_opportunity', type: 'default', condition: P`vars.createOpportunity != true`, label: '否' },
     { id: 'e18', source: 'create_opportunity', target: 'use_new_opportunity', type: 'default' },
     { id: 'e18a', source: 'use_new_opportunity', target: 'mark_converted', type: 'default' },
     { id: 'e18b', source: 'no_opportunity', target: 'mark_converted', type: 'default' },

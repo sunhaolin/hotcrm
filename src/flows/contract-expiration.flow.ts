@@ -50,8 +50,9 @@ export const ContractExpirationFlow: Flow = {
                 recipients: ['{currentContract.owner_id}'],
                 channels: ['inbox', 'email'],
                 topic: 'contract_expired',
-                title: 'Contract expired: {currentContract.contract_number}',
-                message: 'Contract {currentContract.contract_number} reached its end date and has been marked expired.',
+                // Demo branch (epic #2): inbox copy is Chinese.
+                title: '合同已到期：{currentContract.contract_number}',
+                message: '合同 {currentContract.contract_number} 已到结束日期，已标记为到期。',
                 actionUrl: '/crm_contract/{currentContract.id}',
               },
             },

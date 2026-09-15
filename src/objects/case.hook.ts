@@ -389,8 +389,8 @@ const caseSideEffects: Hook = {
       //
       // ⚠️ The 255 cap is not cosmetic. `crm_task.subject` declares
       // `maxLength: 255` and the engine ENFORCES it, while `crm_case.subject`
-      // allows the same 255 — so `Escalated: ` + number + separator + a
-      // max-length case subject is 279 characters and the insert is REJECTED.
+      // allows the same 255 — so `工单已升级：` + number + separator + a
+      // max-length case subject is 274 characters and the insert is REJECTED.
       // This hook is `async: true` + `onError: 'log'`, so that rejection
       // surfaces nowhere: the escalation task would simply never exist.
       // Truncating the TAIL keeps the identifier — the discriminating half —
@@ -408,7 +408,9 @@ const caseSideEffects: Hook = {
         (typeof previous.subject === 'string' && previous.subject.trim()) ||
         '';
       const label = [caseNumber, caseSubject].filter(Boolean).join(' · ');
-      const titled = label ? `Escalated: ${label}` : 'Escalated case needs attention';
+      // Demo branch (epic #2): the subject is Chinese, worded like the
+      // `case_escalation` flow's inbox title (`工单已升级：…`).
+      const titled = label ? `工单已升级：${label}` : '已升级工单待处理';
       await api.object('crm_task').insert({
         subject: titled.length > 255 ? `${titled.slice(0, 254)}…` : titled,
         status: 'not_started',

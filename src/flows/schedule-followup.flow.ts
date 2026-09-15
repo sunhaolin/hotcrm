@@ -1,7 +1,8 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import type * as Automation from '@objectstack/spec/automation';
-import { TASK_TYPE_OPTIONS, plainOptions } from '../objects/_picklists';
+import { TASK_TYPE_OPTIONS } from '../objects/_picklists';
+import { zhOptions } from './_zh-options';
 type Flow = Automation.Flow;
 
 /**
@@ -39,27 +40,26 @@ export const ScheduleFollowUpFlow: Flow = {
   nodes: [
     { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_lead' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Schedule Follow-up',
+      // Demo branch (epic #2): dialog copy is Chinese — a locale pack cannot
+      // reach a flow screen on 17.4.0; see `./_zh-options.ts`.
+      id: 'screen_1', type: 'screen', label: '安排跟进',
       config: {
         fields: [
-          { name: 'subject', label: 'What is the next step?', type: 'text', required: true },
-          { name: 'dueDate', label: 'Due Date', type: 'date', required: true },
+          { name: 'subject', label: '下一步做什么？', type: 'text', required: true },
+          { name: 'dueDate', label: '截止日期', type: 'date', required: true },
           {
-            name: 'activityType', label: 'Activity Type', type: 'select',
+            // No default, so the picker shows its placeholder — without one
+            // the renderer falls back to an English "Select...".
+            name: 'activityType', label: '任务类型', type: 'select', placeholder: '请选择',
             // Mirrors crm_task.type exactly. ⛔ Never hand-copy the subset — it
             // silently drops an option (`other`) from the picker.
-            options: plainOptions(TASK_TYPE_OPTIONS),
+            options: zhOptions('crm_task', 'type', TASK_TYPE_OPTIONS.map((o) => o.value)),
           },
           {
-            name: 'priority', label: 'Priority', type: 'select',
-            options: [
-              { label: 'Low', value: 'low' },
-              { label: 'Normal', value: 'normal' },
-              { label: 'High', value: 'high' },
-              { label: 'Urgent', value: 'urgent' },
-            ],
+            name: 'priority', label: '优先级', type: 'select', placeholder: '请选择',
+            options: zhOptions('crm_task', 'priority', ['low', 'normal', 'high', 'urgent']),
           },
-          { name: 'notes', label: 'Notes', type: 'textarea' },
+          { name: 'notes', label: '备注', type: 'textarea' },
         ],
       },
     },
