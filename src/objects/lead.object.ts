@@ -70,9 +70,13 @@ export const Lead = ObjectSchema.create({
     // `dr`), not the label — including it renders names as "ms Emily Davis" in
     // lists and details. Dropped here and from `display_title` below, matching
     // Contact.
+    //
+    // Demo (epic #2): surname first with no separator — the Chinese order
+    // (王志强, not 志强 王). The two columns keep their meaning (`last_name` is
+    // the surname); only the composition and the form order follow Chinese.
     full_name: Field.formula({
       label: 'Full Name',
-      expression: F`joinNonEmpty([record.first_name, record.last_name], ' ')`,
+      expression: F`joinNonEmpty([record.last_name, record.first_name], '')`,
       group: 'identity',
     }),
 
@@ -81,7 +85,7 @@ export const Lead = ObjectSchema.create({
     // plus `company`, so the title resolves from real stored values.
     display_title: Field.formula({
       label: 'Display Title',
-      expression: F`joinNonEmpty([record.first_name, record.last_name], ' ') + " - " + record.company`,
+      expression: F`joinNonEmpty([record.last_name, record.first_name], '') + " - " + record.company`,
       group: 'identity',
     }),
 

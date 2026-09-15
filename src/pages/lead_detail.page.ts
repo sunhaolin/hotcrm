@@ -57,7 +57,7 @@ export const LeadDetailPage: Page = {
           id: 'lead_header',
           label: 'Lead Information',
           properties: {
-            title: '{first_name} {last_name}',
+            title: '{last_name}{first_name}',
             subtitle: '{company}',
             // `icon` removed from `page:header` in @objectstack/spec 17.0.0
             // (#6946, ADR-0087 D2) — deleted, not renamed. See the full note on
@@ -345,7 +345,7 @@ export const LeadDetailPage: Page = {
                         {
                           name: 'info',
                           label: 'Lead Information',
-                          fields: ['salutation', 'first_name', 'last_name', 'title', 'company', 'industry'],
+                          fields: ['salutation', 'last_name', 'first_name', 'title', 'company', 'industry'],
                         },
                         {
                           name: 'crm_contact',
