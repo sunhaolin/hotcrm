@@ -71,7 +71,7 @@ export const ImportBizcaseBudgetAction: Action = {
       await ctx.api.object('crm_delivery_project').update({ id: id, budget_baseline: total }, { where: { id: id } });
       return { id: plan.id, baseline_total: total };
     `,
-    capabilities: ['api.write'],
+    capabilities: ['api.read', 'api.write'],
     timeoutMs: 20000,
   },
   locations: ['record_header'],
@@ -106,7 +106,7 @@ export const CreatePlanVersionAction: Action = {
       await cloneLines(source.id, plan.id);
       return { id: plan.id, version_no: version };
     `,
-    capabilities: ['api.write'],
+    capabilities: ['api.read', 'api.write'],
     timeoutMs: 20000,
   },
   locations: ['record_header'],
@@ -135,7 +135,7 @@ const redecomposeAction = (objectName: string): Action => ({
       await ctx.api.object('${objectName}').update({ id: id, start_month: line.start_month }, { where: { id: id } });
       return { id: id, reset: manual.length };
     `,
-    capabilities: ['api.write'],
+    capabilities: ['api.read', 'api.write'],
     timeoutMs: 10000,
   },
   locations: ['record_header'],

@@ -204,6 +204,10 @@ const costLineDecompose: Hook = {
   object: [...LINE_OBJECTS],
   events: ['afterInsert', 'afterUpdate'],
   priority: 200,
+  // A twelve-month line is twelve ledger writes, each cascading through the
+  // line, plan and project roll-ups and their sandboxed hooks (measured at
+  // ~2 s per month on SQLite); the default 30 s ceiling is a line's worth.
+  timeoutMs: 180000,
   description: 'Generate, refresh and prune the month rows of a cost line from its factors and month range.',
   handler: async (ctx: HookContext) => {
     const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
