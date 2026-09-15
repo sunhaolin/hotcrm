@@ -73,6 +73,20 @@ async function refusalFrom(hook: Rec, opts: Parameters<typeof runHookBody>[1]): 
   return err as Error;
 }
 
+/**
+ * ⚠️ `CostaMira`, `ZhangWei` and friends below are not typos and ⛔ must not be
+ * "corrected" to `Mira Costa` / `Wei Zhang`. A person's name is composed the
+ * way the object's own name formula composes it — surname first, no separator,
+ * `joinNonEmpty([record.last_name, record.first_name], '')` on both
+ * `crm_lead.display_title` / `full_name` and `crm_contact.full_name` (epic #2,
+ * the Chinese name order). That IS what the record page, the breadcrumb, the
+ * list view and the lookup picker show, and matching it is the entire point of
+ * this file: a sentence that names the record in an order no surface in the app
+ * uses sends the reader looking for a record they will not find. The hooks
+ * spelled it `first last` until the demo lead `韩雪` came back as
+ * `雪 韩 - 北方重工集团有限公司` in a refusal; these fixtures keep Western names,
+ * so the composition reads oddly here and correctly on the demo's own data.
+ */
 describe('task subjects name the record, not its primary key', () => {
   it('the qualified-lead follow-up is titled by the lead (lead_automation)', async () => {
     const engine = makeSandboxEngine({ crm_task: [] });
@@ -93,7 +107,7 @@ describe('task subjects name the record, not its primary key', () => {
 
     const [task] = engine.inserted('crm_task');
     expect(task, 'no follow-up task was inserted').toBeTruthy();
-    expect(task.subject).toBe('Follow up with qualified lead: Mira Costa - Atlas Construction');
+    expect(task.subject).toBe('Follow up with qualified lead: CostaMira - Atlas Construction');
     expect(task.subject).not.toContain(LEAD_ID);
     // Not lost — moved to the column whose job it is.
     expect(task.related_to_lead).toBe(LEAD_ID);
@@ -113,7 +127,7 @@ describe('task subjects name the record, not its primary key', () => {
       engine,
     });
     const [task] = engine.inserted('crm_task');
-    expect(task.subject).toBe('Follow up with qualified lead: Mira Costa - Atlas Construction Group');
+    expect(task.subject).toBe('Follow up with qualified lead: CostaMira - Atlas Construction Group');
   });
 
   it('drops the half the lead does not carry rather than dangling a separator', async () => {
@@ -162,7 +176,7 @@ describe('task subjects name the record, not its primary key', () => {
     });
     const subject = engine.inserted('crm_task')[0].subject as string;
     expect(subject.length).toBe(255);
-    expect(subject.startsWith('Follow up with qualified lead: Mira Costa - ')).toBe(true);
+    expect(subject.startsWith('Follow up with qualified lead: CostaMira - ')).toBe(true);
     expect(subject.endsWith('…')).toBe(true);
   });
 
@@ -302,7 +316,7 @@ describe('refusals a user reads name the record they are about', () => {
       },
       user: { id: 'rep_1' },
     });
-    expect(err.message).toContain('Cannot edit converted lead Mira Costa - Atlas Construction');
+    expect(err.message).toContain('Cannot edit converted lead CostaMira - Atlas Construction');
     expect(err.message).not.toContain(LEAD_ID);
   });
 
@@ -334,7 +348,7 @@ describe('refusals a user reads name the record they are about', () => {
     // `toContain`, not `toBe`: the sandbox prefixes what a body throws with
     // `hook '<name>' threw: Error: `, so the sentence is the tail of it.
     expect(err.message).toContain(
-      'Another contact (Wei Zhang) with email theo.park@skylinemedia.example.com already exists.',
+      'Another contact (ZhangWei) with email theo.park@skylinemedia.example.com already exists.',
     );
     expect(err.message).not.toContain(CONTACT_ID);
   });
@@ -381,7 +395,7 @@ describe('refusals a user reads name the record they are about', () => {
       user: { id: 'rep_1' },
       engine,
     });
-    expect(err.message).toContain('Contact Wei Zhang is still referenced by');
+    expect(err.message).toContain('Contact ZhangWei is still referenced by');
     expect(err.message).not.toContain(CONTACT_ID);
   });
 });
