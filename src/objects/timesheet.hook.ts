@@ -55,6 +55,12 @@ import type { HookApi } from './_hook-api';
  * A project with no budget at all (baseline 0 and no approved adjustment) has
  * no control line, so it is not gated; that is unchanged.
  *
+ * ⚠️ It is also the one hook here that declares `runAs: 'system'` — for its
+ * READS, which must see the project's whole cost and not the filing person's
+ * share of it. The full argument, and why that is the small elevation rather
+ * than the large one, is beside the declaration; the roster that would
+ * otherwise tidy it away is `test/hook-run-as-roster.test.ts`.
+ *
  * ⚠️ A SYSTEM write is not gated — the one exemption, and the sheet-under-write
  * check is why it had to be written down. Seed replay writes with
  * `isSystem: true` (`skipTriggers` suppresses flows, not hooks), and 试点交付 is
@@ -198,6 +204,57 @@ const timesheetBudgetGate: Hook = {
   object: 'crm_timesheet',
   events: ['beforeInsert'],
   priority: 150,
+  // ⭐ The one elevated hook in this app, and a DEVIATION from house rule 9
+  // ("elevate as little as possible") written down here and in the roster of
+  // `test/hook-run-as-roster.test.ts` — rule 11.
+  //
+  // What it buys: the four reads below see the project's WHOLE cost, not the
+  // filing person's share of it. Under `inherit` they run on the caller's
+  // context, and since 「交付项目 不要必填」 `crm_timesheet` is `private` — with
+  // `readScope: 'own'` on `sales_rep`, which also holds for
+  // `crm_delivery_project`. MEASURED on a real server, same fixture (pilot
+  // project: 200,000 budgeted, 264,000 booked), as a rep who owns none of it:
+  //
+  //   inherit → the project `findOne` comes back NULL, `budget` is 0, and the
+  //             `budget <= 0` line below returns. The gate does not merely
+  //             under-count, it does not RUN: HTTP 201, a sheet booked to a
+  //             project 32% over budget.
+  //   system  → HTTP 400, 「成本已超预算（实际 264,000 ≥ 预算 200,000）」.
+  //
+  // So the elevation is not a refinement of the arithmetic, it is what makes
+  // the gate exist for the person it was written for. An admin never saw this:
+  // they read every row, which is why the gate measured green on every
+  // hand-test until someone checked it as a rep.
+  //
+  // ⚠️ The refusal therefore tells a scope-limited person two aggregates they
+  // cannot read directly — the project's booked cost and its budget. That is
+  // deliberate: a refusal that withholds why it fired is the 「换一个项目试试」
+  // support ticket, and both figures are about the project they just picked,
+  // not about anybody's individual sheet.
+  //
+  // Why this elevation is the small one, MEASURED on 17.4.0 rather than
+  // assumed:
+  //
+  //  - `installRunAsApi` swaps `ctx.api` ALONE, for the duration of the
+  //    handler, and `withRunAs('system')` hands back `sudo()` —
+  //    `{ ...triggering context, isSystem: true }`. `ctx.session` is built
+  //    separately, by `buildSession(opCtx.context)` off the TRIGGERING write,
+  //    so the seed-replay exemption below still reads the caller's own flag
+  //    and is not self-satisfied by this declaration.
+  //  - The body WRITES NOTHING — no `insert`, no `update`, no key on
+  //    `ctx.input`. It reads four collections and either throws or returns, so
+  //    elevation cannot produce an elevated write, which is what rule 9 is
+  //    about ("a write that genuinely needs elevation").
+  //  - Every read is pinned to ONE parent record (`id: projectId`, or
+  //    `crm_delivery_project: projectId`), never a scan: rule 10's organization
+  //    predicate has nothing to bite on here, because a row of another
+  //    organization cannot carry this project's id.
+  //
+  // ⛔ The alternative fixes were rejected for changing the product: widening
+  // `sales_rep`'s read of `crm_timesheet` would undo the privacy model that
+  // made the sheet a person's own record, and "the budget is checked against
+  // what you can see" is not a gate, it is a gate-shaped hole.
+  runAs: 'system',
   description: 'Refuse a new timesheet a delivery project has no budget left for — one already over budget, or one this sheet would take over (demo, epic #2).',
   handler: async (ctx: HookContext) => {
     function refuse(
