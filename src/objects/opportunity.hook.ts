@@ -353,6 +353,26 @@ const opportunityAccountClassificationGate: Hook = {
   priority: 150,
   description: 'Refuse a new opportunity on a bidding-agency or other-class account (demo, epic #2).',
   handler: async (ctx: HookContext) => {
+    // The refusal envelope (#1075), inline like every refusing hook — see
+    // `_refusal.ts` and `test/refusal-envelope.test.ts`. Both gates are the
+    // `prohibited` class (FORBIDDEN / 403): a compliance flag on the account
+    // forbids the action outright, and retrying does not help.
+    function refuse(
+      message: string,
+      code: string,
+      status: number,
+      userMessage: string = message,
+    ): Error {
+      const err = new Error(message) as Error & {
+        code: string;
+        status: number;
+        userMessage: string;
+      };
+      err.code = code;
+      err.status = status;
+      err.userMessage = userMessage;
+      return err;
+    }
     const api = ctx.api as HookApi | undefined;
     const { input } = ctx;
     const accountId = typeof input?.crm_account === 'string' ? input.crm_account : '';
@@ -361,21 +381,23 @@ const opportunityAccountClassificationGate: Hook = {
     const cls = account?.classification;
     if (cls === 'bidding_agency' || cls === 'other') {
       const name = typeof account?.name === 'string' ? account.name : accountId;
-      const err = new Error(`Account ${name} is classified ${cls}; it may only be used for payment and collection, not to open an opportunity.`) as Error & { code: string; status: number; userMessage: string };
-      err.code = 'ACCOUNT_CLASSIFICATION_GATE';
-      err.status = 422;
-      err.userMessage = `客户「${name}」为招标代理/其他类客户，仅可用于付款回款，无法发起商机`;
-      throw err;
+      throw refuse(
+        `Account ${name} is classified ${cls}; it may only be used for payment and collection, not to open an opportunity.`,
+        'FORBIDDEN',
+        403,
+        `客户「${name}」为招标代理/其他类客户，仅可用于付款回款，无法发起商机`,
+      );
     }
     // Round 2 (step 3, semantics rule 8): only a person's CONFIRMED EAR listing
     // blocks; a machine `suspected` hit lets the write through.
     if (account?.ear_status === 'confirmed') {
       const name = typeof account?.name === 'string' ? account.name : accountId;
-      const err = new Error(`Account ${name} is confirmed on the US EAR entity list; no opportunity may be opened.`) as Error & { code: string; status: number; userMessage: string };
-      err.code = 'ACCOUNT_EAR_CONFIRMED';
-      err.status = 422;
-      err.userMessage = `客户「${name}」已被人工确认列入美国 EAR 管制清单，无法发起商机`;
-      throw err;
+      throw refuse(
+        `Account ${name} is confirmed on the US EAR entity list; no opportunity may be opened.`,
+        'FORBIDDEN',
+        403,
+        `客户「${name}」已被人工确认列入美国 EAR 管制清单，无法发起商机`,
+      );
     }
   },
 };

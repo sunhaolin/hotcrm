@@ -33,7 +33,7 @@
  */
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // The scan surface this gate reads, shared with the three sandbox suites that
@@ -554,7 +554,17 @@ if (missingRootFiles.length) {
 }
 
 const codeFiles = SCANNED.flatMap(walk);
-const textFiles = TEXT_SCANNED.flatMap(walk);
+/**
+ * Binary ASSETS that live beside first-party text — the demo screenshots and
+ * the customer deck under `docs/demo/` (epic #2). The control-byte scan is
+ * about TEXT that grep should be able to search; a PNG or a .pptx is not text
+ * and cannot be "written as an escape sequence", so these extensions are the
+ * explicit decision the scan's docblock asks for, rather than a silent skip:
+ * every other file under `TEXT_SCANNED` is still read byte for byte.
+ */
+const BINARY_ASSET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.pptx', '.xlsx', '.docx', '.zip']);
+const isBinaryAsset = (f) => BINARY_ASSET_EXTENSIONS.has(extname(f).toLowerCase());
+const textFiles = TEXT_SCANNED.flatMap(walk).filter((f) => !isBinaryAsset(f));
 
 // The root `.ts` files are first-party TypeScript, so they belong to the two
 // `.ts` checks as much as anything under `SCANNED` does. Derived from

@@ -3,6 +3,8 @@
 import type { TranslationData } from '@objectstack/spec/system';
 
 import { appSurface } from './ja-JP/app';
+import { psa } from './ja-JP/objects.psa';
+import { mergeObject } from './_merge';
 import { customer } from './ja-JP/objects.customer';
 import { pipeline } from './ja-JP/objects.pipeline';
 import { commerce } from './ja-JP/objects.commerce';
@@ -54,12 +56,12 @@ import { marketing } from './ja-JP/objects.marketing';
  */
 export const jaJP: TranslationData = {
   objects: {
-    crm_account: customer.crm_account,
-    crm_contact: customer.crm_contact,
+    crm_account: mergeObject(customer.crm_account, psa.crm_account),
+    crm_contact: mergeObject(customer.crm_contact, psa.crm_contact),
     crm_knowledge_article: service.crm_knowledge_article,
     crm_forecast: pipeline.crm_forecast,
-    crm_lead: pipeline.crm_lead,
-    crm_opportunity: pipeline.crm_opportunity,
+    crm_lead: mergeObject(pipeline.crm_lead, psa.crm_lead),
+    crm_opportunity: mergeObject(pipeline.crm_opportunity, psa.crm_opportunity),
     crm_case: service.crm_case,
     crm_contract: commerce.crm_contract,
     crm_product: commerce.crm_product,
@@ -72,6 +74,20 @@ export const jaJP: TranslationData = {
     crm_campaign_member: marketing.crm_campaign_member,
     crm_opportunity_line_item: pipeline.crm_opportunity_line_item,
     crm_quote_line_item: commerce.crm_quote_line_item,
+    crm_presales_project: psa.crm_presales_project,
+    crm_delivery_project: psa.crm_delivery_project,
+    crm_cost_plan_line: psa.crm_cost_plan_line,
+    crm_timesheet: psa.crm_timesheet,
+    crm_travel_cost: psa.crm_travel_cost,
+    crm_rate_card: psa.crm_rate_card,
+    crm_legal_entity: psa.crm_legal_entity,
+    crm_budget_adjustment: psa.crm_budget_adjustment,
+    crm_invoice: psa.crm_invoice,
+    crm_collection: psa.crm_collection,
+    crm_purchase_contract: psa.crm_purchase_contract,
+    crm_sales_order: psa.crm_sales_order,
+    crm_business_trip: psa.crm_business_trip,
+    crm_leave_request: psa.crm_leave_request,
   },
   ...appSurface,
 };

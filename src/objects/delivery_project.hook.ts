@@ -3,8 +3,6 @@
 import type { Hook, HookContext } from '@objectstack/spec/data';
 import type { HookApi } from './_hook-api';
 
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
-const empty = (v: unknown): boolean => v === undefined || v === null || v === '';
 
 /**
  * 交付项目 — round 2 defaults.
@@ -24,6 +22,9 @@ const deliveryProjectDefaults: Hook = {
   priority: 100,
   description: 'Baseline from the presales Bizcase total; contract amount from the sales contract; opportunity and account from the presales project.',
   handler: async (ctx: HookContext) => {
+    // Inline so the body lowers to metadata (`hook-body/not-lowerable`).
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
+    const empty = (v: unknown): boolean => v === undefined || v === null || v === '';
     const api = ctx.api as HookApi | undefined;
     const { input, previous } = ctx;
     if (!input || !api) return;
