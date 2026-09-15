@@ -60,6 +60,7 @@ const productHook: Hook = {
           `List Price (${listPrice}) must be greater than or equal to Cost (${cost}).`,
           'VALIDATION_FAILED',
           400,
+          `标价（${listPrice}）不能低于成本（${cost}）`,
         );
       }
       if (typeof input.sku === 'string') {
@@ -81,6 +82,7 @@ const productHook: Hook = {
           `Cannot delete product: referenced by ${oppRefs} opportunity(ies) and ${quoteRefs} quote(s). Set is_active=false to retire instead.`,
           'DELETE_RESTRICTED',
           409,
+          `该产品已被 ${oppRefs} 个商机、${quoteRefs} 个报价引用，无法删除；如需停用，请取消勾选「是否启用」`,
         );
       }
     }

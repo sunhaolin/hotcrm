@@ -128,6 +128,7 @@ const taskValidation: Hook = {
         `Reminder (${reminder}) is after the due date (${due}); reminders should fire before the deadline.`,
         'VALIDATION_FAILED',
         400,
+        `提醒时间（${reminder}）晚于截止时间（${due}）；提醒应当在截止前触发，请调早提醒时间`,
       );
     }
   },
@@ -460,12 +461,14 @@ const taskDoNotCallGuard: Hook = {
     // object guarantees at least one parent, and a row that somehow carries
     // both must be checked against both people, not against whichever the
     // author listed first.
-    const targets: Array<{ object: string; id: string; label: string }> = [];
+    // `zhLabel` is the object's own zh-CN pack label, for the sentence the rep
+    // reads — same pairing as `event_do_not_call_guard`.
+    const targets: Array<{ object: string; id: string; label: string; zhLabel: string }> = [];
     if (typeof leadId === 'string' && leadId) {
-      targets.push({ object: 'crm_lead', id: leadId, label: 'lead' });
+      targets.push({ object: 'crm_lead', id: leadId, label: 'lead', zhLabel: '线索' });
     }
     if (typeof contactId === 'string' && contactId) {
-      targets.push({ object: 'crm_contact', id: contactId, label: 'contact' });
+      targets.push({ object: 'crm_contact', id: contactId, label: 'contact', zhLabel: '联系人' });
     }
 
     for (const t of targets) {
@@ -491,6 +494,8 @@ const taskDoNotCallGuard: Hook = {
             'or clear Do Not Call on the record first.',
           'FORBIDDEN',
           403,
+          `该${t.zhLabel}已标记「禁止致电」，不能创建电话任务；如通话已经发生，请补记为已完成的通话，` +
+            `或改用非电话类型，也可以先在记录上取消「禁止致电」`,
         );
       }
     }

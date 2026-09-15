@@ -350,6 +350,7 @@ const leadHook: Hook = {
             `Cannot edit ${label ? `converted lead ${label}` : 'a converted lead'} (attempted: ${violating.join(', ')}). Make changes on the converted records instead.`,
             'RECORD_LOCKED',
             409,
+            `${label ? `线索「${label}」` : '该线索'}已转化，不能再修改（本次尝试修改：${violating.join('、')}）；请到转化生成的客户、联系人或商机上修改`,
           );
         }
       }

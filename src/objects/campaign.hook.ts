@@ -75,14 +75,24 @@ const campaignValidation: Hook = {
       (typeof previous?.end_date === 'string' && (previous.end_date as string)) ||
       undefined;
     if (start && end && start > end) {
-      throw refuse(`Campaign start_date (${start}) must not be after end_date (${end}).`, 'VALIDATION_FAILED', 400);
+      throw refuse(
+        `Campaign start_date (${start}) must not be after end_date (${end}).`,
+        'VALIDATION_FAILED',
+        400,
+        `活动开始日期（${start}）不能晚于结束日期（${end}）`,
+      );
     }
     const status =
       (typeof input.status === 'string' && input.status) ||
       (typeof previous?.status === 'string' && (previous.status as string)) ||
       undefined;
     if (status === 'in_progress' && (!start || !end)) {
-      throw refuse('Campaign cannot move to in_progress without both start_date and end_date.', 'VALIDATION_FAILED', 400);
+      throw refuse(
+        'Campaign cannot move to in_progress without both start_date and end_date.',
+        'VALIDATION_FAILED',
+        400,
+        '活动状态改为「进行中」前，必须先填写开始日期和结束日期',
+      );
     }
   },
 };

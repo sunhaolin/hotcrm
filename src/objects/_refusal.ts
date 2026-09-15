@@ -58,6 +58,28 @@
  *
  * ### `userMessage` defaults to the author's message — the reason, measured
  *
+ * ⚠️ HISTORY — the default is now the exception, not the rule. Every call site
+ * passes `userMessage` explicitly, because the two channels carry two
+ * LANGUAGES: `message` is the English diagnostic a developer reads in a log and
+ * a test asserts on, and `userMessage` is the Chinese sentence a rep reads in
+ * the console. The console picks `userMessage` when it is a non-empty string
+ * and falls back to the wrapped `message` otherwise (measured on the shipped
+ * bundle), so a site that omits it shows English in a Chinese UI — which is the
+ * defect this section used to describe as hypothetical. The reasoning below is
+ * kept because it is still WHY the key is marked at all; only "no site needs
+ * divergence" has been overtaken.
+ *
+ * ⛔ There is no i18n resolution on this string, and do not build one here.
+ * Measured on 17.4.0: the sandbox marshals `code`, `status`, `fields` and
+ * `userMessage` and drops everything else, so a hook CANNOT hand the platform a
+ * message key to render — `renderOperationMessage` resolves
+ * `errors.<messageKey>` for the platform's OWN throw sites, and its catalog
+ * (`BUILTIN_OPERATION_MESSAGES`) is 9 platform keys with no slot for an app's
+ * business refusals. A per-locale table inlined into 22 lowered hook bodies is
+ * the "re-invent platform capability here" AGENTS.md forbids; the gap belongs
+ * upstream. Until it lands, this app does what its flows and actions already do
+ * — one Chinese sentence, written out (epic #2).
+ *
  * The platform declares `userMessage` a producer-side opt-in: a consumer
  * renders it verbatim and keeps a generic substitution for everything
  * unmarked. So the default is a real decision, and the opposite one — make
@@ -77,8 +99,10 @@
  *      author prose on the wire; it puts the sentence on the one channel no
  *      boundary rewraps, which is what the platform declares the key FOR.
  *   3. The argument is therefore the seam for DIVERGENCE, not the opt-in: pass
- *      it where the diagnostic and the user-facing sentence must differ. No
- *      site needs that today, and one that does no longer costs an API change.
+ *      it where the diagnostic and the user-facing sentence must differ. That
+ *      is now EVERY site — the diagnostic is English and the sentence is
+ *      Chinese — and it cost no API change, which is what this bullet
+ *      predicted.
  *
  * ⛔ A blank or whitespace-only override is dropped at the boundary, so it
  * suppresses nothing — it only returns the reader to the wrapper. The answer

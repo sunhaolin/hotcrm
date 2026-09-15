@@ -161,6 +161,58 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
     }
   });
 
+  /**
+   * The sentence the user reads is Chinese, at EVERY site.
+   *
+   * `message` (argument 1) is the English diagnostic — a log line, and what the
+   * tests in this repo assert on. `userMessage` (argument 4) is what the console
+   * actually renders: measured on the shipped bundle, it prefers `userMessage`
+   * whenever that is a non-empty string and falls back to the wrapped English
+   * `message` otherwise. So a guard that omits argument 4 does not fail, it
+   * shows English in a Chinese UI — which is how the converted-lead lock came
+   * to answer a rep with `Cannot edit converted lead … Make changes on the
+   * converted records instead.`
+   *
+   * This reads the LOWERED bodies, so it sees what ships rather than what the
+   * source looks like, and it is the assertion a NEW guard trips: adding a
+   * refusal without its Chinese half is red here, not a bug report from a demo.
+   *
+   * ⛔ Deliberately a presence-and-script check, not a wording check. What the
+   * sentence SAYS is pinned per class further down; free prose is not something
+   * a guard can assert (#1646), and one that tried would be a gate on style.
+   */
+  it('carries a Chinese sentence on the channel the user reads', () => {
+    const CJK = /[\u4e00-\u9fff]/;
+    const missing: string[] = [];
+    for (const h of LOWERED) {
+      for (const m of h.source.matchAll(CALL)) {
+        // `CALL` stops on the character after the status: `)` closes the call
+        // (three arguments — no user sentence at all), `,` opens the fourth.
+        if (m[0].endsWith(')')) {
+          missing.push(`${h.name}: ${m[1]}/${m[2]} passes no userMessage`);
+          continue;
+        }
+        let depth = 1;
+        let i = m.index! + m[0].length;
+        const start = i;
+        while (depth > 0 && i < h.source.length) {
+          const c = h.source[i]!;
+          if (c === '(') depth += 1;
+          else if (c === ')') depth -= 1;
+          i += 1;
+        }
+        const userArg = h.source.slice(start, i - 1);
+        if (!CJK.test(userArg)) {
+          missing.push(`${h.name}: ${m[1]}/${m[2]} userMessage carries no Chinese`);
+        }
+      }
+    }
+    expect(
+      missing,
+      `these refusals would show English to a Chinese user:\n  ${missing.join('\n  ')}`,
+    ).toEqual([]);
+  });
+
   it('leaves exactly one throw bare — the cascade fault, which IS a 500', () => {
     const bare = LOWERED.filter((h) => /throw new Error\(/.test(h.source)).map((h) => h.name);
     // `quote_on_accepted` fires from an afterUpdate cascade when close-won
@@ -200,25 +252,37 @@ const refusalFrom = async (hook: AnyRec, opts: AnyRec): Promise<AnyRec | null> =
  * against `innerMessage` — the shipped path rewrites `message` to
  * `hook 'NAME' threw: Error: ORIGINAL` and keeps the original there — and the
  * rewrite itself is pinned, since it is what a REST consumer reading `message`
- * would see. `userMessage` is pinned EQUAL to `innerMessage`: since #1869
- * `refuse()` marks the sentence, and that mark is the half a consumer can read
- * without the wrapper. `innerMessage` is not a wire field, so asserting only it
- * would leave the user-facing outcome unpinned.
+ * would see.
+ *
+ * ⚠️ `userMessage` is pinned to a DIFFERENT sentence from `innerMessage`, and
+ * that divergence is the contract, not a leak. The two channels carry two
+ * languages: `innerMessage` is the English diagnostic a developer reads in a
+ * log, `userMessage` the Chinese sentence the console renders to a rep (it
+ * prefers `userMessage` whenever it is a non-empty string). Pinning them EQUAL
+ * is what this helper did until every site was localised, and an equal pin
+ * would now go green on exactly the bug it is here to catch — a guard that
+ * forgot its Chinese sentence and shows English in a Chinese UI. Both halves
+ * are asserted, so neither language can drift on its own.
  */
 const expectEnvelope = (
   err: AnyRec | null,
   cls: keyof typeof REFUSAL_CODES,
   hookName: string,
   wording: RegExp,
+  userWording: RegExp,
 ): void => {
   expect(err, `expected ${hookName} to refuse`).toBeTruthy();
   expect(err!.name, 'the shipped path re-throws as SandboxError').toBe('SandboxError');
   expect([err!.code, err!.status]).toEqual([REFUSAL_CODES[cls].code, REFUSAL_CODES[cls].status]);
   expect(String(err!.innerMessage)).toMatch(wording);
   expect(String(err!.message)).toBe(`hook '${hookName}' threw: Error: ${err!.innerMessage}`);
-  expect(err!.userMessage, 'the marked channel carries the sentence, unwrapped').toBe(
-    String(err!.innerMessage),
-  );
+  expect(
+    String(err!.userMessage),
+    'the marked channel carries the sentence the user reads, unwrapped',
+  ).toMatch(userWording);
+  // A blank override is dropped at the sandbox boundary, which would silently
+  // return the reader to the English wrapper — so emptiness is its own failure.
+  expect(String(err!.userMessage).trim().length).toBeGreaterThan(0);
 };
 
 describe('every refusal class survives the QuickJS boundary (#1167)', () => {
@@ -227,7 +291,7 @@ describe('every refusal class survives the QuickJS boundary (#1167)', () => {
       event: 'beforeInsert',
       input: { name: 'Acme', website: 'ftp://nope.example.com' },
     });
-    expectEnvelope(err, 'invalid_value', 'account_protection', /must start with http/);
+    expectEnvelope(err, 'invalid_value', 'account_protection', /must start with http/, /必须以 http/);
   });
 
   it('duplicate — contact_integrity rejects a repeated email in one organization', async () => {
@@ -239,7 +303,7 @@ describe('every refusal class survives the QuickJS boundary (#1167)', () => {
         crm_contact: [{ id: 'con_existing', organization_id: 'org_1', email: 'dup@acme.example.com' }],
       }),
     });
-    expectEnvelope(err, 'duplicate', 'contact_integrity', /already exists/);
+    expectEnvelope(err, 'duplicate', 'contact_integrity', /already exists/, /已被另一个联系人占用/);
   });
 
   it('locked — opportunity_lifecycle freezes a closed deal', async () => {
@@ -249,7 +313,7 @@ describe('every refusal class survives the QuickJS boundary (#1167)', () => {
       previous: { id: 'opp_1', name: 'Big Deal', stage: 'closed_won', amount: 100 },
       user: { id: 'usr_1' },
     });
-    expectEnvelope(err, 'locked', 'opportunity_lifecycle', /is closed \(closed_won\)/);
+    expectEnvelope(err, 'locked', 'opportunity_lifecycle', /is closed \(closed_won\)/, /已关闭（closed_won）/);
   });
 
   it('delete_restricted — product_catalog holds a referenced product', async () => {
@@ -261,7 +325,7 @@ describe('every refusal class survives the QuickJS boundary (#1167)', () => {
         crm_opportunity_line_item: [{ id: 'oli_1', crm_product: 'prod_1' }],
       }),
     });
-    expectEnvelope(err, 'delete_restricted', 'product_catalog', /Cannot delete product/);
+    expectEnvelope(err, 'delete_restricted', 'product_catalog', /Cannot delete product/, /该产品已被 .*引用，无法删除/);
   });
 
   it('prohibited — task_do_not_call_guard refuses a call on a flagged lead', async () => {
@@ -272,7 +336,7 @@ describe('every refusal class survives the QuickJS boundary (#1167)', () => {
         crm_lead: [{ id: 'lead_dnc', do_not_call: true }],
       }),
     });
-    expectEnvelope(err, 'prohibited', 'task_do_not_call_guard', /flagged Do Not Call/);
+    expectEnvelope(err, 'prohibited', 'task_do_not_call_guard', /flagged Do Not Call/, /已标记「禁止致电」/);
   });
 });
 
@@ -298,6 +362,7 @@ const expectInProcess = (
   err: unknown,
   cls: keyof typeof REFUSAL_CODES,
   wording: RegExp,
+  userWording: RegExp,
 ): void => {
   expect(err, `expected a refusal matching ${wording}`).toBeInstanceOf(Error);
   const e = err as AnyRec;
@@ -305,9 +370,13 @@ const expectInProcess = (
   expect(e.message).toMatch(wording);
   expect(e.innerMessage, 'only the sandbox adds innerMessage').toBeUndefined();
   expect([e.code, e.status]).toEqual([REFUSAL_CODES[cls].code, REFUSAL_CODES[cls].status]);
-  // The mark is written by `refuse()`, so it is identical on both paths — here
-  // `message` is unrewritten, so the two are the same string.
-  expect(e.userMessage, 'refuse() marks the sentence on both paths').toBe(e.message);
+  // The sentence is written by `refuse()`, so the SAME pair of languages
+  // arrives on both paths — here `message` is unrewritten, so the English half
+  // is `message` itself rather than `innerMessage`.
+  expect(String(e.userMessage), 'refuse() carries the user sentence on both paths').toMatch(
+    userWording,
+  );
+  expect(String(e.userMessage)).not.toBe(e.message);
 };
 
 const inProcess = async (hook: AnyRec, opts: AnyRec): Promise<unknown> =>
@@ -325,6 +394,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'invalid_value',
       /must start with http/,
+      /必须以 http/,
     );
   });
 
@@ -340,6 +410,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'duplicate',
       /already exists/,
+      /已被另一个联系人占用/,
     );
   });
 
@@ -353,6 +424,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'locked',
       /is closed \(closed_won\)/,
+      /已关闭（closed_won）/,
     );
   });
 
@@ -367,6 +439,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'delete_restricted',
       /Cannot delete product/,
+      /该产品已被 .*引用，无法删除/,
     );
   });
 
@@ -379,6 +452,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'prohibited',
       /flagged Do Not Call/,
+      /已标记「禁止致电」/,
     );
   });
 
@@ -391,6 +465,7 @@ describe('the same envelope on the in-process path (#1075)', () => {
       }),
       'prohibited',
       /flagged Do Not Call/,
+      /已标记「禁止致电」/,
     );
   });
 });

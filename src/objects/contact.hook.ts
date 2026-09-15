@@ -129,6 +129,9 @@ const contactHook: Hook = {
                 : `Another contact with email ${email} already exists.`,
               'DUPLICATE_VALUE',
               409,
+              dupName
+                ? `邮箱 ${email} 已被联系人「${dupName}」占用，请改用其他邮箱，或直接在该联系人上补充信息`
+                : `邮箱 ${email} 已被另一个联系人占用，请改用其他邮箱`,
             );
           }
         }
@@ -174,10 +177,15 @@ const contactHook: Hook = {
         // with no name at all is referred to, not identified: a bare id told
         // the reader nothing they could look up either.
         const subject = name ? `Contact ${name}` : 'This contact';
+        // The Chinese sentence carries the second consequence too: this guard
+        // also answers a caller who asked to delete the ACCOUNT, and dropping
+        // that half would send them looking for a contact they never named.
+        const zhSubject = name ? `联系人「${name}」` : '该联系人';
         throw refuse(
           `${subject} is still referenced by ${openOpps} open opportunity(ies), ${openQuotes} active quote(s), ${activeContracts} active contract(s), so it cannot be deleted — and neither can its account, because deleting an account deletes its contacts. Close or reassign those records first.`,
           'DELETE_RESTRICTED',
           409,
+          `${zhSubject}还被 ${openOpps} 个进行中的商机、${openQuotes} 个有效报价、${activeContracts} 个生效合同引用，无法删除；其所属客户也一并无法删除，因为删除客户会连带删除其联系人。请先关闭或改挂这些记录`,
         );
       }
     }
