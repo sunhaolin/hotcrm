@@ -22,7 +22,7 @@ export const ExpenseCostLine = ObjectSchema.create({
   highlightFields: ['expense_type', 'crm_travel_standard', 'budget_amount', 'planned_amount'],
   fields: {
     ...costLineFields('crm_expense_cost_line'),
-    expense_type: Field.select({ label: '费用类型', required: true, storage: { notNull: true }, group: 'basic', options: [...EXPENSE_TYPE_OPTIONS] }),
+    expense_type: Field.select({ label: '费用类型', required: true, storage: { notNull: true }, group: 'basic', defaultValue: 'travel', options: [...EXPENSE_TYPE_OPTIONS] }),
     crm_travel_standard: Field.lookup('crm_travel_standard', { label: '差旅标准', group: 'basic', requiredWhen: IS_TRAVEL }),
     trips: Field.number({ label: '出差次数', group: 'basic', requiredWhen: IS_TRAVEL }),
     travelers: Field.number({ label: '每次人数', group: 'basic', requiredWhen: IS_TRAVEL }),

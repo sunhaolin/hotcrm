@@ -72,9 +72,14 @@ export const COST_PLAN_PHASE_OPTIONS = [
   { label: '交付', value: 'delivery' },
 ] as const;
 
-/** 项目费用类型 — 差旅 is computed from a 差旅标准; every other type is a typed budget (step 31). */
+/**
+ * 项目费用类型 — 差旅 is computed from a 差旅标准; every other type is a typed budget
+ * (step 31). No option default: the month ledger shares this list, and the engine
+ * writes an option default onto every row that omits the field — a labor month
+ * would read as travel and be summed into 其中差旅.
+ */
 export const EXPENSE_TYPE_OPTIONS = [
-  { label: '差旅', value: 'travel', default: true },
+  { label: '差旅', value: 'travel' },
   { label: '会议费', value: 'meeting' },
   { label: '培训费', value: 'training' },
   { label: '办公费', value: 'office' },

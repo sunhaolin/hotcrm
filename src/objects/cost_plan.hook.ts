@@ -66,7 +66,7 @@ const costPlanDefaults: Hook = {
       input.version_no = (await api.object('crm_cost_plan').count({ where: { [projectKey]: projectId } })) + 1;
     }
     if (input.is_current === true && previous?.is_current !== true) {
-      const others = await api.object('crm_cost_plan').find({ where: { [projectKey]: projectId, is_current: true }, fields: ['approval_status'] });
+      const others = await api.object('crm_cost_plan').find({ where: { [projectKey]: projectId, is_current: true }, fields: ['id', 'approval_status'] });
       for (const other of others) {
         const otherId = id(other.id);
         if (!otherId || otherId === id(previous?.id)) continue;
@@ -224,6 +224,8 @@ const costLineDecompose: Hook = {
       return (!from || from <= ym) && (!to || to >= ym);
     };
     const api = ctx.api as HookApi | undefined;
+    const factors = ['description', 'start_month', 'end_month', 'headcount', 'hours_per_month', 'crm_rate_card', 'pricing_basis', 'unit_price', 'duration', 'quantity', 'procurement_category', 'expense_type', 'crm_travel_standard', 'trips', 'travelers', 'days', 'budget_amount'];
+    if (ctx.event === 'afterUpdate' && !factors.some((f) => ctx.input?.[f] !== undefined)) return;
     const line = (ctx.event === 'afterInsert' ? ctx.result : { ...(ctx.previous ?? {}), ...(ctx.input ?? {}) }) as Record<string, unknown> | undefined;
     const object = typeof ctx.object === 'string' && ctx.object.endsWith('_cost_line') ? ctx.object : line?.crm_rate_card !== undefined ? 'crm_labor_cost_line' : line?.pricing_basis !== undefined ? 'crm_service_cost_line' : line?.procurement_category !== undefined ? 'crm_procurement_cost_line' : 'crm_expense_cost_line';
     const lineId = id(line?.id);
@@ -257,7 +259,7 @@ const costLineDecompose: Hook = {
       total = num(line.budget_amount);
     }
     const lineField = object;
-    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['period_month', 'is_manual'] });
+    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['id', 'period_month', 'is_manual'] });
     const byMonth = new Map<string, Record<string, unknown>>();
     for (const row of existing) byMonth.set(monthOf(row.period_month), row);
     const kept = new Set<string>();
