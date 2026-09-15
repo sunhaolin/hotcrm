@@ -459,7 +459,47 @@ export const LeadDetailPage: Page = {
                                   { field: 'due_date', order: 'asc' }
                                 ],
                                 limit: 10,
-                                title: 'Open Tasks',
+                                // The heading a rep reads on this panel, and an
+                                // INLINE LOCALE MAP rather than a plain string
+                                // because the bundle route cannot reach it. The
+                                // console's page-translation walk descends a
+                                // region's components and a container's declared
+                                // `properties.children` — never a `page:tabs`
+                                // item's `children`, nor `page:accordion`
+                                // `properties.items[].children`, which is where
+                                // this list sits. A
+                                // `pages.lead_detail_page.components.related_tasks.title`
+                                // row would be copy no locale could make reach a
+                                // screen, so this shipped English on all four.
+                                //
+                                // The map IS resolved:
+                                // `RecordRelatedListProps.title` is
+                                // `I18nLabelSchema` (string | InlineLocaleMap) and
+                                // the related-list renderer picks it with
+                                // `pickLocalized(title, language) || objectLabel`
+                                // — read out of the pinned
+                                // `@objectstack/console@17.4.0` bundle, the same
+                                // delivered capability the duplicate banners above
+                                // use for copy with no other channel (#972).
+                                // Wording is the locale packs' own
+                                // (`crm_task._views.overdue_tasks`), so the panel
+                                // and the view tab name one thing.
+                                //
+                                // ⚠️ The accordion header above it (`label:
+                                // 'Tasks'`) already renders 任务 by a DIFFERENT
+                                // mechanism: the console carries a built-in zh /
+                                // zh-TW dictionary for a handful of nav nouns
+                                // (`Tasks` → 任务, `Open Tasks` → 待办任务) and
+                                // applies it to `page:tabs` / `page:accordion` item
+                                // labels only, never to a component's props. That
+                                // is why the panel was Chinese and the list inside
+                                // it was not.
+                                title: {
+                                  en: 'Open Tasks',
+                                  'zh-CN': '待办任务',
+                                  'es-ES': 'Tareas Abiertas',
+                                  'ja-JP': 'オープンタスク',
+                                },
                                 filter: [{ field: 'status', operator: 'not_equals', value: 'completed' }],
                                 showViewAll: true,
                                 actions: ['new_task', 'edit', 'complete'],
