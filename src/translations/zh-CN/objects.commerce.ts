@@ -128,8 +128,8 @@ export const commerce: Record<string, ObjectTranslationData> = {
         message: '无效的合同状态流转',
       },
     },
-    label: '合同',
-    pluralLabel: '合同',
+    label: '销售合同',
+    pluralLabel: '销售合同',
     description: '与客户签署的法律合同',
     fields: {
       contract_number: { label: '合同编号' },

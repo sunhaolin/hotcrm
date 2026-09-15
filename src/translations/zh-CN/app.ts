@@ -50,7 +50,7 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         nav_budget_adjustment: { label: '预算调整' },
         nav_project_cost_dashboard: { label: '项目成本' },
         group_finance: { label: '项目财务' },
-        nav_contract: { label: '合同' },
+        nav_contract: { label: '销售合同' },
         nav_invoice: { label: '开票' },
         nav_collection: { label: '收款' },
         nav_purchase_contract: { label: '采购合同' },
