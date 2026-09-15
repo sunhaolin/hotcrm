@@ -39,7 +39,14 @@ export const SalesRepProfile = {
     crm_presales_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
     crm_delivery_project: { allowCreate: true,  allowRead: true,  allowEdit: true,  allowDelete: false, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
     crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
-    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    // `readScope: 'own'` since the sheet stopped being parent-derived: its
+    // delivery project is optional now, so `crm_timesheet` is `private` with
+    // its own `owner_id` (the submitter) as the anchor — the same shape as
+    // `crm_leave_request` and `crm_business_trip` two rows down, and the same
+    // reason they carry the scope. A rep reads the sheets they filed, rather
+    // than the sheets filed on projects they own; the 工时审批 approver
+    // (`sales_manager`) and the administrator hold View All.
+    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
     crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
     // Round 2 (Chinese-only): master data, budget adjustments, finance, trips and leave — same grant as the travel cost row.
     crm_rate_card: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },

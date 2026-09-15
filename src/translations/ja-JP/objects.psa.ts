@@ -128,9 +128,9 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       collected_total: { label: '入金合計' },
       contract_amount: { help: '販売契約の契約金額から既定値を設定 (delivery_project_defaults)。', label: '契約金額' },
-      crm_account: { label: '取引先' },
+      crm_account: { help: '空欄のままにすると、保存時にプリセールスプロジェクト（または販売契約）から自動設定されます (delivery_project_defaults)。', label: '取引先' },
       crm_contract: { label: '販売契約' },
-      crm_opportunity: { label: '商談' },
+      crm_opportunity: { help: '空欄のままにすると、保存時にプリセールスプロジェクトから自動設定されます (delivery_project_defaults)。', label: '商談' },
       crm_presales_project: { label: 'プリセールスプロジェクト' },
       department: {
         label: '部門',
@@ -234,7 +234,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_timesheet: {
     label: 'タイムシート',
     pluralLabel: 'タイムシート',
-    description: '担当者がデリバリープロジェクトに計上する月次工数。プロジェクトマネージャーが承認',
+    description: '担当者がデリバリーまたはプリセールスプロジェクトに計上する月次工数。プロジェクトマネージャーが承認',
     fields: {
       approval_status: {
         label: '承認状況',
@@ -248,10 +248,10 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: '承認日時' },
       cost: { help: '工数 × 時間単価。タイムシートのフックが設定。', label: 'コスト' },
-      crm_delivery_project: { label: 'デリバリープロジェクト' },
+      crm_delivery_project: { help: '任意。デリバリープロジェクトを空にした場合はプリセールス工数または勤怠工数のみの計上になります。承認済みシートはプロジェクトの人件費実績に集計されます。', label: 'デリバリープロジェクト' },
       crm_presales_project: { help: '任意。プリセールス工数は記録のみで集計しません（エピック決定 4）。', label: 'プリセールスプロジェクト' },
       crm_rate_card: { help: '単価表から時間単価を設定 (timesheet_rate_fill)。', label: 'グレード / 単価表' },
-      hourly_rate: { label: '時間単価' },
+      hourly_rate: { help: 'タイムシートが指定する単価表から設定。手入力はしません (timesheet_rate_fill)。', label: '時間単価' },
       hours: { label: '工数' },
       leave_hours: { help: '提出者の当月の承認済み休暇申請から同期。', label: '休暇時間' },
       notes: { label: '備考' },

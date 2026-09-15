@@ -734,7 +734,7 @@ describe('contact_integrity', () => {
       }))
       .then(() => null, (e: Error) => e);
     expect(err).toBeInstanceOf(Error);
-    expect(err!.message).toContain('Contact Ada Lovelace');
+    expect(err!.message).toContain('Contact LovelaceAda');
     expect(err!.message).toContain('neither can its account');
     // The old wording claimed an operation the caller may not have performed.
     expect(err!.message).not.toContain('Cannot delete contact');

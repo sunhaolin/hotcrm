@@ -35,7 +35,31 @@ export const PresalesProject = ObjectSchema.create({
     project_number: Field.autonumber({ label: 'Project Number', format: 'PSP-{0000}', group: 'basic' }),
     name: Field.text({ label: 'Project Name', required: true, storage: { notNull: true }, searchable: true, group: 'basic' }),
     alias: Field.text({ label: 'Alias', group: 'basic' }),
-    crm_opportunity: Field.lookup('crm_opportunity', { label: 'Opportunity', required: true, storage: { notNull: true }, group: 'basic' }),
+    // 步骤 15「售前立项必须引用客户关系系统中已审批通过的商机数据」.
+    //
+    // The gate is the customer's OWN approval — 商机立项审批 (step 11), stamped
+    // on the opportunity's `initiation_status` — and deliberately NOT the
+    // amount-tiered `approval_status` that HotCRM's standard Large Deal
+    // Approval writes: that one reads `not_required` on every deal under the
+    // threshold, so filtering on it would hide legitimate small deals while
+    // offering large ones the 立项 gate has not passed yet.
+    //
+    // `lookupFilters` is the structured, picker-honoured form; the string[]
+    // `referenceFilters` spelling was removed in the 16.x line and, as
+    // authored, filtered nothing (ADR-0049). This scopes the PICKER — the
+    // write-path carry that follows from a pick is
+    // `presales_project_account_carry` in `presales_project.hook.ts`.
+    crm_opportunity: Field.lookup('crm_opportunity', {
+      label: 'Opportunity',
+      required: true,
+      storage: { notNull: true },
+      group: 'basic',
+      lookupFilters: [{ field: 'initiation_status', operator: 'eq', value: 'approved' }],
+    }),
+    // Derived from the opportunity, not retyped: `presales_project_account_carry`
+    // carries it on every write that names an opportunity (spec step 15,
+    // 「所属客户跟着带出」). Left writable so a project can still be re-pointed
+    // by hand; a hand-picked account is never overwritten.
     crm_account: Field.lookup('crm_account', { label: 'Account', group: 'basic' }),
     project_type: Field.select({ label: 'Project Type', group: 'basic', options: [...PROJECT_TYPE_OPTIONS] }),
     business_category: Field.select({ label: 'Business Category', group: 'basic', options: [...BUSINESS_CATEGORY_OPTIONS] }),
@@ -68,15 +92,24 @@ export const PresalesProject = ObjectSchema.create({
       scale: 2,
     }),
 
+    // `hidden`: the two roll-ups are kept as columns but taken off every
+    // rendered surface. Booking presales hours needs a timesheet, and a
+    // timesheet's `crm_delivery_project` is a REQUIRED master-detail, so a
+    // presales project that has no delivery project yet can carry no hours at
+    // all — the pair read 0 on every record and read as broken rather than as
+    // empty. They stay declared (the platform keeps maintaining them, so
+    // nothing has to be backfilled) and come back by dropping `hidden`.
     presales_hours: Field.summary({
       label: 'Presales Hours',
       group: 'cost_estimate',
+      hidden: true,
       scale: 1,
       summaryOperations: { object: 'crm_timesheet', field: 'hours', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
     }),
     presales_labor_actual: Field.summary({
       label: 'Presales Labor Actual',
       group: 'cost_estimate',
+      hidden: true,
       scale: 2,
       summaryOperations: { object: 'crm_timesheet', field: 'cost', function: 'sum', relationshipField: 'crm_presales_project', filter: { approval_status: 'approved' } },
     }),
