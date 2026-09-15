@@ -2,7 +2,10 @@
   "mcpServers": {
     "hotcrm": {
       "type": "http",
-      "url": "http://localhost:4001/api/v1/mcp"
+      "url": "http://localhost:4001/api/v1/mcp",
+      "headers": {
+        "x-api-key": "${HOTCRM_API_KEY}"
+      }
     }
   }
 }
