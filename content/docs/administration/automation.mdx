@@ -50,7 +50,7 @@ A flow fires one of three ways, set by its start node:
 
 > **Auto-launch needs the `triggers` capability.** Record-change and scheduled flows only fire when the stack's `requires` list includes `triggers` — it installs the record-change + schedule trigger providers (schedule triggers also use the job service). Screen flows are always launched manually.
 
-**Built-in flows in HotCRM** (29). Each row carries the flow's own label — the name listed in **Studio → Automation → Flows**, and the name you pick from in **Studio → Developer → Flow Runs**, so a run you are chasing can be looked up here verbatim:
+**Built-in flows in HotCRM** (38). Each row carries the flow's own label — the name listed in **Studio → Automation → Flows**, and the name you pick from in **Studio → Developer → Flow Runs**, so a run you are chasing can be looked up here verbatim:
 
 | Flow | Trigger | What it does |
 | --- | --- | --- |
@@ -70,6 +70,15 @@ A flow fires one of three ways, set by its start node:
 | **Large Deal Approval** | Record change (update) | Tiered sign-off via approval nodes — Sales Manager ≥ $100K, Sales Director > $500K |
 | **Large Deal Approval (on create)** | Record change (insert) | The same intake for opportunities *created* at or above the threshold |
 | **Large Deal Won Alert** | Record change (update) | When an opportunity of $100K or more turns *Closed Won*, notify the owner — the owner alone, not their manager |
+| **客户审批** | Record change (update) | When a account is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the sales director, then stamp the verdict and its date on the record and notify the owner |
+| **线索审批** | Record change (update) | When a lead is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the sales director, then stamp the verdict and its date on the record and notify the owner |
+| **商机立项审批** | Record change (update) | When a opportunity initiation is submitted for approval (the **Submit for Approval** button sets *Initiation status* to *Submitted*), lock the record, route one approval request to an executive, then stamp the verdict and its date on the record and notify the owner |
+| **售前立项审批** | Record change (update) | When a presales project is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to an executive, then stamp the verdict and its date on the record and notify the owner |
+| **交付立项审批** | Record change (update) | When a delivery project is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to an executive, then stamp the verdict and its date on the record and notify the owner |
+| **工时审批** | Record change (update) | When a timesheet is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the sales manager, then stamp the verdict and its date on the record and notify the owner |
+| **预算调整审批** | Record change (update) | When a budget adjustment is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the finance lead, then stamp the verdict and its date on the record and notify the owner |
+| **出差审批** | Record change (update) | When a business trip is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the project manager, then stamp the verdict and its date on the record and notify the owner |
+| **请假审批** | Record change (update) | When a leave request is submitted for approval (the **Submit for Approval** button sets *Approval status* to *Submitted*), lock the record, route one approval request to the department head, then stamp the verdict and its date on the record and notify the owner |
 | **Billing Hand-off: Closed Won** | Record change (update) | On the transition into *Closed Won*, enqueue one durable POST of the deal + account + line items to the billing endpoint |
 | **Billing Hand-off: Contract Activated** | Record change (update) | On the transition into *Activated*, enqueue one durable POST of the contract + account + the originating deal's line items |
 | **Case Escalation Process** | Record change (update) | When a case turns *Critical*, flag it escalated, hand it to the least-loaded holder of the `service_manager` position (it stays with its owner while that pool is unstaffed) and notify the agent it came from; escalating also opens an urgent follow-up task for the account owner |

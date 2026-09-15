@@ -6,7 +6,7 @@ export const CostPlanLineViews = defineView({
   list: {
     type: 'grid',
     name: 'all_cost_plan_lines',
-    label: 'Cost Plan Lines',
+    label: 'All Cost Plan Lines',
     data: { provider: 'object', object: 'crm_cost_plan_line' },
     columns: [
       { field: 'crm_delivery_project', width: 220 },

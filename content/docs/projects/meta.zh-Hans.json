@@ -1,0 +1,13 @@
+{
+  "title": "项目管理",
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "presales-projects",
+    "delivery-projects",
+    "timesheets-and-leave",
+    "trips-and-travel-costs",
+    "project-finance",
+    "master-data"
+  ]
+}

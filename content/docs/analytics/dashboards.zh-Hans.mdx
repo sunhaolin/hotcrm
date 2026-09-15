@@ -1,15 +1,15 @@
 ---
 title: 仪表盘
-description: 五个开箱即用的仪表盘——CRM 概览、销售业绩、销售活动、客户服务和高管概览。
+description: 七个开箱即用的仪表盘——CRM 概览、销售业绩、销售活动、客户服务和高管概览。
 ---
 
 # 仪表盘
 
-HotCRM 内置五个仪表盘。每个都为特定角色而构建，回答该角色每天提出的问题。
+HotCRM 内置七个仪表盘。每个都为特定角色而构建，回答该角色每天提出的问题。
 
 本页列出的每一个磁贴，都是应用真正发布的磁贴。这些清单会在 CI 里与仪表盘元数据逐条比对（`test/docs-dashboard-tiles.test.ts`），所以产品中的磁贴一旦被改名、新增或删除，本页就会直接让构建失败，而不是悄悄开始说假话。
 
-## 五个仪表盘
+## 七个仪表盘
 
 | 仪表盘 | 面向 | 回答 |
 | --- | --- | --- |
@@ -18,8 +18,10 @@ HotCRM 内置五个仪表盘。每个都为特定角色而构建，回答该角�
 | ☎️ **Sales Activity** | 销售经理、客户团队 | "谁在和客户打交道？哪些客户已经没了动静？" |
 | 🎧 **Customer Service** | 服务客服、经理 | "我们在工单和 SLA 上表现如何？" |
 | 👔 **Executive Overview** | 高管、财务 | "我们达成目标了吗？" |
+| 📊 **Project Cost** | 项目经理、PMO | "交付项目还在预算之内吗？" |
+| 💰 **Project Finance** | 财务、交付负责人 | "每个项目签了多少、开了多少票、收了多少款？" |
 
-五者都遵守 [共享规则](/zh-Hans/docs/administration/sharing-and-security)——你看到的内容取决于你的角色。
+七者都遵守 [共享规则](/zh-Hans/docs/administration/sharing-and-security)——你看到的内容取决于你的角色。
 
 ### 没有任何磁贴显示趋势箭头
 
@@ -134,11 +136,43 @@ HotCRM 内置五个仪表盘。每个都为特定角色而构建，回答该角�
 
 此仪表盘是每周领导层评审的基础。
 
+## 📊 Project Cost
+
+交付项目的预算基线、成本计划与实际成本——项目经理和 PMO 的视图。
+
+**磁贴**：
+
+- **Total Budget** — 已批准预算基线之和。
+- **Labor Actual** — 已审批工时的人工成本。
+- **Travel Actual** — 记到项目上的差旅成本。
+- **Active Projects** — 进行中的交付项目数。
+- **Budget vs Actual by Project** — 每个交付项目的基线、计划与人工实际（柱状图）。
+- **Budget Burn by Project** — 每个项目的基线、实际与预算消耗（表格）。
+
+**控件**：没有——不带日期选择器，也不声明筛选器。磁贴读的是全部交付项目，不分日期。每三分钟刷新一次。
+
+配合 [交付项目](/zh-Hans/docs/projects/delivery-projects) 来读：同样的数字也在每条项目记录上，超预算项目禁填工时的门禁也在那一页说明。
+
+## 💰 Project Finance
+
+交付项目的合同、开票、收款与采购——财务视图。
+
+**磁贴**：
+
+- **Contract Amount** — 合同额之和。
+- **Invoiced** — 已开具的发票，作废的不计。
+- **Collected** — 已收到的款项。
+- **Purchase Contracts** — 分包与采购合同，已终止的不计。
+- **Contract vs Invoiced vs Collected** — 按交付项目对比（柱状图）。
+- **Project Finance Table** — 合同额、已开票、已收款、采购、订单与两个比率（表格）。
+
+**控件**：与 Project Cost 相同——没有日期选择器和筛选器，每三分钟刷新一次。背后的记录见 [项目财务](/zh-Hans/docs/projects/project-finance)。
+
 ## 你可以改什么
 
-- **日期范围** — 五个仪表盘里有四个带选择器，且四个都支持自定义区间。CRM Overview、Sales Performance 和 Executive Overview 基于商机预计成交日期取窗，默认本季度；Customer Service 基于工单创建日期取窗，默认最近 90 天。Sales Activity 是唯一没有选择器的，原因见上面它自己的章节。每一个时间窗都由服务端解析，按 UTC 日历日算："最近 7 天"指的是以今天的 UTC 日期结尾的那七个 UTC 日历日，两端都含。你自己的时钟不参与其中——一位在 UTC+8 的读者在当地时间凌晨 3 点打开仪表盘，看到的窗口是在上一个 UTC 午夜结束的，而不是在他自己的午夜。
-- **筛选器** — 每个仪表盘声明自己的一套：Owner 各处都有，另外 Sales Performance 有 Deal Type、Customer Service 有 Priority、Executive Overview 有 Lead Source。
-- **刷新** — Customer Service 每分钟刷新一次，Sales Performance 每三分钟，其余三个每五分钟。
+- **日期范围** — 七个仪表盘里有四个带选择器，且四个都支持自定义区间。CRM Overview、Sales Performance 和 Executive Overview 基于商机预计成交日期取窗，默认本季度；Customer Service 基于工单创建日期取窗，默认最近 90 天。Sales Activity 没有选择器，原因见上面它自己的章节；Project Cost 和 Project Finance 也没有——它们读的是全部交付项目，不分日期。每一个时间窗都由服务端解析，按 UTC 日历日算："最近 7 天"指的是以今天的 UTC 日期结尾的那七个 UTC 日历日，两端都含。你自己的时钟不参与其中——一位在 UTC+8 的读者在当地时间凌晨 3 点打开仪表盘，看到的窗口是在上一个 UTC 午夜结束的，而不是在他自己的午夜。
+- **筛选器** — 每个仪表盘声明自己的一套：除两块项目仪表盘（不声明任何筛选器）外 Owner 各处都有，另外 Sales Performance 有 Deal Type、Customer Service 有 Priority、Executive Overview 有 Lead Source。
+- **刷新** — Customer Service 每分钟刷新一次，Sales Performance、Project Cost、Project Finance 每三分钟，其余三个每五分钟。
 
 仪表盘的筛选器匹配的是每个部件所绑数据集背后的那个**对象**，而不是该数据集声明的维度，并且它会被 AND 进每个受它约束的部件的查询里。所以 Customer Service 能提供 Agent 筛选器，哪怕 `case_metrics` 没有声明任何负责人维度：`owner_id` 是工单上的字段，筛选器要的就只是这个。但它买到的只有筛选这一件事——部件依然不能按数据集没有声明的字段**分组**，所以 [SLA 与升级](/zh-Hans/docs/service/sla-and-escalation) 说"没有任何报表、也没有任何仪表盘部件能按它分组"是对的，它和同一个应用里按 Agent 筛选的服务台仪表盘并不矛盾。反过来同样成立：筛选器若点名了某个部件自己的对象没有的字段，那个部件的查询就会去要一个并不存在的列，所以答不了某个筛选器的部件会按名字显式退出它（`filterBindings`），而不是默默忽略它。
 

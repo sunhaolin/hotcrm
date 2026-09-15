@@ -202,6 +202,15 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  *
  *   「解耦:banner 钉实测,ceiling 独立」
  *
+ * The grant moved to 115,000 with epic #2 (the project / PSA family: 14
+ * objects, their hooks, 9 approval flows and 9 `submit_approval` actions),
+ * which reads ~107,507 on this layer — 7.5k past the 100,000 grant. 115,000 is
+ * the number proposed in that PR's body for the maintainer to rule on; it is
+ * a grant with a working buffer, not `anchor()` of the reading (that would be
+ * 113,000, and a ruled ceiling deliberately does not coincide with one). ⛔ If
+ * the ruling comes back with a different number, this constant, the row below
+ * and the PR body are the three places it lives.
+ *
  * ⚠️ A ruled ceiling is EXEMPT from this gate's opportunistic-tightening
  * advisory, and since #1607 that exemption is mechanism rather than prose. The
  * advisory offers to re-derive a ceiling from the current reading, which only
@@ -226,14 +235,18 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  *     #1316 — removed the inert `list.tabs[]` block from every view file
  *     business semantics ~82,489 · interaction layer ~37,424 · authored total ~133,840
  *
+ *   node scripts/check-source-token-ratchet.mjs   # 2026-09-15 08:40 UTC, `demo/psa-presales` at f263c504
+ *     epic #2 — the project (PSA) family: 14 objects, 9 approval flows, 2 dashboards, 2 datasets
+ *     business semantics ~107,507 · interaction layer ~47,516 · authored total ~172,347
+ *
  * `headroom` is the headroom **at anchor time** (`ceiling - reading`, on that
  * row's own run): it is a derivation of the constant beside it, not a live
  * figure, so it deliberately does not track what the gate prints today — the
  * tree keeps moving between re-anchorings.
  *
- *   business semantics   ruled 100,000 — a maintainer grant, no reading derives it   2026-09-05
- *   interaction layer    37,424 × 1.05 =  39,295 -> ceil 1k ->  40,000  (headroom 2,576, 6.9%)  2026-08-26
- *   authored total      133,302 × 1.05 = 139,967 -> ceil 1k -> 140,000  (headroom 6,698, 5.0%)  2026-08-17
+ *   business semantics   ruled 115,000 — a maintainer grant proposed with epic #2, no reading derives it   2026-09-15
+ *   interaction layer     47,516 × 1.05 =  49,892 -> ceil 1k ->  50,000  (headroom 2,484, 5.2%)  2026-09-15
+ *   authored total       172,347 × 1.05 = 180,964 -> ceil 1k -> 181,000  (headroom 8,653, 5.0%)  2026-09-15
  *
  * The rounding step is what carries the anchored rows a little past 5%; it is
  * kept because a ceiling a reader can hold in their head is worth more than the
@@ -247,19 +260,15 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  * fix there is to teach that suite the ruled kind, never to relax the pin and
  * never to fabricate a reading for this row.
  *
- * Of the ceilings left alone by the latest ANCHORING run (2026-08-26), one
- * worked line each — reading, its `anchor()`, and the committed ceiling it
- * would have raised:
- *
- *   authored total      anchor(133,840) = 141,000  > ceiling 140,000  2026-08-26
- *
- * Re-anchoring it would therefore be a RAISE, and a raise sits on the
- * maintainer floor. So a shrink-only ratchet re-anchors a layer only when
+ * The latest ANCHORING run (2026-09-15) re-anchored both anchored layers, so
+ * no ceiling was left alone by it and there is no declined re-anchoring to
+ * work out. When a later run leaves one alone, its worked line goes here —
+ * reading, its `anchor()`, and the committed ceiling it would have raised —
+ * because re-anchoring it would be a RAISE, and a raise sits on the
+ * maintainer floor. A shrink-only ratchet re-anchors a layer only when
  * `anchor(reading) < ceiling`; when it is greater the committed ceiling is
  * already the tighter of the two and stands. `business semantics` has no such
- * line any more: it left the anchored kind entirely, and on the reading current
- * at #1601 (~84,579, `main` at a4e5ea3e) `anchor()` lands at 89,000 — BELOW its
- * ruled ceiling, so the declined-raise reasoning no longer describes it at all.
+ * line either way: it left the anchored kind entirely at #1601.
  *
  * Lower them whenever the tree shrinks — that is free and encouraged. Raising
  * one requires a maintainer ruling quoted in the raising PR's body. Both of
@@ -279,9 +288,9 @@ const CEILING_KIND = { ANCHORED: 'anchored', RULED: 'ruled' };
  * another that disagrees.
  */
 const COMMITTED = [
-  { label: 'business semantics', ceiling: 100000, kind: CEILING_KIND.RULED },
-  { label: 'interaction layer', ceiling: 40000, kind: CEILING_KIND.ANCHORED },
-  { label: 'authored total', ceiling: 140000, kind: CEILING_KIND.ANCHORED },
+  { label: 'business semantics', ceiling: 115000, kind: CEILING_KIND.RULED },
+  { label: 'interaction layer', ceiling: 50000, kind: CEILING_KIND.ANCHORED },
+  { label: 'authored total', ceiling: 181000, kind: CEILING_KIND.ANCHORED },
 ];
 
 // Every committed ceiling declares a kind this module recognises. A ceiling

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "objectstack dev -p 4001",
+    "dev:zh": "HOTCRM_COMPOSITION=zh-demo objectstack dev -p 4001",
     "start": "objectstack start -p 4001",
     "build": "objectstack build",
     "typecheck": "tsc --noEmit",
@@ -31,6 +32,7 @@
     "publish:marketplace": "node scripts/publish-marketplace.mjs",
     "publish:marketplace:dry-run": "DRY_RUN=1 node scripts/publish-marketplace.mjs",
     "demo:reset": "rm -rf .objectstack/data && pnpm build && echo '✅ DB reset — start the server with: pnpm dev (or pnpm start). Seed data loads on first boot, then run: pnpm demo:staff'",
+    "demo:reset:zh": "rm -rf .objectstack/data && HOTCRM_COMPOSITION=zh-demo pnpm build && echo '✅ DB reset for the Chinese-only demo — start with: pnpm dev:zh, then run: node scripts/demo-psa-staff.mjs'",
     "demo:staff": "tsx scripts/demo-staff.ts",
     "backfill:owner": "tsx scripts/backfill-owner-id.ts"
   },

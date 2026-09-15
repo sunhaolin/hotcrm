@@ -263,6 +263,18 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
     'zh-Hans': '计费交接：合同激活',
     'zh-Hant': '計費交接：合約啟用',
   },
+  // Demo (epic #2): the nine one-step approval flows, labelled in Chinese at
+  // source. The zh-Hans row is the flow's own label; zh-Hant is its
+  // Traditional form.
+  account_approval: { 'zh-Hans': '客户审批', 'zh-Hant': '客戶審批' },
+  lead_approval: { 'zh-Hans': '线索审批', 'zh-Hant': '線索審批' },
+  opportunity_initiation: { 'zh-Hans': '商机立项审批', 'zh-Hant': '商機立項審批' },
+  presales_project_approval: { 'zh-Hans': '售前立项审批', 'zh-Hant': '售前立項審批' },
+  delivery_project_approval: { 'zh-Hans': '交付立项审批', 'zh-Hant': '交付立項審批' },
+  timesheet_approval: { 'zh-Hans': '工时审批', 'zh-Hant': '工時審批' },
+  budget_adjustment_approval: { 'zh-Hans': '预算调整审批', 'zh-Hant': '預算調整審批' },
+  business_trip_approval: { 'zh-Hans': '出差审批', 'zh-Hant': '出差審批' },
+  leave_request_approval: { 'zh-Hans': '请假审批', 'zh-Hant': '請假審批' },
 };
 
 /** How each page spells the two counts. An unmapped count throws — see the header. */

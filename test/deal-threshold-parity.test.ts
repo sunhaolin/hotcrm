@@ -359,6 +359,10 @@ describe('nothing else in the app re-states a large-deal amount', () => {
     // A rep's $500,000 quarterly quota has nothing to do with when a deal needs
     // a director's signature; converging them would be a false merge.
     'src/data/revenue.seed.ts',
+    // The Chinese PSA demo: a Bizcase procurement line, a budget adjustment
+    // and a licence price. Money in CNY on project records, not a deal gate.
+    'src/data/psa.seed.ts',
+    'src/data/psa-industry.seed.ts',
   ]);
 
   const walk = (dir: string): string[] =>

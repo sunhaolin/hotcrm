@@ -100,7 +100,10 @@ describe('navigation reaches everything the app ships', () => {
         // is about, it is `controlled_by_parent` too, and "Article Feedback" as
         // a top-level destination would be a list of verdicts detached from the
         // things they are verdicts on.
-        !/_line_item$|_member$|_attendee$|_feedback$/.test(name) && !reachable.has(name));
+        // `_plan_line` joined it with `crm_cost_plan_line` (demo, epic #2): a
+        // cost plan line is `controlled_by_parent` under its delivery project
+        // and is authored on that project's record page, never on its own.
+        !/_line_item$|_member$|_attendee$|_feedback$|_plan_line$/.test(name) && !reachable.has(name));
     expect(stranded, `objects with no navigation entry:\n  ${stranded.join('\n  ')}`).toEqual([]);
   });
 

@@ -6,7 +6,7 @@ export const LegalEntityViews = defineView({
   list: {
     type: 'grid',
     name: 'all_legal_entities',
-    label: '全部签约主体',
+    label: 'All Contracting Entities',
     data: { provider: 'object', object: 'crm_legal_entity' },
     columns: [
       { field: 'name', width: 260, sortable: true },

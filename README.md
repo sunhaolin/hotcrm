@@ -5,11 +5,11 @@
 # HotCRM
 
 > **The reference app for AI-written enterprise software.** A complete CRM —
-> 18 objects, 29 flows, 5 dashboards, 6 AI skills, 4 languages — carries its
-> whole business semantics (objects, flows, actions, hooks) in **~85k tokens**
+> 32 objects, 38 flows, 7 dashboards, 6 AI skills, 4 languages — carries its
+> whole business semantics (objects, flows, actions, hooks) in **~108k tokens**
 > of typed [ObjectStack](https://github.com/objectstack-ai/objectstack) metadata,
 > and its whole interaction layer (views, pages, dashboards, app shell) in
-> another **~37k**. An agent holds every business rule of a real enterprise CRM
+> another **~48k**. An agent holds every business rule of a real enterprise CRM
 > in a fraction of one context window — and the entire authored app still fits
 > comfortably — so it can reason about the system whole and refactor it safely.
 > **Install it online in one click, or fork it and build & ask with Claude
@@ -49,21 +49,26 @@ HotCRM is a complete, opinionated CRM built as the **first official application*
 
 ## ✨ What you get
 
-**18 business objects** spanning the full Lead-to-Cash cycle:
+**32 business objects** spanning the full Lead-to-Cash cycle, plus the project (PSA) family a software or services company runs its delivery on:
 
-| Sales | Service | Marketing | Revenue |
-|---|---|---|---|
-| `crm_lead` | `crm_case` | `crm_campaign` | `crm_contract` |
-| `crm_account` | `crm_knowledge_article` | `crm_campaign_member` | `crm_quote` |
-| `crm_contact` | `crm_task` | | `crm_quote_line_item` |
-| `crm_opportunity` | | | |
-| `crm_opportunity_line_item` | | | |
-| `crm_product` | | | |
-| `crm_forecast` | | | |
-| `crm_event` | | | |
-| `crm_event_attendee` | | | |
+| Sales | Service | Marketing | Revenue | Projects (PSA) |
+|---|---|---|---|---|
+| `crm_lead` | `crm_case` | `crm_campaign` | `crm_contract` | `crm_presales_project` |
+| `crm_account` | `crm_knowledge_article` | `crm_campaign_member` | `crm_quote` | `crm_delivery_project` |
+| `crm_contact` | `crm_task` | `crm_article_feedback` | `crm_quote_line_item` | `crm_cost_plan_line` |
+| `crm_opportunity` | | | | `crm_budget_adjustment` |
+| `crm_opportunity_line_item` | | | | `crm_timesheet` |
+| `crm_product` | | | | `crm_leave_request` |
+| `crm_forecast` | | | | `crm_business_trip` |
+| `crm_event` | | | | `crm_travel_cost` |
+| `crm_event_attendee` | | | | `crm_invoice` |
+| | | | | `crm_collection` |
+| | | | | `crm_purchase_contract` |
+| | | | | `crm_sales_order` |
+| | | | | `crm_rate_card` |
+| | | | | `crm_legal_entity` |
 
-Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **5 dashboards**, **29 flows**, **31 actions**, **9 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **12 positions**, and **9 sharing rules**.
+Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **7 dashboards**, **38 flows**, **40 actions**, **11 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **12 positions**, and **9 sharing rules**.
 
 > **Business reader?** The ObjectStack docs tour every one of these capabilities in plain business language — [What Can It Do?](https://objectstack.ai/docs/capabilities) — with HotCRM as the running example on every page.
 
@@ -130,12 +135,12 @@ See [docs: Publishing your first marketplace app](content/docs/marketplace/publi
 hotcrm/
 ├── objectstack.config.ts         # manifest + defineStack() — single source of truth
 ├── src/
-│   ├── objects/                  # *.object.ts — data model (18 objects)
-│   ├── actions/                  # *.actions.ts — server actions + AI tools (31)
-│   ├── flows/                    # *.flow.ts — visual flows (29): screen, record-change, scheduled & subflow
+│   ├── objects/                  # *.object.ts — data model (32 objects)
+│   ├── actions/                  # *.actions.ts — server actions + AI tools (40)
+│   ├── flows/                    # *.flow.ts — visual flows (38): screen, record-change, scheduled & subflow
 │   ├── hooks/                    # hook registry barrel
 │   ├── skills/                   # *.skill.ts — AI skills (6) — skills-only surface, no agents
-│   ├── datasets/                 # *.dataset.ts — analytics semantic layer (9)
+│   ├── datasets/                 # *.dataset.ts — analytics semantic layer (11)
 │   ├── dashboards/, reports/     # analytics UI
 │   ├── pages/, views/, apps/     # UI definitions
 │   ├── profiles/, sharing/       # security
