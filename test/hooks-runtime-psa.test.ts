@@ -61,11 +61,69 @@ describe('timesheet_rate_fill', () => {
     expect(input.cost).toBe(144_000);
   });
 
-  it('leaves an explicitly written rate alone', async () => {
+  /**
+   * ⭐ REVERSES the pin that stood here ("leaves an explicitly written rate
+   * alone"). Customer ruling: 「计算人工成本时使用的费率从选择的岗位级别 /
+   * 费率卡中获取。」 — the card is the rate's source, so a rate on the payload
+   * is not an author's choice to respect. It was also the DEFECT: the create
+   * form carried an empty `费率标准` box, so every sheet posted
+   * `hourly_rate: 0`, the old guard read that as "explicitly written" and
+   * priced the sheet at zero. The box is gone from the form and both columns
+   * are `readonly: true` now (`test/timesheet-derived-price-surface.test.ts`),
+   * so the value the engine would strip anyway no longer reaches the price.
+   */
+  it('prices by the card even when the payload carries a rate of its own', async () => {
     const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }] });
     const input: Rec = { crm_rate_card: 'rc_pm', hours: 10, hourly_rate: 500 };
     await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
-    expect(input.hourly_rate).toBe(500);
+    expect(input.hourly_rate).toBe(900);
+    expect(input.cost).toBe(9_000);
+  });
+
+  /** The empty-form payload the narrowing retired, priced correctly anyway. */
+  it('a zero on the payload never reaches the price', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_eng', hourly_rate: 600 }] });
+    const input: Rec = { crm_rate_card: 'rc_eng', hours: 3, hourly_rate: 0, cost: 0 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(600);
+    expect(input.cost).toBe(1_800);
+  });
+
+  /**
+   * The snapshot the docs promise — 「费率卡改了只影响新表，不动已审批的历史」.
+   * The sheet keeps the card it already priced against, so a later edit of the
+   * card's own `hourly_rate` does not reprice it.
+   */
+  it('keeps the rate a sheet already priced itself at when the card is unchanged', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 1_100 }] });
+    const input: Rec = { hours: 20 };
+    const previous: Rec = { crm_rate_card: 'rc_pm', hourly_rate: 900 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(900);
+    expect(input.cost).toBe(18_000);
+  });
+
+  /** Picking a DIFFERENT card is the write that reprices. */
+  it('reprices when the write picks another card', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }, { id: 'rc_arch', hourly_rate: 1_000 }] });
+    const input: Rec = { crm_rate_card: 'rc_arch' };
+    const previous: Rec = { crm_rate_card: 'rc_pm', hourly_rate: 900, hours: 10 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(1_000);
+    expect(input.cost).toBe(10_000);
+  });
+
+  /**
+   * A sheet priced some other way — the seeded rows that carry `hourly_rate`
+   * and no card — keeps its own rate. Without this branch the hook would zero
+   * every one of them (`src/data/psa.seed.ts`).
+   */
+  it('leaves a sheet that names no rate card alone', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }] });
+    const input: Rec = { hours: 160, hourly_rate: 800 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(800);
+    expect(input.cost).toBeUndefined();
   });
 });
 
