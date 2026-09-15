@@ -135,6 +135,15 @@ export const LeadDetailPage: Page = {
         // own `visible` against the same row. Their `id`s are their React keys,
         // which is why the two ids differ rather than sharing one.
         //
+        // ⚠️ Spelled as the BARE comparison, not `has(record.duplicate_status)
+        // && …` (demo epic #2, measured 2026-09-15 on @objectstack/console
+        // 17.4.0): the console's field-predicate evaluator rejects `has()` and
+        // `in` ("A visibility predicate could not be evaluated"), and this
+        // surface is fail-soft, so the guarded spelling put BOTH banners on
+        // every clean lead. driver-sql always returns the column (present and
+        // null), on which the bare comparison is a clean verdict; the keyless
+        // shape's fault is pinned in `test/lead-duplicate-visibility.test.ts`.
+        //
         // ⚠️ `visible` is the ONE record component whose PROPS carry a real row
         // predicate: `record-alert.tsx` evaluates `properties.visible` through
         // `toPredicateInput` + `useCondition` against the row
@@ -206,7 +215,7 @@ export const LeadDetailPage: Page = {
             // `aria-live="assertive"` — an interruption this state has not
             // earned.
             severity: 'warning',
-            visible: P`has(record.duplicate_status) && record.duplicate_status == "suspected"`,
+            visible: P`record.duplicate_status == "suspected"`,
             title: {
               en: 'Suspected duplicate — compare before you convert',
               'zh-CN': '疑似重复——转换前请先比对',
@@ -252,7 +261,7 @@ export const LeadDetailPage: Page = {
             // presentation only — what the app refuses was ruled by #1288 and
             // shipped by PR #1555, and nothing here changes it.
             severity: 'error',
-            visible: P`has(record.duplicate_status) && record.duplicate_status == "confirmed"`,
+            visible: P`record.duplicate_status == "confirmed"`,
             title: {
               en: 'Confirmed duplicate — conversion will be refused',
               'zh-CN': '已确认重复——转换将被拒绝',
