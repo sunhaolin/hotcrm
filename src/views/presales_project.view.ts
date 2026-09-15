@@ -29,7 +29,7 @@ export const PresalesProjectViews = defineView({
     type: 'simple',
     sections: [
       { name: 'basic', label: 'Project Information', columns: 2, fields: [
-        { field: 'name', required: true }, 'alias', { field: 'crm_opportunity', required: true }, 'crm_account',
+        'project_number', { field: 'name', required: true }, 'alias', { field: 'crm_opportunity', required: true }, 'crm_account',
         'project_type', 'business_category', 'planned_start', 'planned_end', 'expected_contract_amount', 'owner_id',
       ] },
       { name: 'roles', label: 'Project Roles', columns: 2, fields: ['account_manager', 'project_manager', 'project_director', 'project_qa', 'pricing_owner'] },

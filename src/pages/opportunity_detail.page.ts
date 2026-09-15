@@ -154,10 +154,22 @@ export const OpportunityDetailPage: Page = {
                       // `highlightFields` is a different list and is not consulted
                       // by this component — `stage` sits in it and still renders.
                       sections: [
+                        // Demo (epic #2 / T1): this list is the whole body, so
+                        // the fields added to the object reach this tab only by
+                        // being named here.
                         {
                           name: 'info',
                           label: 'Opportunity Information',
-                          fields: ['type', 'lead_source', 'crm_campaign'],
+                          fields: [
+                            'opportunity_number', 'level', 'priority', 'is_bid',
+                            'initiation_status', 'initiated_date',
+                            'type', 'lead_source', 'crm_campaign',
+                          ],
+                        },
+                        {
+                          name: 'team',
+                          label: 'Deal Team',
+                          fields: ['account_manager', 'solution_manager', 'delivery_manager'],
                         },
                         {
                           name: 'crm_forecast',

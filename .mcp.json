@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "hotcrm": {
+      "type": "http",
+      "url": "http://localhost:4001/api/v1/mcp"
+    }
+  }
+}

@@ -29,7 +29,7 @@ export const DeliveryProjectViews = defineView({
     type: 'simple',
     sections: [
       { name: 'basic', label: 'Project Information', columns: 2, fields: [
-        { field: 'name', required: true }, 'alias', { field: 'crm_presales_project', required: true }, 'crm_opportunity', 'crm_account',
+        'project_number', { field: 'name', required: true }, 'alias', { field: 'crm_presales_project', required: true }, 'crm_opportunity', 'crm_account',
         'project_type', 'business_category', 'planned_start', 'planned_end', 'status', 'owner_id',
       ] },
       { name: 'org', label: 'Cost Centre & Department', columns: 3, fields: ['impl_cost_center', 'accounting_cost_center', 'department'] },

@@ -450,6 +450,14 @@ export const LeadDetailPage: Page = {
                           // recorded reason, not just the red status chip.
                           fields: ['status', 'disqualification_reason', 'rating', 'lead_source', 'owner_id', 'annual_revenue', 'number_of_employees'],
                         },
+                        // Demo (epic #2 / T1): the sections above are the whole
+                        // body, so fields added to the object reach this tab
+                        // only by being named here.
+                        {
+                          name: 'qualification',
+                          label: 'Qualification',
+                          fields: ['estimated_amount', 'demand_type', 'approval_status', 'approved_date'],
+                        },
                         {
                           name: 'address',
                           label: 'Address',
