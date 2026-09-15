@@ -251,7 +251,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       crm_delivery_project: { label: 'デリバリープロジェクト' },
       crm_presales_project: { help: '任意。プリセールス工数は記録のみで集計しません（エピック決定 4）。', label: 'プリセールスプロジェクト' },
       crm_rate_card: { help: '単価表から時間単価を設定 (timesheet_rate_fill)。', label: 'グレード / 単価表' },
-      hourly_rate: { label: '時間単価' },
+      hourly_rate: { help: 'タイムシートが指定する単価表から設定。手入力はしません (timesheet_rate_fill)。', label: '時間単価' },
       hours: { label: '工数' },
       leave_hours: { help: '提出者の当月の承認済み休暇申請から同期。', label: '休暇時間' },
       notes: { label: '備考' },

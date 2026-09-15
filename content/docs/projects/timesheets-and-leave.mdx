@@ -14,16 +14,16 @@ A **timesheet** (工时表, `crm_timesheet`) is one person's hours on one projec
 | Submitter, Month | Whose hours, which month — one sheet per person, project and month |
 | Delivery Project *or* Presales Project | Where the hours are booked; a sheet on a presales project rolls into that bid's Presales Hours |
 | Grade / Rate Card | The [rate card](/docs/projects/master-data) row that prices the hours |
-| Hourly Rate | Filled from the rate card |
+| Hourly Rate | Filled from the rate card — read-only, and not on the form at all |
 | Standard Hours, Leave Hours, Overtime Hours, Hours | The month's arithmetic — see below |
-| Cost | Hours × hourly rate |
+| Cost | Hours × hourly rate — read-only, and not on the form at all |
 | Approval Status *(read-only)*, Approved Date | The **工时审批** verdict |
 
 ## What the system does automatically
 
 Four hooks run on every save, in this order:
 
-1. **Rate fill** (`timesheet_rate_fill`) — picking a grade copies that rate card's hourly rate onto the sheet, so a rate change on the card reaches new sheets and leaves approved history alone.
+1. **Rate fill** (`timesheet_rate_fill`) — picking a grade copies that rate card's hourly rate onto the sheet. The card is the only source of the rate: nobody types one, and a sheet that already priced itself keeps its rate, so a rate change on the card reaches new sheets and leaves approved history alone.
 2. **Attendance sync** (`timesheet_attendance_sync`) — on a *draft* sheet, **Hours = Standard Hours − Leave Hours + Overtime Hours**. Standard hours are what the month owes; leave and overtime move the figure. Once the sheet is submitted the hours stand.
 3. **Cost fill** (`timesheet_cost_fill`) — **Cost = Hours × Hourly Rate**, recomputed on every edit of either.
 4. **The budget gate** (`timesheet_budget_gate`) — a sheet against a delivery project whose actual cost has already reached its budget baseline is **refused**: *项目「…」成本已超预算（实际 … ≥ 基线 …），工时填报已限制*. The project needs an approved [budget adjustment](/docs/projects/delivery-projects) before anyone can book to it again.

@@ -139,7 +139,7 @@ export const psa: Record<string, ObjectTranslationData> = {
       crm_presales_project: { label: 'Presales Project', help: 'Optional — presales hours are recorded but not rolled up.' },
       period_month: { label: 'Period (Month)' },
       hours: { label: 'Hours' },
-      hourly_rate: { label: 'Hourly Rate' },
+      hourly_rate: { label: 'Hourly Rate', help: 'Copied from the rate card the sheet names; never typed (timesheet_rate_fill).' },
       cost: { label: 'Cost', help: 'Hours × hourly rate, computed on save.' },
       notes: { label: 'Notes' },
       ...approval,
