@@ -174,7 +174,9 @@ export const DeliveryProject = ObjectSchema.create({
     security_class: Field.select({ label: 'Security Class', group: 'security', options: [...SECURITY_CLASS_OPTIONS] }),
     security_note: Field.textarea({ label: 'Security Note', group: 'security' }),
 
-    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
+    // readonly: rendered on forms, written only by the 发起审批 button
+    // (`src/actions/psa-approval.actions.ts`) and the approval flow.
+    approval_status: Field.select({ label: 'Approval Status', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS] }),
     approved_date: Field.datetime({ label: 'Approved Date', group: 'approval', readonly: true }),
   },
 

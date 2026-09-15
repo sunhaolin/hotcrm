@@ -53,7 +53,9 @@ export const LeaveRequest = ObjectSchema.create({
     }),
     reason: Field.textarea({ label: '请假事由', required: true, storage: { notNull: true }, group: 'basic' }),
     crm_delivery_project: Field.lookup('crm_delivery_project', { label: '影响项目', group: 'basic', description: '可选：请假期间所在的交付项目' }),
-    approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS_ZH] }),
+    // readonly: rendered on forms, written only by the 发起审批 button
+    // (`src/actions/psa-approval.actions.ts`) and the approval flow.
+    approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS_ZH] }),
     approved_date: Field.datetime({ label: '审批通过时间', group: 'approval', readonly: true }),
     notes: Field.textarea({ label: '备注', group: 'basic' }),
   },

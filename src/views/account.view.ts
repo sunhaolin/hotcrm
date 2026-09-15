@@ -227,9 +227,8 @@ export const AccountViews = defineView({
           'website',
           'owner_id',
           'parent_account',
-          // Demo submit gesture (epic #2, decision 1): setting this to
-          // `submitted` starts the approval flow. `approved_date` is readonly
-          // on the object and stamped by that flow.
+          // Demo (epic #2): both readonly on the object — the 发起审批 header
+          // button starts the approval flow, which stamps `approved_date`.
           'approval_status',
           'approved_date',
           'is_active',

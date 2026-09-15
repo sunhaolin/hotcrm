@@ -81,7 +81,9 @@ export const AccountDetailPage = {
         // @objectstack/spec 17.3.0, and this repo authors against the protocol
         // (#1653). Each id is the `name` of a crm_account-scoped action in
         // `src/actions/global.actions.ts`.
-        actions: ['log_call', 'log_meeting', 'schedule_meeting'],
+        // `submit_approval` (demo, epic #2) leads: 发起审批 is the record's
+        // outcome, the activity trio is its daily upkeep.
+        actions: ['submit_approval', 'log_call', 'log_meeting', 'schedule_meeting'],
       },
     },
 

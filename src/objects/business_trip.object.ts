@@ -52,7 +52,9 @@ export const BusinessTrip = ObjectSchema.create({
       scale: 2,
       summaryOperations: { object: 'crm_travel_cost', field: 'amount', function: 'sum', relationshipField: 'crm_business_trip' },
     }),
-    approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS_ZH] }),
+    // readonly: rendered on forms, written only by the 发起审批 button
+    // (`src/actions/psa-approval.actions.ts`) and the approval flow.
+    approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...APPROVAL_STATUS_OPTIONS_ZH] }),
     approved_date: Field.datetime({ label: '审批通过时间', group: 'approval', readonly: true }),
     notes: Field.textarea({ label: '备注', group: 'basic' }),
   },

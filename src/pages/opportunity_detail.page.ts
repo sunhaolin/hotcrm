@@ -58,6 +58,9 @@ export const OpportunityDetailPage: Page = {
             // `clone_opportunity` in `src/actions/opportunity.actions.ts`, the
             // activity trio in `src/actions/global.actions.ts`.
             actions: [
+              // Demo (epic #2): 发起立项审批 first — 商机立项 (需求表 step 11)
+              // is the gate the project side waits on.
+              'submit_approval',
               'generate_quote',
               'clone_opportunity',
               'log_call',

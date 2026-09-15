@@ -82,6 +82,9 @@ export const LeadDetailPage: Page = {
             // `src/actions/lead.actions.ts`, the activity trio in
             // `src/actions/global.actions.ts`.
             actions: [
+              // Demo (epic #2): 发起审批 first — a lead is approved before it
+              // is converted (需求表 step 7).
+              'submit_approval',
               'convert_lead',
               'schedule_followup',
               'log_call',
