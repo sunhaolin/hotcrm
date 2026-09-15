@@ -48,11 +48,14 @@ description: HotCRM 的 5 分鐘演練 —— 主頁、你的第一條線索、�
 - **HotCRM** —— 包含所有 CRM 功能的主應用。
 - **Admin** —— 面向系統管理員。
 
-在 HotCRM 內，左側導覽最上面是一個固定條目——**Home**，它打開的是 **Executive Overview** 儀表板；其餘內容分在 6 個群組裡：
+在 HotCRM 內，左側導覽最上面是一個固定條目——**Home**，它打開的是 **Executive Overview** 儀表板；其餘內容分在 9 個群組裡：
 
 | 分組 | 內容 |
 | --- | --- |
-| **Sales** | Leads、Accounts、Account Workbench、Contacts、Opportunities、Quotes、Contracts、Products、Sales Performance |
+| **Sales** | Leads、Accounts、Account Workbench、Contacts、Opportunities、Quotes、Products、Sales Performance |
+| **Projects** | Presales Projects、Delivery Projects、Contracts、Timesheets、Travel Costs、Business Trips、Leave Requests、Budget Adjustments、Project Cost |
+| **Project Finance** | Invoices、Collections、Purchase Contracts、Sales Orders、Project Finance |
+| **Master Data** | Rate Cards、Contracting Entities |
 | **My Work** | My Tasks、My Deals、My Leads、My Cases、My Calendar、Inbox |
 | **Activity** | Events、Sales Activity |
 | **Marketing** | Campaigns |
@@ -61,7 +64,7 @@ description: HotCRM 的 5 分鐘演練 —— 主頁、你的第一條線索、�
 
 上表用的是原始碼裡的英文 label，也就是英文介面上看到的名字。本應用提供 en / zh-CN / ja-JP / es-ES 四種介面語言，沒有繁體語言包——簡體中文介面下這些名字會顯示為語言包裡的譯名，例如 **Inbox** 顯示為「待我审批」、**Knowledge** 顯示為「知识库」、**My Work** 顯示為「我的工作」。
 
-**Marketing**、**Insights** 這兩個群組在應用載入時是摺疊的——只有 **Sales**、**My Work**、**Activity**、**Service** 會自動展開。先把群組點開，再判斷某樣東西在不在這裡。
+**Master Data**、**Marketing**、**Insights** 這三個群組在應用載入時是摺疊的——只有 **Sales**、**Projects**、**Project Finance**、**My Work**、**Activity**、**Service** 會自動展開。先把群組點開，再判斷某樣東西在不在這裡。
 
 一個去處只佔一列，這是刻意的。同一個物件如果有多種檢視方式，它們是該物件列表頁頂部的標籤頁，而不是導覽裡另起一列——這樣側邊欄才短到能一眼掃完。
 

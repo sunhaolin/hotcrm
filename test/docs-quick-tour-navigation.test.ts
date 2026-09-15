@@ -300,10 +300,13 @@ describe('getting-started/quick-tour names the navigation the app really ships (
 });
 
 describe('the source facts the quick-tour table now rests on (#960)', () => {
-  it('the app has one pinned top-level entry and six groups', () => {
+  it('the app has one pinned top-level entry and nine groups', () => {
     expect(PINNED.map((p) => p.label)).toEqual(['Home']);
     expect(GROUP_LABELS).toEqual([
       'Sales',
+      'Projects',
+      'Project Finance',
+      'Master Data',
       'My Work',
       'Activity',
       'Marketing',
@@ -317,9 +320,16 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
     expect(PINNED[0].dashboardName).toBe(ExecutiveDashboard.name);
   });
 
-  it('Marketing and Insights are the groups that stay collapsed', () => {
-    expect(COLLAPSED).toEqual(['Marketing', 'Insights']);
-    expect(EXPANDED).toEqual(['Sales', 'My Work', 'Activity', 'Service']);
+  it('Master Data, Marketing and Insights are the groups that stay collapsed', () => {
+    expect(COLLAPSED).toEqual(['Master Data', 'Marketing', 'Insights']);
+    expect(EXPANDED).toEqual([
+      'Sales',
+      'Projects',
+      'Project Finance',
+      'My Work',
+      'Activity',
+      'Service',
+    ]);
   });
 
   it('carries no navigation label matching any name the page calls a phantom', () => {
