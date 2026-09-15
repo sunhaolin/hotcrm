@@ -114,9 +114,15 @@ const contactHook: Hook = {
             // from the same two stored columns here — a lowered hook body cannot
             // read a formula field. No second read pays for it: the `findOne`
             // above carries no projection, so the whole row is already in hand.
-            const dupName = [dupRow?.first_name, dupRow?.last_name]
+            //
+            // ⚠️ Surname first, no separator: `crm_contact.full_name` is
+            // `joinNonEmpty([record.last_name, record.first_name], '')` (epic
+            // #2, the Chinese name order). Composing it the other way named a
+            // contact `雪 韩` in the one sentence whose whole job is to send a
+            // rep to a record every other surface in this app calls `韩雪`.
+            const dupName = [dupRow?.last_name, dupRow?.first_name]
               .filter((part) => typeof part === 'string' && part.trim() !== '')
-              .join(' ');
+              .join('');
             throw refuse(
               dupName
                 ? `Another contact (${dupName}) with email ${email} already exists.`
@@ -157,9 +163,11 @@ const contactHook: Hook = {
         // deleter that they had asked to delete a contact, and sent them
         // looking for the wrong record. Naming the contact and both
         // consequences is true in either context.
-        const name = [ctx.previous?.first_name, ctx.previous?.last_name]
+        // Surname first, no separator — `crm_contact.full_name`'s own spelling,
+        // for the reason on the duplicate-email refusal above.
+        const name = [ctx.previous?.last_name, ctx.previous?.first_name]
           .filter((part) => typeof part === 'string' && part.trim() !== '')
-          .join(' ');
+          .join('');
         // Named, never keyed (#1243). `id` still does the work it is good at —
         // it is what the three counts above were queried by — but the sentence
         // the user reads names the contact the way `nameField` does. A contact

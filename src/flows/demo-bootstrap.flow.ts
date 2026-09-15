@@ -203,6 +203,18 @@ const CLAIMED_OBJECTS: ReadonlyArray<[key: string, objectName: string, label: st
   ['campaigns', 'crm_campaign', 'Campaigns'],
   ['knowledge', 'crm_knowledge_article', 'Knowledge Articles'],
   ['events', 'crm_event', 'Events'],
+  // PSA demo (epic #2): every owner-scoped project / finance object the seeds ship.
+  ['presales_projects', 'crm_presales_project', 'Presales Projects'],
+  ['delivery_projects', 'crm_delivery_project', 'Delivery Projects'],
+  ['timesheets', 'crm_timesheet', 'Timesheets'],
+  ['travel_costs', 'crm_travel_cost', 'Travel Costs'],
+  ['business_trips', 'crm_business_trip', 'Business Trips'],
+  ['leave_requests', 'crm_leave_request', 'Leave Requests'],
+  ['budget_adjustments', 'crm_budget_adjustment', 'Budget Adjustments'],
+  ['invoices', 'crm_invoice', 'Invoices'],
+  ['collections', 'crm_collection', 'Collections'],
+  ['purchase_contracts', 'crm_purchase_contract', 'Purchase Contracts'],
+  ['sales_orders', 'crm_sales_order', 'Sales Orders'],
 ];
 
 /** One pass per object. */

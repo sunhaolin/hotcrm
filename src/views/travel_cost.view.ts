@@ -6,7 +6,7 @@ export const TravelCostViews = defineView({
   list: {
     type: 'grid',
     name: 'all_travel_costs',
-    label: 'Travel Costs',
+    label: 'All Travel Costs',
     data: { provider: 'object', object: 'crm_travel_cost' },
     columns: [
       { field: 'travel_number', width: 110, sortable: true },

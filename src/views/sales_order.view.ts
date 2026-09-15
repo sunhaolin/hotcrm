@@ -6,7 +6,7 @@ export const SalesOrderViews = defineView({
   list: {
     type: 'grid',
     name: 'all_sales_orders',
-    label: '全部销售订单',
+    label: 'All Sales Orders',
     data: { provider: 'object', object: 'crm_sales_order' },
     columns: [
       { field: 'order_code', width: 110, sortable: true },

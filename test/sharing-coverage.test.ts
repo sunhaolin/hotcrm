@@ -132,6 +132,15 @@ const ACCOUNT_CHILD_COVERAGE: Record<string, 'derived' | 'own_only' | 'partial'>
   // the same open business decision #549 asks about tasks, and it belongs in
   // the PR that answers it for the whole family, not in this one.
   crm_event: 'own_only',
+  // The PSA family (demo, epic #2). The two projects are `private` with no
+  // sharing rule, like a contract; the three finance records hang off the
+  // account only as a convenience lookup — their MASTER is the delivery
+  // project, so they are parent-derived from it, never from the account.
+  crm_presales_project: 'own_only',
+  crm_delivery_project: 'own_only',
+  crm_invoice: 'derived',
+  crm_collection: 'derived',
+  crm_sales_order: 'derived',
 };
 
 /**
@@ -468,7 +477,7 @@ describe('the admin docs describe the sharing the app actually ships', () => {
 type Locale = 'en' | 'zh-Hans' | 'zh-Hant';
 
 /** The OWD values this app's objects actually ship. */
-type SharingModel = 'private' | 'public_read' | 'controlled_by_parent';
+type SharingModel = 'private' | 'public_read' | 'public_read_write' | 'controlled_by_parent';
 
 interface LocalePage {
   locale: Locale;
@@ -506,6 +515,7 @@ const PAGES: LocalePage[] = [
     owdCell: {
       private: /^Private$/i,
       public_read: /^Public Read-Only$/i,
+      public_read_write: /^Public Read\/Write$/i,
       controlled_by_parent: /^Controlled by Parent\b/i,
     },
     countSentence: /For the ([A-Za-z]+) parent-derived objects above/,
@@ -522,6 +532,7 @@ const PAGES: LocalePage[] = [
     owdCell: {
       private: /^私有$/,
       public_read: /^公共只读$/,
+      public_read_write: /^公共读写$/,
       controlled_by_parent: /^由父级控制/,
     },
     countSentence: /对于上面([一二三四五六七八九十]+)个由父级派生的对象/,
@@ -538,6 +549,7 @@ const PAGES: LocalePage[] = [
     owdCell: {
       private: /^私有$/,
       public_read: /^公開唯讀$/,
+      public_read_write: /^公開讀寫$/,
       controlled_by_parent: /^由父層控制/,
     },
     countSentence: /對於上面([一二三四五六七八九十]+)個由父層衍生的物件/,
@@ -608,6 +620,22 @@ const ROW_LABEL: Record<string, Record<Locale, string>> = {
     'zh-Hans': '文章反馈',
     'zh-Hant': '文章回饋',
   },
+  // The PSA family (demo, epic #2). The zh-Hans labels are the objects' own
+  // source labels; zh-Hant is their Traditional form.
+  crm_presales_project: { en: 'Presales Project', 'zh-Hans': '售前项目', 'zh-Hant': '售前專案' },
+  crm_delivery_project: { en: 'Delivery Project', 'zh-Hans': '交付项目', 'zh-Hant': '交付專案' },
+  crm_cost_plan_line: { en: 'Cost Plan Line', 'zh-Hans': '成本计划行', 'zh-Hant': '成本計畫行' },
+  crm_timesheet: { en: 'Timesheet', 'zh-Hans': '工时表', 'zh-Hant': '工時表' },
+  crm_travel_cost: { en: 'Travel Cost', 'zh-Hans': '差旅成本', 'zh-Hant': '差旅成本' },
+  crm_rate_card: { en: 'Rate Card', 'zh-Hans': '费率卡', 'zh-Hant': '費率卡' },
+  crm_legal_entity: { en: 'Contracting Entity', 'zh-Hans': '签约主体', 'zh-Hant': '簽約主體' },
+  crm_budget_adjustment: { en: 'Budget Adjustment', 'zh-Hans': '预算调整', 'zh-Hant': '預算調整' },
+  crm_invoice: { en: 'Invoice', 'zh-Hans': '开票', 'zh-Hant': '開票' },
+  crm_collection: { en: 'Collection', 'zh-Hans': '收款', 'zh-Hant': '收款' },
+  crm_purchase_contract: { en: 'Purchase Contract', 'zh-Hans': '采购合同', 'zh-Hant': '採購合約' },
+  crm_sales_order: { en: 'Sales Order', 'zh-Hans': '销售订单', 'zh-Hant': '銷售訂單' },
+  crm_business_trip: { en: 'Business Trip', 'zh-Hans': '出差申请', 'zh-Hant': '出差申請' },
+  crm_leave_request: { en: 'Leave Request', 'zh-Hans': '请假申请', 'zh-Hant': '請假申請' },
 };
 
 /** Every business object the compiled stack registers — the OWD table's row set. */
@@ -626,9 +654,9 @@ describe('the OWD table lists every registered object, in every locale', () => {
    * `docs-drift.test.ts` uses for `CRON_LABEL`.
    */
   const COUNT_WORD: Record<Locale, Record<number, string>> = {
-    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight' },
-    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八' },
-    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八' },
+    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen' },
+    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五' },
+    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五' },
   };
 
   it('the row ledger answers exactly the objects this app registers', () => {

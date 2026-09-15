@@ -6,7 +6,7 @@ export const LeaveRequestViews = defineView({
   list: {
     type: 'grid',
     name: 'all_leave_requests',
-    label: '全部请假申请',
+    label: 'All Leave Requests',
     data: { provider: 'object', object: 'crm_leave_request' },
     columns: [
       { field: 'leave_code', width: 110, sortable: true },

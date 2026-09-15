@@ -352,7 +352,14 @@ describe('no hook-side code may query by `filter`', () => {
     const offenders = src
       .split('\n')
       .map((line, i) => ({ line: line.trim(), no: i + 1 }))
-      .filter(({ line }) => predicateKey('filter').test(line));
+      .filter(({ line }) => predicateKey('filter').test(line))
+      // A rollup summary's predicate is DECLARATIVE metadata, not a query the
+      // hook body issues: `FieldSchema.summaryOperations.filter` is the spec's
+      // own key (`@objectstack/spec`, `summaryOperations: { …, filter?:
+      // FilterCondition }`) and it has no `where` spelling to prefer. Judged
+      // on the same line as the declaration, so a `filter:` that merely sits
+      // near a summary field is still read.
+      .filter(({ line }) => !/summaryOperations\s*:/.test(line));
     expect(
       offenders,
       `${file} passes a \`filter:\` query key. On the pinned engine that is an ALIAS of ` +

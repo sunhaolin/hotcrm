@@ -124,7 +124,10 @@ const opportunityValidationHook: Hook = {
         );
         if (violating.length > 0) {
           // Every lookup on `crm_opportunity` a referential clear can attack.
-          const REFERENCE_FIELDS = new Set(['crm_account', 'primary_contact', 'crm_campaign']);
+          const REFERENCE_FIELDS = new Set([
+            'account_manager', 'crm_account', 'crm_campaign', 'crm_legal_entity',
+            'delivery_manager', 'primary_contact', 'solution_manager',
+          ]);
           // ───────────────────────────────────── the reference-cleanup yield ──
           // #720. The engine implements `deleteBehavior: 'set_null'` by UPDATING
           // the row that HOLDS the lookup, so deleting a contact or a campaign a

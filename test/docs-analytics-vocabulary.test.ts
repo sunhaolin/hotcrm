@@ -113,25 +113,25 @@ const REFRESH_INTERVALS: number[] = [
 const PAGES = [
   {
     file: 'content/docs/analytics/index.mdx',
-    five: 'Five',
+    five: 'Seven',
     ten: 'Ten',
-    nine: 'Nine',
+    nine: 'Eleven',
     noContract: 'There is no contract report',
     navHeading: '## Where to find things',
   },
   {
     file: 'content/docs/analytics/index.zh-Hans.mdx',
-    five: '五个',
+    five: '七个',
     ten: '十份',
-    nine: '九个',
+    nine: '十一个',
     noContract: '这里没有合同报表',
     navHeading: '## 在哪里可以找到',
   },
   {
     file: 'content/docs/analytics/index.zh-Hant.mdx',
-    five: '五個',
+    five: '七個',
     ten: '十份',
-    nine: '九個',
+    nine: '十一個',
     noContract: '這裡沒有合約報表',
     navHeading: '## 在哪裡可以找到',
   },
@@ -170,7 +170,7 @@ const italicNames = (text: string): string[] =>
 
 describe('analytics/index states the counts and names the app really ships (#976)', () => {
   describe.each(PAGES)('$file', ({ file, five, ten, nine, noContract, navHeading }) => {
-    it('names all five dashboards, and says five', () => {
+    it('names all seven dashboards, and says seven', () => {
       const text = read(file);
       expect(text, `${file}: the dashboard count is not stated as "${five}"`).toContain(five);
       const missing = DASHBOARD_LABELS.filter((l) => !text.includes(l));
@@ -191,7 +191,7 @@ describe('analytics/index states the counts and names the app really ships (#976
       ).toContain(noContract);
     });
 
-    it('says nine datasets and points at the directory they live in', () => {
+    it('says eleven datasets and points at the directory they live in', () => {
       const text = read(file);
       expect(text, `${file}: the dataset count is not stated as "${nine}"`).toContain(nine);
       expect(text, `${file}: the page does not name src/datasets/`).toContain('src/datasets/');
@@ -377,8 +377,8 @@ describe('the cube vocabulary retired with src/cubes/ is gone from the docs (#97
 });
 
 describe('the source facts these pages now rest on (#976, #977)', () => {
-  it('the app ships five dashboards, one of them Sales Activity', () => {
-    expect(DASHBOARD_LABELS).toHaveLength(5);
+  it('the app ships seven dashboards, one of them Sales Activity', () => {
+    expect(DASHBOARD_LABELS).toHaveLength(7);
     expect(DASHBOARD_LABELS).toContain('Sales Activity');
   });
 
@@ -387,8 +387,8 @@ describe('the source facts these pages now rest on (#976, #977)', () => {
     expect(REPORT_LABELS.filter((l) => /contract/i.test(l))).toEqual([]);
   });
 
-  it('nine datasets, and none of them reads crm_contract', () => {
-    expect(DATASET_LIST).toHaveLength(9);
+  it('eleven datasets, and none of them reads crm_contract', () => {
+    expect(DATASET_LIST).toHaveLength(11);
     expect(DATASET_LIST.map((d) => d.object as string)).not.toContain('crm_contract');
   });
 

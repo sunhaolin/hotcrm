@@ -67,6 +67,18 @@ export const appSurface: Omit<TranslationData, 'objects'> = {
         burn_by_project: { title: 'Budget Burn by Project', description: 'Baseline, actuals and burn per project' },
       },
     },
+    project_finance_dashboard: {
+      label: 'Project Finance',
+      description: 'Contract, invoiced, collected and purchase totals across delivery projects',
+      widgets: {
+        contract_total: { title: 'Contract Amount', description: 'Sum of contract amounts' },
+        invoiced_total: { title: 'Invoiced', description: 'Invoices issued, void excluded' },
+        collected_total: { title: 'Collected', description: 'Money received' },
+        purchase_total: { title: 'Purchase Contracts', description: 'Subcontract and procurement contracts, terminated excluded' },
+        finance_by_project: { title: 'Contract vs Invoiced vs Collected', description: 'Per delivery project' },
+        finance_table: { title: 'Project Finance Table', description: 'Contract, invoiced, collected, purchases, orders and the two ratios' },
+      },
+    },
     sales_activity_dashboard: {
       label: 'Sales Activity',
       description: 'Who is talking to customers, how often, and which accounts have gone quiet',

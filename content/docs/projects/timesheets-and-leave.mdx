@@ -1,0 +1,49 @@
+---
+title: Timesheets & Leave
+description: One timesheet per person, project and month, priced from the rate card; approved leave flows into the month's timesheet; only approved timesheets become labor cost.
+---
+
+# Timesheets & Leave
+
+A **timesheet** (工时表, `crm_timesheet`) is one person's hours on one project for one month, and the record that turns those hours into **labor cost**. A **leave request** (请假申请, `crm_leave_request`) is the absence that shortens the month, and once approved it writes itself into the timesheet as leave hours.
+
+## What a timesheet record stores
+
+| Field | What it is |
+| --- | --- |
+| Submitter, Month | Whose hours, which month — one sheet per person, project and month |
+| Delivery Project *or* Presales Project | Where the hours are booked; a sheet on a presales project rolls into that bid's Presales Hours |
+| Grade / Rate Card | The [rate card](/docs/projects/master-data) row that prices the hours |
+| Hourly Rate | Filled from the rate card — read-only, and not on the form at all |
+| Standard Hours, Leave Hours, Overtime Hours, Hours | The month's arithmetic — see below |
+| Cost | Hours × hourly rate — read-only, and not on the form at all |
+| Approval Status *(read-only)*, Approved Date | The **工时审批** verdict |
+
+## What the system does automatically
+
+Four hooks run on every save, in this order:
+
+1. **Rate fill** (`timesheet_rate_fill`) — picking a grade copies that rate card's hourly rate onto the sheet. The card is the only source of the rate: nobody types one, and a sheet that already priced itself keeps its rate, so a rate change on the card reaches new sheets and leaves approved history alone.
+2. **Attendance sync** (`timesheet_attendance_sync`) — on a *draft* sheet, **Hours = Standard Hours − Leave Hours + Overtime Hours**. Standard hours are what the month owes; leave and overtime move the figure. Once the sheet is submitted the hours stand.
+3. **Cost fill** (`timesheet_cost_fill`) — **Cost = Hours × Hourly Rate**, recomputed on every edit of either.
+4. **The budget gate** (`timesheet_budget_gate`) — a sheet against a delivery project whose actual cost has already reached its budget baseline is **refused**: *项目「…」成本已超预算（实际 … ≥ 基线 …），工时填报已限制*. The project needs an approved [budget adjustment](/docs/projects/delivery-projects) before anyone can book to it again.
+
+### Approval, and what counts
+Click **Submit for Approval**; the sales manager decides; the status is read-only otherwise. **Only an approved timesheet is labor cost**: the delivery project's Labor Actual, the presales project's Presales Labor Actual and the Project Cost dashboard all sum approved sheets and nothing else. A draft sheet is a plan; a rejected sheet is nothing.
+
+## Leave requests
+
+A leave request carries a type (*annual, sick, personal, compensatory, marriage, maternity, other*), a start and end date, the days between them — computed by `leave_days_fill`, not typed — and optionally the delivery project the absence affects. It is approved by the **请假审批** flow (a department head).
+
+### Leave into the timesheet
+When a leave request is **approved**, `leave_timesheet_sync` finds the requester's timesheet for that month and writes the leave into its **Leave Hours**; the attendance sync above then lowers the month's hours and the cost follows. Leave that is still pending or was rejected touches no timesheet.
+
+## Sharing
+
+Timesheets are *Controlled by Parent*: whoever can see the delivery project sees its sheets, and nobody else — a rep who cannot open the project cannot open a sheet on it. Leave requests are **private**: the requester's own, plus the Sales Manager and System Administrator, who read all.
+
+## Tips
+
+- ✅ **One sheet per month, submitted at month end.** Hours booked to a project that is over budget bounce; ask for the adjustment first.
+- ✅ **File leave before the timesheet is submitted.** Leave approved afterwards does not reopen a submitted sheet.
+- ✅ **Use the presales project for bid work**, so it shows up on the bid's Presales Labor Actual rather than on a delivery project.

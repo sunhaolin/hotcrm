@@ -6,7 +6,7 @@ export const CollectionViews = defineView({
   list: {
     type: 'grid',
     name: 'all_collections',
-    label: '全部收款',
+    label: 'All Collections',
     data: { provider: 'object', object: 'crm_collection' },
     columns: [
       { field: 'collection_code', width: 110, sortable: true },

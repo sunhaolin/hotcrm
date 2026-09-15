@@ -29,6 +29,7 @@ import stack from '../objectstack.config';
  * | surface | carries | unevaluable predicate ⇒ |
  * | ------- | ------- | ----------------------- |
  * | `lead_detail_page` `record:alert` ×2 | `properties.visible`, client CEL | FAIL-SOFT: banner SHOWN |
+ * |   (console 17.4.0 rejects `has()` / `in` — see the measurement below) | | |
  * | `lead_conversion` edges `e21`/`e22`/`e25` | flow condition, server CEL | RUN FAILS |
  *
  * They fail in opposite directions and both are ugly: a fail-soft banner cries
@@ -209,10 +210,52 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
    * the flow disagreed about the same row. Two verdict-scoped predicates make
    * the page agree with the flow: no banner, and conversion proceeds.
    */
-  it.each(VERDICTS)('the %s banner answers with a verdict on every record shape', (verdict) => {
-    const source: string = alertFor(verdict)!.properties.visible.source;
+  /**
+   * ## The console cannot evaluate `has()` — measured, and the spelling follows
+   *
+   * Measured on 2026-09-15 against the installed `@objectstack/console` 17.4.0
+   * (`pnpm dev`, a clean lead on driver-sql, `duplicate_status` present and
+   * null). The renderer hands `properties.visible` to `useCondition`, and the
+   * console's field-predicate evaluator REJECTED both total spellings:
+   *
+   *     [ObjectUI] A visibility predicate could not be evaluated - node
+   *       "record:alert" (id: "lead_duplicate_alert_confirmed")
+   *       visible: "has(record.duplicate_status) && …"
+   *     [ObjectUI] A visibility predicate could not be evaluated - node
+   *       "record:alert" (id: "lead_duplicate_alert_suspected")
+   *       visible: "\"duplicate_status\" in record && …"
+   *
+   * and, this surface being FAIL-SOFT, both banners were SHOWN on every clean
+   * lead — the exact wolf-crying the header describes. The bare comparison,
+   * `record.duplicate_status == "suspected"`, the console evaluates: measured
+   * hidden on the null row, shown on a `suspected` row.
+   *
+   * So the two engines disagree, and the spelling has to pick a side. It picks
+   * the console's, because the console is what a rep sees and driver-sql —
+   * the only driver this app ships — always returns the column (present and
+   * null). The price is pinned below rather than hidden: on a KEYLESS row
+   * (driver-memory / driver-mongodb) the bare comparison faults, and a fault
+   * shows the banner — the same outcome the `has()` spelling produced on the
+   * console for every row, on every driver. The flow edges keep their `has()`
+   * guards: server CEL evaluates them, and a faulting flow edge fails the run.
+   *
+   * ⛔ Do not put `has()` (or `in`) back on this surface without re-measuring
+   * the console: the objectui `ExpressionEngine` this file evaluates with
+   * accepts both, which is exactly how the doctrine spelling went green here
+   * while every clean lead wore two banners.
+   */
+  const KEYED_SHAPES = RECORD_SHAPES.filter(([, record]) => 'duplicate_status' in record);
+  const KEYLESS_SHAPES = RECORD_SHAPES.filter(([, record]) => !('duplicate_status' in record));
 
-    for (const [label, record] of RECORD_SHAPES) {
+  it('measures both kinds of record shape', () => {
+    // Vacuity guard for the split below.
+    expect(KEYED_SHAPES.length).toBeGreaterThanOrEqual(4);
+    expect(KEYLESS_SHAPES.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each(VERDICTS)('the %s banner answers with a verdict on every driver-sql record shape', (verdict) => {
+    const source: string = alertFor(verdict)!.properties.visible.source;
+    for (const [label, record] of KEYED_SHAPES) {
       const expected = record.duplicate_status === verdict;
       expect(
         evaluate(source, record),
@@ -221,16 +264,21 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
     }
   });
 
-  it.each(RECORD_SHAPES)('at most one banner is ever shown — %s', (_label, record) => {
-    // The record-page twin of the flow's "exactly one live edge" pin. Two
-    // banners on one row would stack two contradictory next steps on the same
-    // lead; nothing structural prevents that, so it is measured.
+  it.each(VERDICTS)('the %s banner faults on a keyless row — the price of a console-evaluable spelling, pinned', (verdict) => {
+    const source: string = alertFor(verdict)!.properties.visible.source;
+    for (const [label, record] of KEYLESS_SHAPES) {
+      expect(
+        evaluate(source, record).ok,
+        `the ${verdict} banner answered on ${label} — if the engine grew lenient, re-measure the console before celebrating`,
+      ).toBe(false);
+    }
+  });
+
+  it.each(KEYED_SHAPES)('at most one banner is ever shown — %s', (_label, record) => {
     const shown = VERDICTS.filter((v) => {
       const result = evaluate(alertFor(v)!.properties.visible.source, record);
       expect(result.ok, `the ${v} banner faulted — this surface is FAIL-SOFT, so it would SHOW`)
         .toBe(true);
-      // `expect` does not narrow the union for tsc, so the discriminant is
-      // re-read here rather than asserted away.
       return result.ok === true && result.value === true;
     });
     expect(
@@ -239,34 +287,13 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
     ).toBeLessThanOrEqual(1);
   });
 
-  it.each(VERDICTS)('the %s banner\u2019s guard is load-bearing — the unguarded spelling really does fault', (verdict) => {
-    // Reverse verification of the premise, pinned rather than assumed: if a
-    // future engine starts answering `false` for an absent key, this flips and
-    // the next reader is told the premise changed instead of finding a guard
-    // that protects nothing.
-    //
-    // The unguarded text is still BUILT FROM the shipped predicate's own
-    // comparison (`split('&&').pop()`) so the two cannot drift apart — the
-    // property #1289 gave this pin. Splitting the banner changed what that
-    // tail SAYS: it used to be `!= null`, and is now `== "<this banner's
-    // verdict>"`. So the second leg has to ask for the banner's OWN verdict
-    // row rather than a fixed one — the unguarded `== "confirmed"` tail is
-    // correctly FALSE on a suspected lead, and asserting `true` there would
-    // pin the wrong claim.
-    const source: string = alertFor(verdict)!.properties.visible.source;
-    const unguarded = source.split('&&').pop()!.trim();
-    expect(unguarded, 'the shipped predicate no longer ends in the comparison')
-      .toContain('record.duplicate_status');
-    expect(unguarded, 'the shipped predicate no longer compares against its own verdict')
-      .toContain(`"${verdict}"`);
-
-    const faulted = evaluate(unguarded, {});
-    expect(faulted.ok, `\`${unguarded}\` answered on a keyless record — the guard is now decorative`)
-      .toBe(false);
-
-    // …and it is the ABSENT key that faults it, not the text: the same
-    // predicate answers cleanly the moment the column is present.
-    expect(evaluate(unguarded, { duplicate_status: verdict })).toEqual({ ok: true, value: true });
+  it.each(VERDICTS)('the %s banner is spelled as the bare comparison the console evaluates (measured 2026-09-15)', (verdict) => {
+    const source: string = alertFor(verdict)!.properties.visible.source.trim();
+    expect(source).toBe(`record.duplicate_status == "${verdict}"`);
+    // The doctrine spelling is still what the objectui engine prefers — pinned
+    // so the divergence stays visible: the day the console evaluates `has()`,
+    // this is the assertion to flip back to a guard.
+    expect(evaluate(`has(record.duplicate_status) && ${source}`, {})).toEqual({ ok: true, value: false });
   });
 
   it.each(VERDICTS)('the %s banner carries its copy in all four shipped locales', (verdict) => {

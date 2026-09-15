@@ -12,3 +12,5 @@ over-budget project refuses new timesheets, an unapproved trip refuses travel
 costs), two project dashboards, and a Chinese demo data set for a
 software-company target customer. The demo documents, screenshots and the
 customer deck live under `docs/demo/psa-presales/`.
+
+The two lead duplicate banners (`record:alert`) are now spelled as the bare comparison the console evaluates — `record.duplicate_status == "suspected"` / `"confirmed"` — because `@objectstack/console` 17.4.0 cannot evaluate `has()` or `in` in a record-page predicate and, the surface being fail-soft, showed both banners on every clean lead. Measured and pinned in `test/lead-duplicate-visibility.test.ts`; the conversion flow's edges keep their `has()` guards.

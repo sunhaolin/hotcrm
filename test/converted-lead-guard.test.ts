@@ -101,8 +101,11 @@ describe('the hook is the guard that actually speaks', () => {
     // company — and drops whichever half the lead does not carry (#1243); a
     // lead carrying neither gets "a converted lead" rather than a record id no
     // lead surface in this app ever shows.
+    //
+    // ⚠️ `LovelaceAda`, not `Ada Lovelace`, and ⛔ not a typo to correct — see
+    // the Chinese-name case below for what this spelling is protecting.
     await expect(editConverted({ company: 'Globex' })).rejects.toThrow(
-      /Cannot edit converted lead Ada Lovelace - Acme/,
+      /Cannot edit converted lead LovelaceAda - Acme/,
     );
     // The id is not merely absent from the middle of the sentence — it is
     // nowhere in it.
@@ -120,6 +123,48 @@ describe('the hook is the guard that actually speaks', () => {
         }),
       ),
     ).rejects.toThrow(/Cannot edit converted lead Initech \(attempted: rating\)\./);
+  });
+
+  /**
+   * The label is `display_title`'s VALUE, not a second spelling of it.
+   *
+   * `crm_lead.display_title` is
+   * `joinNonEmpty([record.last_name, record.first_name], '') + " - " + company`
+   * — surname first, no separator (epic #2, the Chinese name order). The lock's
+   * label was left in `first last` order when those formulas changed, so on the
+   * demo's own data a rep who tried to reset a converted lead read
+   *
+   *     Cannot edit converted lead 雪 韩 - 北方重工集团有限公司 (attempted: status).
+   *
+   * while the record page, the breadcrumb, **全部线索** and the lookup picker all
+   * titled that lead `韩雪 - 北方重工集团有限公司`. The sentence exists to make the
+   * record findable (#693, #1243); naming it in an order no lead surface in this
+   * app uses is the one failure it cannot afford, and a Western fixture cannot
+   * catch it because `first last` and `last first` differ only in a script where
+   * the order carries meaning.
+   */
+  it('names the lead the way display_title does — surname first, no separator', async () => {
+    await expect(
+      guard.handler(
+        makeCtx({
+          event: 'beforeUpdate',
+          input: { id: 'lead_3', status: 'new' },
+          previous: {
+            id: 'lead_3',
+            is_converted: true,
+            status: 'converted',
+            first_name: '雪',
+            last_name: '韩',
+            company: '北方重工集团有限公司',
+          },
+          user: { id: 'usr_1' },
+          api: makeHarness().api,
+        }),
+      ),
+    ).rejects.toThrow(
+      'Cannot edit converted lead 韩雪 - 北方重工集团有限公司 (attempted: status). ' +
+        'Make changes on the converted records instead.',
+    );
   });
 
   /**

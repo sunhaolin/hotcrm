@@ -15,11 +15,11 @@ HotCRM 分析将你的 CRM 活动转化为**决策**。三个层次协同工作�
 
 | 层次 | 作用 |
 | --- | --- |
-| [**仪表盘**](/zh-Hans/docs/analytics/dashboards) | **五个**开箱即用的仪表盘 —— CRM Overview、Sales Performance、Sales Activity、Customer Service、Executive Overview |
+| [**仪表盘**](/zh-Hans/docs/analytics/dashboards) | **七个**开箱即用的仪表盘 —— CRM Overview、Sales Performance、Sales Activity、Customer Service、Executive Overview、Project Cost、Project Finance |
 | [**报表**](/zh-Hans/docs/analytics/reports) | **十份**标准报表 —— 交易 4 份、工单 3 份，线索、客户、流失各 1 份 |
-| [**多维数据集**](/zh-Hans/docs/analytics/cubes) | `src/datasets/` 下的**九个** dataset，也就是上面两层按名字绑定的那一层 |
+| [**多维数据集**](/zh-Hans/docs/analytics/cubes) | `src/datasets/` 下的**十一个** dataset，也就是上面两层按名字绑定的那一层 |
 
-上表有两个数字过去写的是别的样子，去找东西之前值得先知道。**这里没有合同报表** —— 也建不出来：`src/datasets/` 只读九个对象，`crm_contract` 不在其中，所以分析里没有任何东西能对合同做计数、求和或分组。另外，**没有任何 cube 叫这四个名字** —— *Sales*、*Pipeline*、*Service*、*Marketing* 在应用里零命中。前三个由哪些 dataset 回答、第四个为什么连数据源都没有，见 [多维数据集](/zh-Hans/docs/analytics/cubes)。
+上表有两个数字过去写的是别的样子，去找东西之前值得先知道。**这里没有合同报表** —— 也建不出来：`src/datasets/` 只读十个对象，`crm_contract` 不在其中，所以分析里没有任何东西能对合同做计数、求和或分组。另外，**没有任何 cube 叫这四个名字** —— *Sales*、*Pipeline*、*Service*、*Marketing* 在应用里零命中。前三个由哪些 dataset 回答、第四个为什么连数据源都没有，见 [多维数据集](/zh-Hans/docs/analytics/cubes)。
 
 ## 开箱即用的能力
 
@@ -51,7 +51,7 @@ HotCRM 分析将你的 CRM 活动转化为**决策**。三个层次协同工作�
 - **Forecasts** —— 预测记录本身。
 - **Pipeline Coverage**、**Lead Inflow**、**SLA Performance** —— 三张按名字钉在侧边栏上的报表。
 
-没有 *Analytics* 分组，侧边栏上也没有任何条目叫 *Dashboards*、*Reports* 或 *Cubes*。其余仪表盘各自钉在负责它的分组下 —— **Sales Performance** 在 Sales、**Sales Activity** 在 Activity、**Service Overview** 在 Service —— 报表库里剩下的报表则从报表界面进入，而不是从导航进入。整条侧边栏逐组的列法，见 [快速导览](/zh-Hans/docs/getting-started/quick-tour)。
+没有 *Analytics* 分组，侧边栏上也没有任何条目叫 *Dashboards*、*Reports* 或 *Cubes*。其余仪表盘各自钉在负责它的分组下 —— **Sales Performance** 在 Sales、**Sales Activity** 在 Activity、**Service Overview** 在 Service、**Project Cost** 在 Projects、**Project Finance** 在 Project Finance —— 报表库里剩下的报表则从报表界面进入，而不是从导航进入。整条侧边栏逐组的列法，见 [快速导览](/zh-Hans/docs/getting-started/quick-tour)。
 
 ## AI 驱动的洞察
 
@@ -63,6 +63,6 @@ HotCRM 分析将你的 CRM 活动转化为**决策**。三个层次协同工作�
 
 ## 从这里开始
 
-- [仪表盘](/zh-Hans/docs/analytics/dashboards) —— 五个内置仪表盘。
+- [仪表盘](/zh-Hans/docs/analytics/dashboards) —— 七个内置仪表盘。
 - [报表](/zh-Hans/docs/analytics/reports) —— 十份标准报表。
-- [多维数据集](/zh-Hans/docs/analytics/cubes) —— 底下的九个 dataset，这一层能回答什么、又到哪里为止。
+- [多维数据集](/zh-Hans/docs/analytics/cubes) —— 底下的十一个 dataset，这一层能回答什么、又到哪里为止。

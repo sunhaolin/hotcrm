@@ -6,7 +6,7 @@ export const PresalesProjectViews = defineView({
   list: {
     type: 'grid',
     name: 'all_presales_projects',
-    label: 'Presales Projects',
+    label: 'All Presales Projects',
     data: { provider: 'object', object: 'crm_presales_project' },
     columns: [
       { field: 'project_number', width: 120, sortable: true },
@@ -32,7 +32,7 @@ export const PresalesProjectViews = defineView({
         'project_number', { field: 'name', required: true }, 'alias', { field: 'crm_opportunity', required: true }, 'crm_account',
         'project_type', 'business_category', 'planned_start', 'planned_end', 'expected_contract_amount', 'owner_id',
       ] },
-      { name: 'roles', label: 'Project Roles', columns: 2, fields: ['account_manager', 'project_manager', 'project_director', 'project_qa', 'pricing_owner'] },
+      { name: 'roles', label: 'Project Roles', columns: 2, fields: ['account_manager', 'project_manager', 'project_director', 'project_qa', 'pricing_manager'] },
       { name: 'cost_estimate', label: 'Cost Estimate & Quote', columns: 2, fields: ['labor_cost', 'third_party_service_cost', 'procurement_cost', 'project_expense', 'total_cost', 'quote_amount', 'gross_margin_pct'] },
       { name: 'security', label: 'Information Security', columns: 2, fields: ['security_class', 'security_note'] },
       { name: 'approval', label: 'Approval', columns: 2, fields: ['approval_status', 'approved_date'] },

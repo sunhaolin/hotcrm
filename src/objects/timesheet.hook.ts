@@ -6,8 +6,12 @@ import type { HookApi } from './_hook-api';
 /**
  * Demo timesheet hooks (epic #2 / T4 + T6, extended in round 2).
  *
- * `timesheet_rate_fill` — a sheet that names a rate card takes the card's
- * hourly rate unless the same write set the rate explicitly.
+ * `timesheet_rate_fill` — a sheet that names a rate card is priced by that
+ * card, full stop: the card's hourly rate wins over anything on the payload,
+ * because `hourly_rate` is `readonly: true` on the object and a value reaching
+ * this hook is a caller's, not an author's. It is re-read when the write picks
+ * a card and when the sheet carries no rate yet, so a rate-card edit reaches
+ * new sheets and leaves approved history alone.
  *
  * `timesheet_attendance_sync` — `leave_hours` is summed from the submitter's
  * APPROVED leave requests for the sheet's month (working days × 8); while the
@@ -44,13 +48,40 @@ const timesheetRateFill: Hook = {
     const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
     const api = ctx.api as HookApi | undefined;
     const { input, previous } = ctx;
-    const cardId = typeof input?.crm_rate_card === 'string' ? input.crm_rate_card : '';
-    if (!api || !input || !cardId || input.hourly_rate !== undefined) return;
-    const card = await api.object('crm_rate_card').findOne({ where: { id: cardId }, fields: ['hourly_rate'] });
-    if (!card || num(card.hourly_rate) <= 0) return;
-    input.hourly_rate = num(card.hourly_rate);
+    if (!input) return;
+    // Which card prices this sheet: the one this write picks, else the one
+    // already stored (an update that does not mention the column).
+    const picked = typeof input.crm_rate_card === 'string' ? input.crm_rate_card : '';
+    const stored = typeof previous?.crm_rate_card === 'string' ? previous.crm_rate_card : '';
+    const cardId = picked || (input.crm_rate_card === undefined ? stored : '');
+    // No card names a rate, so there is nothing for this hook to say: a sheet
+    // priced some other way (a seeded row, a legacy row) keeps its own rate.
+    if (!cardId) return;
+    // A write PICKS a card when it names one the sheet was not already priced
+    // against — an insert, or an edit that changes the grade. Re-sending the
+    // stored card, which is what the form does on every edit, is not picking.
+    const picks = picked !== '' && picked !== stored;
+    // The SNAPSHOT rule the docs state: re-read the card when this write picks
+    // one, and when the sheet carries no rate yet. A sheet that already priced
+    // itself keeps that rate, so editing a rate card reaches new sheets and
+    // leaves approved history alone.
+    let rate = num(previous?.hourly_rate);
+    if (api && (picks || rate <= 0)) {
+      const card = await api.object('crm_rate_card').findOne({ where: { id: cardId }, fields: ['hourly_rate'] });
+      const carded = num(card?.hourly_rate);
+      if (carded > 0) rate = carded;
+    }
+    // Nothing to price from — keep whatever came in rather than zeroing it.
+    if (rate <= 0) rate = num(input.hourly_rate);
+    if (rate <= 0 && input.hourly_rate === undefined) return;
+    // Assigned unconditionally, and that is the point: a sheet that names a
+    // card is priced by the CARD, never by a rate on the payload. `hourly_rate`
+    // is `readonly: true`, so a value on the payload is a caller's and the
+    // engine strips it — reading it back here would price the sheet at whatever
+    // an empty form posted (`0`), which is the defect this closes.
+    input.hourly_rate = rate;
     const hours = num(input.hours !== undefined ? input.hours : previous?.hours);
-    input.cost = Math.round(hours * num(input.hourly_rate) * 100) / 100;
+    input.cost = Math.round(hours * rate * 100) / 100;
   },
 };
 

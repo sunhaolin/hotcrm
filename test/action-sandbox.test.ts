@@ -276,6 +276,28 @@ describe('every script action body executes under QuickJS', () => {
         }],
       ]),
     ),
+    // 发起审批 (demo, epic #2): one body per approvable object, each writing
+    // its own status field. Seeded with the draft row the body updates, so
+    // the `update` resolves a real record and the body returns the new state.
+    ...Object.fromEntries(
+      ([
+        ['crm_account', 'approval_status'],
+        ['crm_lead', 'approval_status'],
+        ['crm_opportunity', 'initiation_status'],
+        ['crm_presales_project', 'approval_status'],
+        ['crm_delivery_project', 'approval_status'],
+        ['crm_timesheet', 'approval_status'],
+        ['crm_budget_adjustment', 'approval_status'],
+        ['crm_business_trip', 'approval_status'],
+        ['crm_leave_request', 'approval_status'],
+      ] as Array<[string, string]>).map(([objectName, field]) => [
+        `${objectName}:submit_approval`,
+        {
+          opts: { objectName, record: { id: 'rec_1', [field]: 'draft' } },
+          seed: { [objectName]: [{ id: 'rec_1', [field]: 'draft' }] },
+        },
+      ]),
+    ),
   };
 
   it('covers every action the runtime will sandbox', () => {
