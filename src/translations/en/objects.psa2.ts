@@ -136,13 +136,14 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   crm_collection: {
     label: 'Collection',
     pluralLabel: 'Collections',
-    description: 'Collections recorded per delivery project, optionally linked to an invoice',
+    description: 'Collections recorded per delivery project and sales contract, optionally linked to an invoice',
     fields: {
       description: { label: 'Description' },
       amount: { label: 'Amount' },
       bank_reference: { label: 'Bank Reference' },
       collection_code: { label: 'Collection #' },
       crm_account: { label: 'Account' },
+      crm_contract: { label: 'Sales Contract' },
       crm_delivery_project: { label: 'Delivery Project' },
       crm_invoice: { label: 'Invoice' },
       method: {

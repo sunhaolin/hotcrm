@@ -425,13 +425,14 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_collection: {
     label: '入金',
     pluralLabel: '入金',
-    description: 'デリバリープロジェクト単位の入金記録。請求書に紐づけ可能',
+    description: 'デリバリープロジェクトと販売契約単位の入金記録。請求書に紐づけ可能',
     fields: {
       description: { label: '説明' },
       amount: { label: '入金額' },
       bank_reference: { label: '銀行取引番号' },
       collection_code: { label: '入金コード' },
       crm_account: { label: '取引先' },
+      crm_contract: { label: '販売契約' },
       crm_delivery_project: { label: 'デリバリープロジェクト' },
       crm_invoice: { label: '関連請求書' },
       method: {
