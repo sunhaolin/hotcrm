@@ -128,9 +128,9 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       collected_total: { label: 'Total cobrado' },
       contract_amount: { help: 'Se toma por defecto del valor del contrato de venta (delivery_project_defaults).', label: 'Importe del contrato' },
-      crm_account: { label: 'Cuenta' },
+      crm_account: { help: 'Déjalo vacío: al guardar se toma del proyecto de preventa, o del contrato de venta (delivery_project_defaults).', label: 'Cuenta' },
       crm_contract: { label: 'Contrato de venta' },
-      crm_opportunity: { label: 'Oportunidad' },
+      crm_opportunity: { help: 'Déjalo vacío: al guardar se toma del proyecto de preventa (delivery_project_defaults).', label: 'Oportunidad' },
       crm_presales_project: { label: 'Proyecto de preventa' },
       department: {
         label: 'Departamento',
