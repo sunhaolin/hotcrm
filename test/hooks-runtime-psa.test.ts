@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import timesheetHooks from '../src/objects/timesheet.hook';
 import costPlanLineHooks from '../src/objects/cost_plan_line.hook';
+import presalesProjectHooks from '../src/objects/presales_project.hook';
 import deliveryProjectHooks from '../src/objects/delivery_project.hook';
 import leaveRequestHooks from '../src/objects/leave_request.hook';
 import businessTripHooks from '../src/objects/business_trip.hook';
@@ -18,8 +19,9 @@ import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harnes
  * Every hook here is a derivation or a gate the customer's 40-step process
  * names: cost from hours × rate (step 34), the over-budget block (36), the
  * Bizcase baseline and its cost plan (27), leave hours on a timesheet (33),
- * trip days and the unapproved-trip block (35), and the account classification
- * / EAR gates on a new opportunity (steps 1 and 3).
+ * trip days and the unapproved-trip block (35), the account a presales project
+ * takes from its opportunity (15), and the account classification / EAR gates
+ * on a new opportunity (steps 1 and 3).
  */
 
 const USER = { id: 'user_1' };
@@ -148,6 +150,69 @@ describe('cost_plan_line_fill', () => {
     const input: Rec = { quantity: 2, unit_price: 25_000, planned_amount: 40_000 };
     await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
     expect(input.planned_amount).toBe(40_000);
+  });
+});
+
+// ───────────────────────────────────────────────────── presales project ──
+
+/**
+ * 所属客户 is DERIVED from 关联商机 (spec step 15, 「所属客户跟着带出」) — the
+ * write half of the same rule `crm_presales_project.crm_opportunity`'s
+ * `lookupFilters` scopes the picker with (pinned in
+ * `test/presales-project-opportunity-gate.test.ts`).
+ */
+describe('presales_project_account_carry', () => {
+  const hook = hookNamed(presalesProjectHooks, 'presales_project_account_carry');
+  const deals = () => ({
+    crm_opportunity: [
+      { id: 'opp_1', name: '华信核心系统升级', crm_account: 'acc_1' },
+      { id: 'opp_2', name: '北辰 MES 二期', crm_account: 'acc_2' },
+    ],
+  });
+
+  it('fills a blank account from the opportunity on insert', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('leaves an account the write names alone', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_1', crm_account: 'acc_9' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_9');
+  });
+
+  it('follows a re-pointed opportunity when the stored account was the old one’s', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { crm_opportunity: 'opp_2' };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1', crm_account: 'acc_1' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_2');
+  });
+
+  it('keeps a hand-picked account when the opportunity is re-pointed', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { crm_opportunity: 'opp_2' };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1', crm_account: 'acc_7' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBeUndefined();
+  });
+
+  it('fills a blank account on an update that does not name the opportunity', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { quote_amount: 1_400_000 };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('writes nothing when the opportunity carries no account of its own', async () => {
+    const h = makeHarness({ crm_opportunity: [{ id: 'opp_3', name: '待补客户' }] });
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_3' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBeUndefined();
   });
 });
 

@@ -35,7 +35,31 @@ export const PresalesProject = ObjectSchema.create({
     project_number: Field.autonumber({ label: 'Project Number', format: 'PSP-{0000}', group: 'basic' }),
     name: Field.text({ label: 'Project Name', required: true, storage: { notNull: true }, searchable: true, group: 'basic' }),
     alias: Field.text({ label: 'Alias', group: 'basic' }),
-    crm_opportunity: Field.lookup('crm_opportunity', { label: 'Opportunity', required: true, storage: { notNull: true }, group: 'basic' }),
+    // 步骤 15「售前立项必须引用客户关系系统中已审批通过的商机数据」.
+    //
+    // The gate is the customer's OWN approval — 商机立项审批 (step 11), stamped
+    // on the opportunity's `initiation_status` — and deliberately NOT the
+    // amount-tiered `approval_status` that HotCRM's standard Large Deal
+    // Approval writes: that one reads `not_required` on every deal under the
+    // threshold, so filtering on it would hide legitimate small deals while
+    // offering large ones the 立项 gate has not passed yet.
+    //
+    // `lookupFilters` is the structured, picker-honoured form; the string[]
+    // `referenceFilters` spelling was removed in the 16.x line and, as
+    // authored, filtered nothing (ADR-0049). This scopes the PICKER — the
+    // write-path carry that follows from a pick is
+    // `presales_project_account_carry` in `presales_project.hook.ts`.
+    crm_opportunity: Field.lookup('crm_opportunity', {
+      label: 'Opportunity',
+      required: true,
+      storage: { notNull: true },
+      group: 'basic',
+      lookupFilters: [{ field: 'initiation_status', operator: 'eq', value: 'approved' }],
+    }),
+    // Derived from the opportunity, not retyped: `presales_project_account_carry`
+    // carries it on every write that names an opportunity (spec step 15,
+    // 「所属客户跟着带出」). Left writable so a project can still be re-pointed
+    // by hand; a hand-picked account is never overwritten.
     crm_account: Field.lookup('crm_account', { label: 'Account', group: 'basic' }),
     project_type: Field.select({ label: 'Project Type', group: 'basic', options: [...PROJECT_TYPE_OPTIONS] }),
     business_category: Field.select({ label: 'Business Category', group: 'basic', options: [...BUSINESS_CATEGORY_OPTIONS] }),

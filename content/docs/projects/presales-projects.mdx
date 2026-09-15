@@ -21,6 +21,14 @@ A **presales project** (售前项目, `crm_presales_project`) is the bid: the wo
 
 **Presales Hours** and **Presales Labor Actual** are rollups: the hours and cost of every *approved* [timesheet](/docs/projects/timesheets-and-leave) booked against this presales project. A draft or rejected timesheet counts for nothing, so the figure on the record is the figure finance would accept.
 
+## What the system does automatically
+
+### The Opportunity picker only offers initiated deals
+A bid may only reference an opportunity the business has already initiated, so the **Opportunity** picker lists only records whose *Initiation Status* is **Initiated** — the verdict of the 商机立项审批 flow. A deal still in *Not Initiated*, *Submitted* or *Rejected* does not appear until it clears that gate. This is separate from the amount-tiered Large Deal Approval on the opportunity, which does not affect the picker.
+
+### The Account follows the Opportunity
+Leave **Account** empty and it is filled from the opportunity you picked (`presales_project_account_carry`) — the customer is a fact the deal already holds, not something to look up twice. Re-point the bid at a different opportunity and the account moves with it, unless you had chosen an account yourself, which is always kept.
+
 ## Approval
 
 The bid is approved by the **售前立项审批** flow. Click **Submit for Approval** at the top of the record — the *Approval Status* field itself is read-only, on the form and on the API, so there is no other way to move it. Submitting locks the record; the approval goes to an executive; on the verdict the status and the approved date are stamped and the owner is notified. A rejected bid can be corrected and resubmitted.
