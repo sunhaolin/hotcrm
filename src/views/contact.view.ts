@@ -16,8 +16,9 @@ export const ContactViews = defineView({
     data: { provider: 'object', object: 'crm_contact' },
     columns: [
       { field: 'avatar', width: 64, align: 'center' },
-      { field: 'first_name', width: 140, sortable: true, link: true },
-      { field: 'last_name', width: 140, sortable: true },
+      // Demo (epic #2): 姓 before 名 — the Chinese order.
+      { field: 'last_name', width: 140, sortable: true, link: true },
+      { field: 'first_name', width: 140, sortable: true },
       { field: 'crm_account', width: 200 },
       { field: 'title', width: 180 },
       { field: 'department', width: 140 },
@@ -49,7 +50,7 @@ export const ContactViews = defineView({
       type: 'gallery',
       label: 'People Directory',
       data: { provider: 'object', object: 'crm_contact' },
-      columns: ['first_name', 'last_name', 'title', 'email'],
+      columns: ['last_name', 'first_name', 'title', 'email'],
       gallery: {
         coverField: 'avatar',
         coverFit: 'cover',
@@ -64,7 +65,7 @@ export const ContactViews = defineView({
       type: 'grid',
       label: 'Primary Contacts',
       data: { provider: 'object', object: 'crm_contact' },
-      columns: ['first_name', 'last_name', 'crm_account', 'title', 'email', 'phone'],
+      columns: ['last_name', 'first_name', 'crm_account', 'title', 'email', 'phone'],
       filter: [{ field: 'is_primary', operator: 'equals', value: true }],
       sort: [{ field: 'crm_account', order: 'asc' }],
     },
@@ -79,8 +80,8 @@ export const ContactViews = defineView({
         columns: 2,
         fields: [
           'salutation',
-          { field: 'first_name', required: true },
-          { field: 'last_name', required: true, span: 'full' },
+          { field: 'last_name', required: true },
+          { field: 'first_name', required: true, span: 'full' },
           { field: 'crm_account', required: true },
           'title',
           'department',
@@ -128,7 +129,7 @@ export const ContactViews = defineView({
         label: 'Mailing Address',
         columns: 2,
         fields: [
-          // `mailing_street` is a textarea — full width, like `last_name`
+          // `mailing_street` is a textarea — full width, like `first_name`
           // above, so the two-column grid holds the four short fields.
           { field: 'mailing_street', span: 'full' },
           'mailing_city',

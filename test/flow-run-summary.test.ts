@@ -68,8 +68,8 @@ const stalledDeals = (): Rec[] => [
 ];
 
 const nudgeTasks = (): Rec[] => [
-  { id: 't1', related_to_opportunity: 'o1', subject: 'Advance stalled deal: Stalled One', status: 'not_started' },
-  { id: 't2', related_to_opportunity: 'o2', subject: 'Advance stalled deal: Stalled Two', status: 'not_started' },
+  { id: 't1', related_to_opportunity: 'o1', subject: '推进停滞商机：Stalled One', status: 'not_started' },
+  { id: 't2', related_to_opportunity: 'o2', subject: '推进停滞商机：Stalled Two', status: 'not_started' },
 ];
 
 describe('flow run summary — the three flows the silent-no-op incident covered', () => {

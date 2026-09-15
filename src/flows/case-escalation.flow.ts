@@ -180,13 +180,15 @@ export const CaseEscalationFlow: Flow = {
         channels: ['inbox', 'email'],
         severity: 'critical',
         topic: 'case_escalated',
-        title: 'Case escalated: {caseRecord.case_number}',
+        // Demo branch (epic #2): inbox copy is Chinese. `{…priority}` is dropped —
+        // it interpolates the stored value (`critical`), not its label.
+        title: '工单已升级：{caseRecord.case_number}',
         // ⚠️ The body must stay true on BOTH outcomes. "It remains assigned to
         // you" is false whenever the hand-off finds a manager; the opposite
         // claim ("it has been reassigned") is false whenever the
         // `service_manager` pool is unstaffed, which is the first-install norm.
         // So it states the rule and points at the record for the answer.
-        message: 'Case {caseRecord.case_number} ({caseRecord.priority}) has been auto-escalated on critical priority. Ownership passes to the service manager with the lightest load; while nobody holds that position the case stays with you. Open the case to see who owns it now.',
+        message: '工单 {caseRecord.case_number} 因紧急优先级已自动升级。负责人将转给当前工作量最少的服务经理；该职位无人时，工单仍由您负责。请打开工单查看当前负责人。',
         actionUrl: '/crm_case/{record.id}',
       },
     },

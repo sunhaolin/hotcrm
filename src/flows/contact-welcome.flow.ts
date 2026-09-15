@@ -69,8 +69,9 @@ export const ContactWelcomeFlow: Flow = {
         recipients: ['{record.owner_id}'],
         channels: ['inbox', 'email'],
         topic: 'contact_welcome',
-        title: 'New contact: {record.first_name} {record.last_name}',
-        message: '{record.first_name} {record.last_name} was added as a contact. Reach out to welcome them.',
+        // Demo branch (epic #2): inbox copy is Chinese.
+        title: '新联系人：{record.last_name}{record.first_name}',
+        message: '已添加联系人 {record.last_name}{record.first_name}，请尽快联系问候。',
         actionUrl: '/crm_contact/{record.id}',
       },
     },

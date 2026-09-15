@@ -73,8 +73,9 @@ export const TaskDueReminderFlow: Flow = {
                 channels: ['inbox', 'email'],
                 severity: 'warning',
                 topic: 'task_reminder',
-                title: 'Task reminder: {currentTask.subject}',
-                message: 'Your task "{currentTask.subject}" is due (reminder set for {currentTask.reminder_date}).',
+                // Demo branch (epic #2): inbox copy is Chinese.
+                title: '任务提醒：{currentTask.subject}',
+                message: '您的任务「{currentTask.subject}」已到提醒时间（提醒日期 {currentTask.reminder_date}）。',
                 actionUrl: '/crm_task/{currentTask.id}',
               },
             },

@@ -2,6 +2,7 @@
 
 import type * as Automation from '@objectstack/spec/automation';
 import { CLAIMABLE_TARGET_STATUSES } from '../objects/_case-assignment';
+import { zhOptions } from './_zh-options';
 type Flow = Automation.Flow;
 
 /**
@@ -43,10 +44,13 @@ export const EscalateCaseFlow: Flow = {
   nodes: [
     { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_case' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Escalate Case',
+      // Demo branch (epic #2): dialog copy on all three screens here is
+      // Chinese — a locale pack cannot reach a flow screen on 17.4.0; see
+      // `./_zh-options.ts`.
+      id: 'screen_1', type: 'screen', label: '升级工单',
       config: {
         fields: [
-          { name: 'reason', label: 'Escalation Reason', type: 'textarea', required: true },
+          { name: 'reason', label: '升级原因', type: 'textarea', required: true },
         ],
       },
     },
@@ -171,16 +175,16 @@ export const CloseCaseFlow: Flow = {
       // is the CLOSE-PATH capture beside it. Both write the same column; the
       // action is `refreshAfter: true`, so the record form is what the agent
       // lands on immediately after closing.
-      id: 'screen_1', type: 'screen', label: 'Close Case',
+      id: 'screen_1', type: 'screen', label: '关闭工单',
       config: {
         fields: [
-          { name: 'resolution', label: 'Resolution', type: 'textarea', required: true },
+          { name: 'resolution', label: '解决方案', type: 'textarea', required: true },
           {
             name: 'resolved_by_article',
-            label: 'Resolved by Article (optional)',
+            label: '解决该工单的知识文章（可选）',
             type: 'lookup',
             required: false,
-            placeholder: 'Knowledge article id, if the KB resolved this case',
+            placeholder: '若由知识库解决，填写知识文章 ID',
           },
         ],
       },
@@ -256,20 +260,14 @@ export const CloseCaseFlow: Flow = {
  * row is a different day's work from `in_progress`). The options are built from
  * {@link CLAIMABLE_TARGET_STATUSES} — the seam's own declared set — rather than
  * hand-copied. ⛔ Never hand-copy the subset: it silently drops an option from
- * the picker and nothing notices. A fourth claimable status makes the label map
- * below a COMPILE error rather than a quietly short picker.
+ * the picker and nothing notices. A fourth claimable status the zh-CN pack does
+ * not label makes this module throw at load rather than show a raw value.
  */
-const CLAIM_STATUS_LABEL: Record<(typeof CLAIMABLE_TARGET_STATUSES)[number], string> = {
-  in_progress: 'In Progress',
-  waiting_customer: 'Waiting on Customer',
-  waiting_support: 'Waiting on Support',
-};
-
-/** The picker, derived from the seam's set. Labels are pinned to `crm_case.status`'s own. */
-const CLAIM_STATUS_OPTIONS = CLAIMABLE_TARGET_STATUSES.map((value) => ({
-  value,
-  label: CLAIM_STATUS_LABEL[value],
-}));
+/**
+ * The picker, derived from the seam's set. Labels are `crm_case.status`'s own
+ * zh-CN words, read from the pack — demo branch (epic #2), see `./_zh-options.ts`.
+ */
+const CLAIM_STATUS_OPTIONS = zhOptions('crm_case', 'status', CLAIMABLE_TARGET_STATUSES);
 
 export const ClaimCaseFlow: Flow = {
   name: 'claim_case',
@@ -290,11 +288,11 @@ export const ClaimCaseFlow: Flow = {
   nodes: [
     { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_case' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Claim Case',
+      id: 'screen_1', type: 'screen', label: '认领工单',
       config: {
         fields: [
           {
-            name: 'claimStatus', label: 'Working status', type: 'select', required: true,
+            name: 'claimStatus', label: '处理状态', type: 'select', required: true,
             defaultValue: 'in_progress',
             options: CLAIM_STATUS_OPTIONS,
           },

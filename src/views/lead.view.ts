@@ -234,12 +234,13 @@ export const LeadViews = defineView({
           {
             field: 'salutation',
           },
+          // Demo (epic #2): 姓 before 名 — the Chinese order.
           {
-            field: 'first_name',
+            field: 'last_name',
             required: true,
           },
           {
-            field: 'last_name',
+            field: 'first_name',
             required: true,
             span: 'full',
           },
@@ -491,11 +492,11 @@ export const LeadViews = defineView({
         provider: 'object',
         object: 'crm_lead',
       },
-      columns: ['first_name', 'last_name', 'company', 'email'],
+      columns: ['last_name', 'first_name', 'company', 'email'],
       kanban: {
         groupByField: 'status',
         summarizeField: 'annual_revenue',
-        columns: ['first_name', 'last_name', 'company', 'rating'],
+        columns: ['last_name', 'first_name', 'company', 'rating'],
       },
       navigation: {
         mode: 'drawer', // Open in drawer instead of new page
@@ -514,7 +515,7 @@ export const LeadViews = defineView({
         provider: 'object',
         object: 'crm_lead',
       },
-      columns: ['first_name', 'last_name', 'company'],
+      columns: ['last_name', 'first_name', 'company'],
       calendar: {
         startDateField: 'created_at',
         titleField: 'company',
@@ -533,11 +534,11 @@ export const LeadViews = defineView({
         provider: 'object',
         object: 'crm_lead',
       },
-      columns: ['first_name', 'last_name', 'company', 'email', 'status'],
+      columns: ['last_name', 'first_name', 'company', 'email', 'status'],
       gallery: {
         cardSize: 'medium',
         titleField: 'company',
-        visibleFields: ['first_name', 'last_name', 'email', 'phone', 'status', 'rating'],
+        visibleFields: ['last_name', 'first_name', 'email', 'phone', 'status', 'rating'],
       },
     },
     
@@ -565,8 +566,8 @@ export const LeadViews = defineView({
           columns: 2,
           fields: [
             'salutation',
-            'first_name',
             'last_name',
+            'first_name',
             'company',
             'title',
             'email',
@@ -643,8 +644,8 @@ export const LeadViews = defineView({
           label: 'Step 1: Contact Details',
           columns: 2,
           fields: [
-            { field: 'first_name', required: true, readonly: true },
             { field: 'last_name', required: true, readonly: true },
+            { field: 'first_name', required: true, readonly: true },
             { field: 'email', readonly: true, span: 'full' },
             'phone',
             'mobile',
@@ -717,8 +718,8 @@ export const LeadViews = defineView({
           label: 'Primary Information',
           columns: 1,
           fields: [
-            'first_name',
             'last_name',
+            'first_name',
             'company',
             'email',
             { field: 'status', required: true },
@@ -766,8 +767,8 @@ export const LeadViews = defineView({
           label: 'Quick Edit',
           columns: 1, // Drawers typically use single column
           fields: [
-            { field: 'first_name', required: true },
             { field: 'last_name', required: true },
+            { field: 'first_name', required: true },
             'company',
             'email',
             'phone',
@@ -809,8 +810,8 @@ export const LeadViews = defineView({
           label: 'Update Lead Status',
           columns: 1,
           fields: [
-            { field: 'first_name', readonly: true },
             { field: 'last_name', readonly: true },
+            { field: 'first_name', readonly: true },
             { field: 'company', readonly: true },
             { 
               field: 'status', 
@@ -865,8 +866,8 @@ export const LeadViews = defineView({
           label: 'Tell us about yourself',
           columns: 2,
           fields: [
-            { field: 'first_name', required: true },
             { field: 'last_name',  required: true },
+            { field: 'first_name', required: true },
             { field: 'email',      required: true, span: 'full' },
             'phone',
             'title',
@@ -920,8 +921,8 @@ export const LeadViews = defineView({
           label: 'Lead Information',
           columns: 2,
           fields: [
-            'first_name',
             'last_name',
+            'first_name',
             'company',
             'email',
             'status',

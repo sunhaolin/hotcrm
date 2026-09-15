@@ -73,7 +73,9 @@ export const OpportunityStagnationFlow: Flow = {
                 objectName: 'crm_task',
                 filter: {
                   related_to_opportunity: '{currentOpp.id}',
-                  subject: 'Advance stalled deal: {currentOpp.name}',
+                  // Demo branch (epic #2): task and inbox copy is Chinese. This subject is
+                  // the idempotency key — it MUST match `create_followup_task` verbatim.
+                  subject: '推进停滞商机：{currentOpp.name}',
                   status: { $nin: ['completed'] },
                 },
                 outputVariable: 'existingStallTask',
@@ -92,8 +94,10 @@ export const OpportunityStagnationFlow: Flow = {
                 recipients: ['{currentOpp.owner_id}'],
                 channels: ['inbox', 'email'],
                 topic: 'deal_stalled',
-                title: 'Stalled deal: {currentOpp.name}',
-                message: 'Opportunity {currentOpp.name} has sat in {currentOpp.stage} for {currentOpp.days_in_stage} days. Time to advance or re-qualify it.',
+                // `{currentOpp.stage}` is dropped — it interpolates the stored value
+                // (`proposal`), not its label.
+                title: '商机停滞：{currentOpp.name}',
+                message: '商机 {currentOpp.name} 已在当前阶段停留 {currentOpp.days_in_stage} 天，请推进或重新评估。',
                 actionUrl: '/crm_opportunity/{currentOpp.id}',
               },
             },
@@ -102,7 +106,7 @@ export const OpportunityStagnationFlow: Flow = {
               config: {
                 objectName: 'crm_task',
                 fields: {
-                  subject: 'Advance stalled deal: {currentOpp.name}',
+                  subject: '推进停滞商机：{currentOpp.name}',
                   type: 'follow_up', priority: 'high', status: 'not_started',
                   due_date: '{TODAY() + 2}',
                   owner_id: '{currentOpp.owner_id}',

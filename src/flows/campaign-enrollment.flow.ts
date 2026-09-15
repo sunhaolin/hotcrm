@@ -3,6 +3,7 @@
 import { P } from '@objectstack/spec';
 import type * as Automation from '@objectstack/spec/automation';
 import { guarded } from './_guarded-iteration';
+import { zhOptions } from './_zh-options';
 type Flow = Automation.Flow;
 
 /**
@@ -99,7 +100,9 @@ export const CampaignEnrollmentFlow: Flow = {
   nodes: [
     { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_campaign' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Enrollment Criteria',
+      // Demo branch (epic #2): dialog copy is Chinese — a locale pack cannot
+      // reach a flow screen on 17.4.0; see `./_zh-options.ts`.
+      id: 'screen_1', type: 'screen', label: '加入条件',
       config: {
         fields: [
           {
@@ -108,39 +111,28 @@ export const CampaignEnrollmentFlow: Flow = {
             // single-authority form. It reaches the client
             // interpolated to the raw value, the string `leads`, which is what
             // a literal `defaultValue: 'leads'` used to send.
-            name: 'memberSource', label: 'Enroll', type: 'select', required: true,
+            name: 'memberSource', label: '加入对象', type: 'select', required: true,
             defaultValue: '{memberSource}',
             options: [
-              { label: 'Leads', value: 'leads' },
-              { label: 'Contacts', value: 'contacts' },
+              { label: '线索', value: 'leads' },
+              { label: '联系人', value: 'contacts' },
             ],
           },
           {
-            name: 'leadStatus', label: 'Enroll leads in status', type: 'select', required: true,
+            name: 'leadStatus', label: '加入以下状态的线索', type: 'select', required: true,
             defaultValue: 'new',
-            options: [
-              { label: 'New', value: 'new' },
-              { label: 'Contacted', value: 'contacted' },
-              { label: 'Qualified', value: 'qualified' },
-            ],
+            options: zhOptions('crm_lead', 'status', ['new', 'contacted', 'qualified']),
           },
           {
             // Required, like `leadStatus`, and for the same reason: a blank
             // segment would interpolate into the filter as an empty string and
             // silently match the contacts with NO department rather than all of
             // them. Both branches make the caller name a segment.
-            name: 'contactDepartment', label: 'Enroll contacts in department',
+            name: 'contactDepartment', label: '加入以下部门的联系人',
             type: 'select', required: true, defaultValue: 'executive',
-            options: [
-              { label: 'Executive', value: 'executive' },
-              { label: 'Sales', value: 'sales' },
-              { label: 'Marketing', value: 'marketing' },
-              { label: 'Engineering', value: 'engineering' },
-              { label: 'Support', value: 'support' },
-              { label: 'Finance', value: 'finance' },
-              { label: 'Human Resources', value: 'hr' },
-              { label: 'Operations', value: 'operations' },
-            ],
+            options: zhOptions('crm_contact', 'department', [
+              'executive', 'sales', 'marketing', 'engineering', 'support', 'finance', 'hr', 'operations',
+            ]),
           },
         ],
       },

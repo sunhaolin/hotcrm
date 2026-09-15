@@ -193,7 +193,7 @@ describe('hook-created records inherit the triggering organization', () => {
     );
     expect(task.organization_id).toBe(ORG_A);
     // The row is genuinely the hook's, not any row that happened to be there.
-    expect(String(task.subject)).toContain('Escalated');
+    expect(String(task.subject)).toContain('工单已升级');
 
     // …and it is inside the wall: the other tenant cannot reach it.
     const seenByB = (await b.object('crm_task').find({ where: { id: task.id } })) as AnyRec[];

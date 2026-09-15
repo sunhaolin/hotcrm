@@ -58,8 +58,9 @@ export const TaskUrgentAlertFlow: Flow = {
         channels: ['inbox', 'email'],
         severity: 'warning',
         topic: 'urgent_task',
-        title: 'Urgent task: {record.subject}',
-        message: 'An urgent task "{record.subject}" was assigned to you and needs attention.',
+        // Demo branch (epic #2): inbox copy is Chinese.
+        title: '紧急任务：{record.subject}',
+        message: '您有一项紧急任务「{record.subject}」，请尽快处理。',
         actionUrl: '/crm_task/{record.id}',
       },
     },

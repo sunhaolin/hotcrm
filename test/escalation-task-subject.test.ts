@@ -33,7 +33,7 @@ import { makeSandboxEngine, runHookBody, type Rec } from './helpers/action-sandb
  *  2. **The 255-character cap is load-bearing, and only a real engine can say
  *     so.** `crm_task.subject` declares `maxLength: 255` and the engine
  *     ENFORCES it; `crm_case.subject` allows the same 255. An uncapped
- *     `Escalated: ` + number + separator + subject is therefore up to 279
+ *     `工单已升级：` + number + separator + subject is therefore up to 274
  *     characters, and this hook is `async: true` + `onError: 'log'` — the
  *     rejected insert would surface nowhere and the escalation task would
  *     simply never exist. The last test below drives both halves through a
@@ -81,7 +81,7 @@ const escalate = async (previous: Rec, input: Rec = {}): Promise<Rec> => {
 describe('escalation task subject — out of the lowered hook body', () => {
   it('names the case the way every other surface in the app names it', async () => {
     const task = await escalate(previousCase());
-    expect(task.subject).toBe('Escalated: CASE-00039 · Login SSO failure after password reset');
+    expect(task.subject).toBe('工单已升级：CASE-00039 · Login SSO failure after password reset');
   });
 
   it('keeps the record id out of the title and in the relationship', async () => {
@@ -104,31 +104,31 @@ describe('escalation task subject — out of the lowered hook body', () => {
         case_number: `CASE-000${n}`,
         subject: `Customer ${n} cannot sign in`,
       }));
-      expect(task.subject).toBe(`Escalated: CASE-000${n} · Customer ${n} cannot sign in`);
+      expect(task.subject).toBe(`工单已升级：CASE-000${n} · Customer ${n} cannot sign in`);
       expect(task.subject).not.toContain(`id_${n}`);
     }
   });
 
   it('prefers a subject the same write is changing', async () => {
     const task = await escalate(previousCase(), { subject: 'Renamed in this very write' });
-    expect(task.subject).toBe('Escalated: CASE-00039 · Renamed in this very write');
+    expect(task.subject).toBe('工单已升级：CASE-00039 · Renamed in this very write');
   });
 
   it('drops the separator rather than dangling it when a half is missing', async () => {
     const noSubject = await escalate(previousCase({ subject: '   ' }));
-    expect(noSubject.subject).toBe('Escalated: CASE-00039');
+    expect(noSubject.subject).toBe('工单已升级：CASE-00039');
 
     const noNumber = await escalate(previousCase({ case_number: undefined }));
-    expect(noNumber.subject).toBe('Escalated: Login SSO failure after password reset');
+    expect(noNumber.subject).toBe('工单已升级：Login SSO failure after password reset');
 
     const neither = await escalate(previousCase({ case_number: undefined, subject: '' }));
-    expect(neither.subject).toBe('Escalated case needs attention');
+    expect(neither.subject).toBe('已升级工单待处理');
   });
 
   it('still creates the task, and still leads with the identifier, at maximum length', async () => {
     const task = await escalate(previousCase({ subject: 'S'.repeat(255) }));
     expect((task.subject as string).length).toBeLessThanOrEqual(255);
-    expect(task.subject as string).toMatch(/^Escalated: CASE-00039 · S+…$/);
+    expect(task.subject as string).toMatch(/^工单已升级：CASE-00039 · S+…$/);
   });
 });
 
@@ -189,7 +189,7 @@ describe('the 255 cap, against a real ObjectQL', () => {
   it('rejects the uncapped composition — which is why the cap exists', async () => {
     // Reverse verification. `async: true` + `onError: 'log'` means this
     // rejection would be swallowed: no escalation task, no error anyone sees.
-    const uncapped = `Escalated: CASE-00039 · ${'S'.repeat(255)}`;
+    const uncapped = `工单已升级：CASE-00039 · ${'S'.repeat(255)}`;
     expect(uncapped.length).toBeGreaterThan(255);
     await expect(
       api.object('crm_task').insert({

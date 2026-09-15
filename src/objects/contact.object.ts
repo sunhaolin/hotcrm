@@ -61,9 +61,10 @@ export const Contact = ObjectSchema.create({
     // (#461). The formula language has no proper-case or option-label lookup, and
     // hardcoding "Ms." would defeat translation, so the name is built from the
     // name fields alone; salutation stays its own (translated) field.
+    // Demo (epic #2): surname first, no separator — see `crm_lead.full_name`.
     full_name: Field.formula({
       label: 'Full Name',
-      expression: F`joinNonEmpty([record.first_name, record.last_name], ' ')`,
+      expression: F`joinNonEmpty([record.last_name, record.first_name], '')`,
       group: 'identity',
     }),
 

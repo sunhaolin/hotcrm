@@ -26,11 +26,14 @@ export const QuoteGenerationFlow: Flow = {
   nodes: [
     { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_opportunity' } },
     {
-      id: 'screen_1', type: 'screen', label: 'Quote Details',
+      // Demo branch (epic #2): dialog and notification copy is Chinese — a
+      // locale pack cannot reach a flow screen on 17.4.0; see
+      // `./_zh-options.ts`.
+      id: 'screen_1', type: 'screen', label: '报价详情',
       config: {
         fields: [
-          { name: 'quoteName', label: 'Quote Name', type: 'text', required: true },
-          { name: 'expirationDays', label: 'Valid For (Days)', type: 'number', required: true, defaultValue: 30 },
+          { name: 'quoteName', label: '报价名称', type: 'text', required: true },
+          { name: 'expirationDays', label: '有效期（天）', type: 'number', required: true, defaultValue: 30 },
           // The ceiling is a HARD block with no override
           // (`crm_quote.discount_within_ceiling`), so until it is written here
           // a rep meets the number only by having the quote refused. Both
@@ -54,7 +57,7 @@ export const QuoteGenerationFlow: Flow = {
           // clears the box to type — real, but not enough on its own.
           {
             name: 'discount',
-            label: `Discount % (≤ ${QUOTE_DISCOUNT_CEILING})`,
+            label: `折扣 %（≤ ${QUOTE_DISCOUNT_CEILING}）`,
             type: 'percent',
             defaultValue: 0,
             placeholder: `0-${QUOTE_DISCOUNT_CEILING}`,
@@ -140,8 +143,8 @@ export const QuoteGenerationFlow: Flow = {
         recipients: ['{$User.Id}'],
         channels: ['inbox', 'email'],
         topic: 'quote_created',
-        title: 'Quote created: {quoteName}',
-        message: 'Your quote {quoteName} has been created from this opportunity.',
+        title: '报价已创建：{quoteName}',
+        message: '已根据该商机创建报价 {quoteName}。',
         actionUrl: '/crm_quote/{quoteId.id}',
       },
     },
