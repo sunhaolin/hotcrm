@@ -59,7 +59,7 @@
 
 | 步骤 | Excel 业务步骤 | 开发内容 | 状态 |
 |---|---|---|---|
-| 15 | 关联 CRM 商机数据 | `crm_opportunity` 必填关联字段；配合步骤 8 的商机编码，售前项目只能挂在已有商机上 | 新增 |
+| 15 | 关联 CRM 商机数据 | `crm_opportunity` 必填关联字段，选择器按 `initiation_status = approved` 过滤（只列已立项商机）；配合步骤 8 的商机编码，售前项目只能挂在已有商机上，所属客户由 `presales_project_account_carry` 从商机带出 | 新增 |
 | 16 | 项目基本信息填报 | `project_number` PSP-xxxx、`name` 项目名称、`alias` 别名、`project_type` 项目类型、`business_category` 业务分类、`planned_start` / `planned_end` 计划起止、`expected_contract_amount` 预计合同金额 | 新增 |
 | 17 | 项目角色配置 | `account_manager` 客户经理、`project_manager` 项目经理、`project_director` 项目总监、`project_qa` 项目 QA、`pricing_owner` 资源报价负责人 | 新增 |
 | 18 | 项目成本与报价测算 | `labor_cost` 人工服务成本、`third_party_service_cost` 第三方服务成本、`procurement_cost` 第三方软硬件采购成本、`project_expense` 项目费用 → `total_cost` **总成本（公式）**；`quote_amount` 项目报价 → `gross_margin_pct` **毛利率（公式）** | 新增 |
