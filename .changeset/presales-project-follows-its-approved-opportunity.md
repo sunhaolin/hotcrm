@@ -28,3 +28,5 @@ Both halves now exist, and they name the same gate:
 
 This scopes the picker, not the write path: an API insert naming an
 un-initiated opportunity is still accepted, as it was before.
+
+Both rules are documented on the Presales Projects page, in all three locales.
