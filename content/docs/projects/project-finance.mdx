@@ -1,0 +1,49 @@
+---
+title: Project Finance
+description: Invoices, collections, purchase contracts and sales orders — four records that hang off a delivery project and roll up into its finance block and the Project Finance dashboard.
+---
+
+# Project Finance
+
+Four records carry a delivery project's money: what it **invoices** the customer, what it **collects**, what it **buys** from subcontractors and vendors, and the **orders** that fulfil its contract. Each is a child of the delivery project — created from the project's record page or from its own sidebar entry under **Project Finance** — and each rolls up onto the project, so the [delivery project](/docs/projects/delivery-projects) and the [Project Finance dashboard](/docs/analytics/dashboards) always agree.
+
+## Invoices
+
+An **invoice** (开票, `crm_invoice`) records a bill issued against the project's sales contract: invoice number, type (*VAT special, VAT general, electronic*), amount, invoice date, status, the account and contract it bills, and the person who issued it.
+
+| Status | What it means |
+| --- | --- |
+| **Draft** | Prepared, not yet issued |
+| **Issued** | Issued to the customer |
+| **Sent** | Sent, awaiting payment |
+| **Paid** | Fully collected |
+| **Void** | Cancelled — **excluded** from the project's Invoiced Total |
+
+**Collected Amount** on the invoice is a rollup of the collections booked to it, and **Outstanding Amount** is the difference; nothing is typed.
+
+## Collections
+
+A **collection** (收款, `crm_collection`) is money received: amount, date, method (*bank transfer, check, bank draft, other*), the bank reference, the invoice it settles and the project and account it belongs to. Booking a collection against an invoice moves that invoice's Collected and Outstanding amounts and the project's Collected Total and Receivable Balance.
+
+## Purchase contracts
+
+A **purchase contract** (采购合同, `crm_purchase_contract`) is what the project buys in: type (*subcontract, software, hardware, other*), vendor, amount, dates, status (*Draft / Active / Completed / Terminated*), paid and unpaid amounts. *Terminated* contracts are **excluded** from the project's Purchase Contracts Total.
+
+## Sales orders
+
+A **sales order** (销售订单, `crm_sales_order`) is an order raised under the project's contract: order number, amount, order date, status (*Pending / In Progress / Delivered / Accepted*), the account and contract. Orders sum into the project's Sales Orders Total.
+
+## What the system does automatically
+
+- **Every total is a rollup** — Invoiced Total (void excluded), Collected Total, Receivable Balance, Purchase Contracts Total (terminated excluded) and Sales Orders Total live on the delivery project and recompute on every save of a child record.
+- **Nothing here is approved** — the finance records carry no approval flow; the controls are the statuses above and the project's own sharing.
+
+## Sharing
+
+All four are *Controlled by Parent* under the delivery project: whoever can see the project sees its invoices, collections, purchase contracts and sales orders, and nobody else. They also carry an account lookup for convenience, but visibility never follows the account — an account shared to a rep through a territory rule shows that rep the account's invoices only where the rep can see the delivery project behind them.
+
+## Tips for finance
+
+- ✅ **Void, never delete**, an invoice issued by mistake — the void keeps the audit trail and drops out of the totals by itself.
+- ✅ **Book collections against the invoice, not only the project**, so Outstanding Amount on the invoice stays honest.
+- ✅ **Terminate rather than delete** a purchase contract that fell through, for the same reason.

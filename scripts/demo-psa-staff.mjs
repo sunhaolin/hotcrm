@@ -73,10 +73,10 @@ for (const opp of await listAll('crm_opportunity', ['name', 'stage'])) {
   await patch('crm_opportunity', opp.id, { account_manager: U['张伟'], solution_manager: U['李娜'], delivery_manager: U['王强'], owner_id: U['张伟'] }, `铁三角 · ${short(opp.name)}`);
 }
 for (const psp of await listAll('crm_presales_project', ['name'])) {
-  await patch('crm_presales_project', psp.id, { owner_id: U['张伟'], account_manager: U['张伟'], project_manager: U['王强'], project_director: U['赵敏'], project_qa: U['刘洋'], pricing_owner: U['李娜'] }, `项目角色 · ${short(psp.name)}`);
+  await patch('crm_presales_project', psp.id, { owner_id: U['张伟'], account_manager: U['张伟'], project_manager: U['王强'], project_director: U['赵敏'], project_qa: U['刘洋'], pricing_manager: U['李娜'] }, `项目角色 · ${short(psp.name)}`);
 }
 for (const dlv of await listAll('crm_delivery_project', ['name'])) {
-  await patch('crm_delivery_project', dlv.id, { owner_id: U['王强'], project_manager: U['王强'], project_director: U['赵敏'], pricing_owner: U['李娜'], subcontract_ts_owner: U['陈晨'], qa_lead: U['刘洋'] }, `项目角色 · ${short(dlv.name)}`);
+  await patch('crm_delivery_project', dlv.id, { owner_id: U['王强'], project_manager: U['王强'], project_director: U['赵敏'], pricing_manager: U['李娜'], subcontract_ts_lead: U['陈晨'], qa_lead: U['刘洋'] }, `项目角色 · ${short(dlv.name)}`);
 }
 // Account and lead owners: the two sellers share the book.
 let i = 0;

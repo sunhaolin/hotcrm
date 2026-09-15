@@ -33,6 +33,13 @@ const approvalFlow = (s: Spec): Flow => ({
   description: `${s.noun}一级审批：记录提交后开启（demo, epic #2）。`,
   type: 'record_change',
   status: 'active',
+  // Same user-less exposure as every record-change flow (ADR-0049): the
+  // `submit_approval` action writes `approval_status` from a sandboxed body
+  // that carries no session, and a seed replay or an integration write can
+  // land the status too, so the trigger user may be absent. The approval
+  // node also stamps a record it holds locked (`lockRecord: true`), which
+  // only a platform write may land — the same reasoning as
+  // `opportunity_approval` in `opportunity-approval.flow.ts`.
   runAs: 'system',
   variables: [{ name: 'recordId', type: 'text', isInput: true, isOutput: false }],
   nodes: [

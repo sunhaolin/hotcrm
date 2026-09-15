@@ -4,6 +4,7 @@ import type { TranslationData } from '@objectstack/spec/system';
 
 import { appSurface } from './en/app';
 import { psa2 } from './en/objects.psa2';
+import { psa3 } from './en/objects.psa3';
 import { mergeObject } from './_merge';
 import { customer } from './en/objects.customer';
 import { pipeline } from './en/objects.pipeline';
@@ -58,12 +59,12 @@ import { psa } from './en/objects.psa';
  */
 export const en: TranslationData = {
   objects: {
-    crm_account: mergeObject(customer.crm_account, psa2.crm_account),
-    crm_contact: customer.crm_contact,
+    crm_account: mergeObject(mergeObject(customer.crm_account, psa2.crm_account), psa3.crm_account),
+    crm_contact: mergeObject(customer.crm_contact, psa3.crm_contact),
     crm_knowledge_article: service.crm_knowledge_article,
     crm_forecast: pipeline.crm_forecast,
     crm_lead: mergeObject(pipeline.crm_lead, psa2.crm_lead),
-    crm_opportunity: mergeObject(pipeline.crm_opportunity, psa2.crm_opportunity),
+    crm_opportunity: mergeObject(mergeObject(pipeline.crm_opportunity, psa2.crm_opportunity), psa3.crm_opportunity),
     crm_case: service.crm_case,
     crm_contract: commerce.crm_contract,
     crm_product: commerce.crm_product,
@@ -76,11 +77,11 @@ export const en: TranslationData = {
     crm_campaign_member: marketing.crm_campaign_member,
     crm_opportunity_line_item: pipeline.crm_opportunity_line_item,
     crm_quote_line_item: commerce.crm_quote_line_item,
-    crm_presales_project: mergeObject(psa.crm_presales_project, psa2.crm_presales_project),
-    crm_delivery_project: mergeObject(psa.crm_delivery_project, psa2.crm_delivery_project),
-    crm_cost_plan_line: mergeObject(psa.crm_cost_plan_line, psa2.crm_cost_plan_line),
-    crm_timesheet: mergeObject(psa.crm_timesheet, psa2.crm_timesheet),
-    crm_travel_cost: mergeObject(psa.crm_travel_cost, psa2.crm_travel_cost),
+    crm_presales_project: mergeObject(mergeObject(psa.crm_presales_project, psa2.crm_presales_project), psa3.crm_presales_project),
+    crm_delivery_project: mergeObject(mergeObject(psa.crm_delivery_project, psa2.crm_delivery_project), psa3.crm_delivery_project),
+    crm_cost_plan_line: mergeObject(mergeObject(psa.crm_cost_plan_line, psa2.crm_cost_plan_line), psa3.crm_cost_plan_line),
+    crm_timesheet: mergeObject(mergeObject(psa.crm_timesheet, psa2.crm_timesheet), psa3.crm_timesheet),
+    crm_travel_cost: mergeObject(mergeObject(psa.crm_travel_cost, psa2.crm_travel_cost), psa3.crm_travel_cost),
     crm_rate_card: psa2.crm_rate_card,
     crm_legal_entity: psa2.crm_legal_entity,
     crm_budget_adjustment: psa2.crm_budget_adjustment,

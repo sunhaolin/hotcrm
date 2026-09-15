@@ -15,11 +15,11 @@ HotCRM Analytics turns your CRM activity into **decisions**. Three layers work t
 
 | Layer | What it does |
 | --- | --- |
-| [**Dashboards**](/docs/analytics/dashboards) | **Five** ready-made dashboards — CRM Overview, Sales Performance, Sales Activity, Customer Service, Executive Overview |
+| [**Dashboards**](/docs/analytics/dashboards) | **Seven** ready-made dashboards — CRM Overview, Sales Performance, Sales Activity, Customer Service, Executive Overview, Project Cost, Project Finance |
 | [**Reports**](/docs/analytics/reports) | **Ten** standard reports — four on deals, three on cases, one each on leads, accounts and churn |
-| [**Cubes**](/docs/analytics/cubes) | **Nine** datasets in `src/datasets/`, the layer both of the above bind by name |
+| [**Cubes**](/docs/analytics/cubes) | **Eleven** datasets in `src/datasets/`, the layer both of the above bind by name |
 
-Two counts on that table used to read differently, and the difference is worth knowing before you go looking. **There is no contract report** — and none can be built, because `src/datasets/` reads nine objects and `crm_contract` is not one of them, so nothing in analytics counts, sums or groups a contract. And **no cube is named** *Sales*, *Pipeline*, *Service* or *Marketing* — those four names exist nowhere in the app. [Cubes](/docs/analytics/cubes) says which datasets answer the first three and why the fourth has no data source at all.
+Two counts on that table used to read differently, and the difference is worth knowing before you go looking. **There is no contract report** — and none can be built, because `src/datasets/` reads ten objects and `crm_contract` is not one of them, so nothing in analytics counts, sums or groups a contract. And **no cube is named** *Sales*, *Pipeline*, *Service* or *Marketing* — those four names exist nowhere in the app. [Cubes](/docs/analytics/cubes) says which datasets answer the first three and why the fourth has no data source at all.
 
 ## What you get out of the box
 
@@ -51,7 +51,7 @@ In the HotCRM app the group is called **Insights**, and it holds five entries:
 - **Forecasts** — the forecast records themselves.
 - **Pipeline Coverage**, **Lead Inflow**, **SLA Performance** — three reports pinned to the sidebar by name.
 
-There is no *Analytics* group, and nothing in the sidebar is called *Dashboards*, *Reports* or *Cubes*. The other dashboards are pinned to the group that owns them — **Sales Performance** under Sales, **Sales Activity** under Activity, **Service Overview** under Service — and the rest of the report library is reached from the reports screen rather than from the nav. [Quick tour](/docs/getting-started/quick-tour) lists the whole sidebar, group by group.
+There is no *Analytics* group, and nothing in the sidebar is called *Dashboards*, *Reports* or *Cubes*. The other dashboards are pinned to the group that owns them — **Sales Performance** under Sales, **Sales Activity** under Activity, **Service Overview** under Service — and the rest of the report library is reached from the reports screen rather than from the nav. [Quick tour](/docs/getting-started/quick-tour) lists the whole sidebar, group by group. The two project dashboards are pinned to their own groups — **Project Cost** under Projects and **Project Finance** under Project Finance.
 
 ## AI-powered insights
 
@@ -63,6 +63,6 @@ Whether the platform's own agent additionally reads the compiled cubes is a ques
 
 ## Start here
 
-- [Dashboards](/docs/analytics/dashboards) — the five built-in dashboards.
+- [Dashboards](/docs/analytics/dashboards) — the seven built-in dashboards.
 - [Reports](/docs/analytics/reports) — the ten standard reports.
-- [Cubes](/docs/analytics/cubes) — the nine datasets underneath, what that layer answers and where it stops.
+- [Cubes](/docs/analytics/cubes) — the eleven datasets underneath, what that layer answers and where it stops.

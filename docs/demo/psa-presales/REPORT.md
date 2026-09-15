@@ -59,9 +59,9 @@
 
 | 步骤 | Excel 业务步骤 | 开发内容 | 状态 |
 |---|---|---|---|
-| 15 | 关联 CRM 商机数据 | `crm_opportunity` 必填关联字段；配合步骤 8 的商机编码，售前项目只能挂在已有商机上 | 新增 |
+| 15 | 关联 CRM 商机数据 | `crm_opportunity` 必填关联字段，选择器按 `initiation_status = approved` 过滤（只列已立项商机）；配合步骤 8 的商机编码，售前项目只能挂在已有商机上，所属客户由 `presales_project_account_carry` 从商机带出 | 新增 |
 | 16 | 项目基本信息填报 | `project_number` PSP-xxxx、`name` 项目名称、`alias` 别名、`project_type` 项目类型、`business_category` 业务分类、`planned_start` / `planned_end` 计划起止、`expected_contract_amount` 预计合同金额 | 新增 |
-| 17 | 项目角色配置 | `account_manager` 客户经理、`project_manager` 项目经理、`project_director` 项目总监、`project_qa` 项目 QA、`pricing_owner` 资源报价负责人 | 新增 |
+| 17 | 项目角色配置 | `account_manager` 客户经理、`project_manager` 项目经理、`project_director` 项目总监、`project_qa` 项目 QA、`pricing_manager` 资源报价负责人 | 新增 |
 | 18 | 项目成本与报价测算 | `labor_cost` 人工服务成本、`third_party_service_cost` 第三方服务成本、`procurement_cost` 第三方软硬件采购成本、`project_expense` 项目费用 → `total_cost` **总成本（公式）**；`quote_amount` 项目报价 → `gross_margin_pct` **毛利率（公式）** | 新增 |
 | 19 | 信息安全类别设置 | `security_class` 信息安全类别（公开 / 内部 / 秘密 / 机密）、`security_note` 安全备注 | 新增 |
 | 20 | 售前立项逐级审批 | 审批流 `presales_project_approval`。**简化**：Excel 为五级链（成本中心负责人 → 事业部负责人 → Bizcase 审核岗 → 事业本部负责人 → 事业群运营负责人），演示为一级 | 新增·简化 |
@@ -73,7 +73,7 @@
 | 21 | 关联售前立项结果 | `crm_presales_project` 必填关联字段（须选已审批的售前项目） | 新增 |
 | 22 | 项目基础信息完善 | `project_number` DLV-xxxx、名称、别名、类型、业务分类、计划起止、`status` 项目状态（规划中 / 进行中 / 已关闭） | 新增 |
 | 23 | 成本中心与核算主体配置 | `impl_cost_center` 实施成本中心、`accounting_cost_center` 核算成本中心、`department` 对应部门 | 新增 |
-| 24 | 项目角色与组织配置 | 项目经理、项目总监、资源报价负责人、`subcontract_ts_owner` 分包 TS 填写人、`qa_lead` QA 负责人 | 新增 |
+| 24 | 项目角色与组织配置 | 项目经理、项目总监、资源报价负责人、`subcontract_ts_lead` 分包 TS 填写人、`qa_lead` QA 负责人 | 新增 |
 | 25 | 信息安全设置与附件上传 | `security_class` / `security_note` + 附件能力（开工确认单） | 新增 |
 | 26 | 交付立项审批 | 审批流 `delivery_project_approval` | 新增 |
 

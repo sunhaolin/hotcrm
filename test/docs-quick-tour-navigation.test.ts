@@ -322,14 +322,7 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
 
   it('Master Data, Marketing and Insights are the groups that stay collapsed', () => {
     expect(COLLAPSED).toEqual(['Master Data', 'Marketing', 'Insights']);
-    expect(EXPANDED).toEqual([
-      'Sales',
-      'Projects',
-      'Project Finance',
-      'My Work',
-      'Activity',
-      'Service',
-    ]);
+    expect(EXPANDED).toEqual(['Sales', 'Projects', 'Project Finance', 'My Work', 'Activity', 'Service']);
   });
 
   it('carries no navigation label matching any name the page calls a phantom', () => {

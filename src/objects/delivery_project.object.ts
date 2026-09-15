@@ -62,8 +62,8 @@ export const DeliveryProject = ObjectSchema.create({
 
     project_manager: Field.lookup('sys_user', { label: 'Project Manager', group: 'roles' }),
     project_director: Field.lookup('sys_user', { label: 'Project Director', group: 'roles' }),
-    pricing_owner: Field.lookup('sys_user', { label: 'Pricing Owner', group: 'roles' }),
-    subcontract_ts_owner: Field.lookup('sys_user', { label: 'Subcontract TS Owner', group: 'roles' }),
+    pricing_manager: Field.lookup('sys_user', { label: 'Pricing Owner', group: 'roles' }),
+    subcontract_ts_lead: Field.lookup('sys_user', { label: 'Subcontract TS Owner', group: 'roles' }),
     qa_lead: Field.lookup('sys_user', { label: 'QA Lead', group: 'roles' }),
 
     budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, carried over as the control baseline. Leave it empty on create and it is carried from the approved presales project, together with that Bizcase as cost plan lines (spec step 27).', scale: 2, group: 'budget' }),

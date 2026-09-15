@@ -283,7 +283,7 @@ export const pipeline: Record<string, ObjectTranslationData> = {
       },
       opportunity_number: { label: 'Opportunity Number' },
       is_bid: { label: 'Bid Required' },
-      level: { label: 'Opportunity Level', options: { level_a: 'A', level_b: 'B', level_c: 'C' } },
+      level: { label: 'Opportunity Level', options: { level_a: 'A — strategic', level_b: 'B — important', level_c: 'C — routine' } },
       priority: { label: 'Priority', options: { high: 'High', medium: 'Medium', low: 'Low' } },
       initiation_status: {
         label: 'Initiation Status',

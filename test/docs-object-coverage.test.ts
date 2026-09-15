@@ -143,6 +143,22 @@ const DOCS_LEDGER: Record<string, LedgerEntry> = {
   // the article it is about, and a standalone page would document a row nobody
   // navigates to.
   crm_article_feedback: { page: 'service/knowledge-base', term: 'Article Feedback' },
+  // The project (PSA) family — demo, epic #2. The objects are labelled in
+  // Chinese at source, so each row carries the English term its page uses.
+  crm_presales_project: { page: 'projects/presales-projects', term: 'presales project' },
+  crm_delivery_project: { page: 'projects/delivery-projects', term: 'delivery project' },
+  crm_cost_plan_line: { page: 'projects/delivery-projects', term: 'cost plan line' },
+  crm_budget_adjustment: { page: 'projects/delivery-projects', term: 'budget adjustment' },
+  crm_timesheet: { page: 'projects/timesheets-and-leave', term: 'timesheet' },
+  crm_leave_request: { page: 'projects/timesheets-and-leave', term: 'leave request' },
+  crm_business_trip: { page: 'projects/trips-and-travel-costs', term: 'business trip' },
+  crm_travel_cost: { page: 'projects/trips-and-travel-costs', term: 'travel cost' },
+  crm_invoice: { page: 'projects/project-finance', term: 'invoice' },
+  crm_collection: { page: 'projects/project-finance', term: 'collection' },
+  crm_purchase_contract: { page: 'projects/project-finance', term: 'purchase contract' },
+  crm_sales_order: { page: 'projects/project-finance', term: 'sales order' },
+  crm_rate_card: { page: 'projects/master-data', term: 'rate card' },
+  crm_legal_entity: { page: 'projects/master-data', term: 'contracting entity' },
 };
 
 /** Sections written for developers — see check 4 in the header note. */

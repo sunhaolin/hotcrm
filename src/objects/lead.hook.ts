@@ -326,11 +326,22 @@ const leadHook: Hook = {
           // and the company, joined — rather than appending the record id,
           // which is unmatchable against every lead surface in this app (record
           // page, list view, breadcrumb, lookup picker), all of which title a
-          // lead `Ada Lovelace - Acme`. Composed from the two stored columns
-          // because a lowered hook body cannot read the `display_title` formula.
-          const person = [previous?.first_name, previous?.last_name]
+          // lead `韩雪 - 北方重工集团有限公司`. Composed from the two stored
+          // columns because a lowered hook body cannot read the `display_title`
+          // formula.
+          //
+          // ⚠️ SURNAME FIRST, NO SEPARATOR — the exact spelling of
+          // `display_title` / `full_name`:
+          // `joinNonEmpty([record.last_name, record.first_name], '')` (epic #2,
+          // the Chinese name order). This copy was left in Western order when
+          // those formulas changed, so the refusal named the lead `雪 韩 -
+          // 北方重工集团有限公司` while the record page, breadcrumb, list view
+          // and lookup picker all titled it `韩雪 - 北方重工集团有限公司` — the
+          // one thing the message exists to make findable was the one thing
+          // that matched no lead surface in the app.
+          const person = [previous?.last_name, previous?.first_name]
             .filter((part) => typeof part === 'string' && part.trim() !== '')
-            .join(' ');
+            .join('');
           const company =
             typeof previous?.company === 'string' ? previous.company.trim() : '';
           const label = [person, company].filter(Boolean).join(' - ');
@@ -384,12 +395,17 @@ const leadHook: Hook = {
       // rejected, and the `catch` below swallows that rejection, leaving no
       // follow-up task and no trace. Truncating the TAIL keeps the
       // discriminating head intact.
+      //
+      // ⚠️ Surname first, no separator — `display_title`'s own spelling, for
+      // the reason spelled out on the converted-lead label above. A task queue
+      // is a matching surface too: a rep reads `韩雪 - 北方重工集团有限公司`
+      // here and has to find that lead in **All Leads** and in search.
       const person = [
-        (typeof input.first_name === 'string' && input.first_name) || previous?.first_name,
         (typeof input.last_name === 'string' && input.last_name) || previous?.last_name,
+        (typeof input.first_name === 'string' && input.first_name) || previous?.first_name,
       ]
         .filter((part) => typeof part === 'string' && part.trim() !== '')
-        .join(' ');
+        .join('');
       const company =
         (typeof input.company === 'string' && input.company.trim()) ||
         (typeof previous?.company === 'string' && previous.company.trim()) ||
