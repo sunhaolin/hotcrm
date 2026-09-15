@@ -95,11 +95,11 @@ export const CrmApp = App.create({
         // "My Work" items below, which are all object + `viewName`.
         { id: 'nav_opportunity', type: 'object', objectName: 'crm_opportunity', label: 'Opportunities', icon: 'target' },
         { id: 'nav_quote',       type: 'object', objectName: 'crm_quote',       label: 'Quotes',        icon: 'receipt' },
-        // No Contracts row here: the entry moved to Projects, under Delivery
-        // Projects, because that is the record a contract is worked from (see
-        // the comment on it there). It is still the app's only sidebar route
-        // to a contract, and `content/docs/sales/index.mdx` re-points the
-        // reader rather than dropping the name.
+        // No Contracts row here: the entry moved to Project Finance, at the
+        // head of the group (see the comment on it there). It is still the
+        // app's only sidebar route to a contract, and
+        // `content/docs/sales/index.mdx` re-points the reader rather than
+        // dropping the name.
         // Products sit here, not under Marketing (#1259): they are the
         // revenue master data every quote line and opportunity line item
         // points at — a sales object that happened to be filed next to
@@ -119,12 +119,6 @@ export const CrmApp = App.create({
       children: [
         { id: 'nav_presales_project',       type: 'object',    objectName: 'crm_presales_project',      label: 'Presales Projects', icon: 'lightbulb' },
         { id: 'nav_delivery_project',       type: 'object',    objectName: 'crm_delivery_project',      label: 'Delivery Projects', icon: 'hammer' },
-        // Contracts close the sales cycle (quote → signed agreement → renewal)
-        // and open the delivery one: `crm_delivery_project.crm_contract` looks
-        // the signed agreement up, and its value is what the project's budget,
-        // billing and margin are measured against. The row follows Delivery
-        // Projects for that reason — one click from the project that spends it.
-        { id: 'nav_contract',               type: 'object',    objectName: 'crm_contract',              label: 'Contracts',         icon: 'file-signature' },
         { id: 'nav_timesheet',              type: 'object',    objectName: 'crm_timesheet',             label: 'Timesheets',        icon: 'clock' },
         { id: 'nav_travel_cost',            type: 'object',    objectName: 'crm_travel_cost',           label: 'Travel Costs',      icon: 'plane' },
         { id: 'nav_business_trip',          type: 'object',    objectName: 'crm_business_trip',         label: 'Business Trips',    icon: 'map-pin' },
@@ -141,6 +135,12 @@ export const CrmApp = App.create({
       icon: 'dollar-sign',
       expanded: true,
       children: [
+        // The sales contract leads the group because every row under it is
+        // measured against that contract: `crm_delivery_project.crm_contract`
+        // carries its value onto the project, and invoicing, collections and
+        // the project's margin all read from there. Its counterpart on the buy
+        // side, Purchase Contracts, sits three rows down.
+        { id: 'nav_contract',                  type: 'object',    objectName: 'crm_contract',                label: 'Contracts',         icon: 'file-signature' },
         { id: 'nav_invoice',                   type: 'object',    objectName: 'crm_invoice',                 label: 'Invoices',          icon: 'file-text' },
         { id: 'nav_collection',                type: 'object',    objectName: 'crm_collection',              label: 'Collections',       icon: 'dollar-sign' },
         { id: 'nav_purchase_contract',         type: 'object',    objectName: 'crm_purchase_contract',       label: 'Purchase Contracts', icon: 'briefcase' },

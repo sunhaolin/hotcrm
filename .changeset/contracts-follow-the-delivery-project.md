@@ -2,15 +2,15 @@
 'hotcrm': patch
 ---
 
-Move the **Contracts** sidebar entry out of **Sales** and into **Projects**,
-directly below **Delivery Projects**.
+Move the **Contracts** sidebar entry out of **Sales** and into **Project
+Finance**, at the head of that group.
 
-The signed agreement is where delivery begins: `crm_delivery_project` looks its
-sales contract up (`crm_contract`) and measures its budget, billing and margin
-against that contract's value, so the people who open contracts all day are the
-ones already working the Projects group. The entry is unchanged otherwise —
-same object, same label in all four locale packs, and still the app's only
-sidebar route to a contract.
+Every number a project is judged on is measured against the signed agreement:
+`crm_delivery_project` looks its sales contract up (`crm_contract`), and the
+group's own rows — invoicing, collections, purchase contracts, sales orders and
+the project-finance dashboard — all read from that contract's value. The entry
+is unchanged otherwise: same object, same label in all four locale packs, and
+still the app's only sidebar route to a contract.
 
 Docs that named the old location follow it: the sales index (eight Sales
 entries now, six of them object entries, with a re-point to the new home), the

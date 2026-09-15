@@ -191,16 +191,17 @@ describe('the source facts that section now rests on (#997)', () => {
     ]);
   });
 
-  it('Contracts left this group for Projects, right under Delivery Projects', () => {
+  it('Contracts left this group and leads Project Finance', () => {
     // The section re-points the reader instead of dropping the name, so the
     // destination it names is a fact this file has to hold: a delivery project
     // looks its sales contract up (`crm_delivery_project.crm_contract`) and
-    // measures its budget against that contract's value, which is why the row
-    // follows **Delivery Projects** rather than **Quotes**.
+    // the group's invoicing, collections and margin rows are all measured
+    // against that contract's value, which is why the row leads **Project
+    // Finance** rather than sitting under **Quotes**.
     expect(SALES_CHILDREN.filter((c) => c.objectName === 'crm_contract')).toEqual([]);
-    const projects = NAV.find((n) => n.type === 'group' && n.label === 'Projects');
-    const children = ((projects?.children ?? []) as AnyRec[]).map((c) => c.id);
-    expect(children[children.indexOf('nav_contract') - 1]).toBe('nav_delivery_project');
+    const finance = NAV.find((n) => n.type === 'group' && n.label === 'Project Finance');
+    const children = ((finance?.children ?? []) as AnyRec[]).map((c) => c.id);
+    expect(children[0]).toBe('nav_contract');
   });
 
   it('Products is a Sales entry, not a Marketing one (#1259)', () => {
