@@ -179,6 +179,74 @@ describe('delivery_project_defaults', () => {
     expect(input.budget_baseline).toBe(500_000);
     expect(input.contract_amount).toBe(1);
   });
+
+  // ── the 商机 / 客户 half of the carry ───────────────────────────────────
+  //
+  // Asserted above as two lines inside the baseline case; the four below are
+  // the cases that half has of its own. They exist because this is the pair a
+  // creator WATCHES: the console create form resolves no lookup-driven
+  // default, so picking the presales project leaves both pickers empty on
+  // screen and the carry is invisible until the record is saved (measured on
+  // the pinned 17.4.0, driving the real form). What answers "did it work?" is
+  // therefore this hook, and nothing else.
+
+  it('carries 商机 / 客户 when the form omits the keys entirely', async () => {
+    // Exactly what the console posts when only the name and the presales
+    // project are filled in: no `crm_opportunity` key at all.
+    const h = makeHarness(bizcase());
+    const input: Rec = { name: '华信核心系统升级 — 交付', status: 'planning', crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('treats a blank string the same as an absent key', async () => {
+    // A form that posts every field it rendered sends `''`, not `undefined`.
+    // `empty()` covers both, and this is the case that says so.
+    const h = makeHarness(bizcase());
+    const input: Rec = { crm_presales_project: 'psp_1', crm_opportunity: '', crm_account: '' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('never overwrites a 商机 / 客户 the user picked, or one already on the record', async () => {
+    const h = makeHarness(bizcase());
+    const typed: Rec = { crm_presales_project: 'psp_1', crm_opportunity: 'opp_typed', crm_account: 'acc_typed' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input: typed, user: USER, api: h.api }));
+    expect(typed.crm_opportunity).toBe('opp_typed');
+    expect(typed.crm_account).toBe('acc_typed');
+
+    // Re-pointing the presales project on an existing record does NOT re-carry
+    // over values that are already there.
+    const h2 = makeHarness(bizcase());
+    const repointed: Rec = { crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({
+      event: 'beforeUpdate',
+      input: repointed,
+      previous: { crm_opportunity: 'opp_old', crm_account: 'acc_old' },
+      user: USER,
+      api: h2.api,
+    }));
+    expect(repointed.crm_opportunity).toBeUndefined();
+    expect(repointed.crm_account).toBeUndefined();
+  });
+
+  it('carries 商机 / 客户 from a presales project whose Bizcase is empty', async () => {
+    // The baseline and the pair are independent claims: a presales project
+    // that has not been costed yet still names the opportunity and the client,
+    // and the creator still wants those two.
+    const store = bizcase();
+    Object.assign(store.crm_presales_project[0], {
+      labor_cost: 0, third_party_service_cost: 0, procurement_cost: 0, project_expense: 0,
+    });
+    const h = makeHarness(store);
+    const input: Rec = { crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+    expect(input.budget_baseline).toBeUndefined();
+  });
 });
 
 describe('delivery_project_cost_plan_carry', () => {
