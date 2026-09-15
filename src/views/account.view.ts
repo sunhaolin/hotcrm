@@ -209,7 +209,15 @@ export const AccountViews = defineView({
         columns: 2,
         fields: [
           { field: 'name', required: true, span: 'full' },
+          // Demo (epic #2 / T1): the fields were added to the object with a
+          // `group`, which the record page derives from — but this form
+          // enumerates its fields, so none of them reached 新建 / 编辑 and a
+          // customer's classification (read by the opportunity gate) could
+          // not be entered.
+          'short_name',
+          'registration_number',
           'account_number',
+          'classification',
           // `type` (prospect / customer / partner …) drives the Renewals and
           // At-Risk views' `type = customer` filter — with no form field it
           // could never be set, so those views matched nothing.
@@ -219,6 +227,11 @@ export const AccountViews = defineView({
           'website',
           'owner_id',
           'parent_account',
+          // Demo submit gesture (epic #2, decision 1): setting this to
+          // `submitted` starts the approval flow. `approved_date` is readonly
+          // on the object and stamped by that flow.
+          'approval_status',
+          'approved_date',
           'is_active',
           'brand_color',
           // The other half of the `branding` group. Without a form field there

@@ -357,6 +357,11 @@ export const OpportunityViews = defineView({
         columns: 2,
         fields: [
           { field: 'name', required: true, span: 'full' },
+          // Demo (epic #2 / T1): added to the object with a `group`, but this
+          // form enumerates its fields, so none reached 新建 / 编辑.
+          // `opportunity_number` is assigned on save; `initiated_date` is
+          // readonly and stamped by the initiation approval flow.
+          'opportunity_number',
           { field: 'crm_account', required: true },
           'primary_contact',
           { field: 'stage', required: true },
@@ -364,7 +369,19 @@ export const OpportunityViews = defineView({
           'probability',
           'close_date',
           'owner_id',
+          'level',
+          'priority',
+          'is_bid',
+          'initiation_status',
+          'initiated_date',
         ],
+      },
+      {
+        // 铁三角 (epic #2 / T1) — the object's `team` group.
+        name: 'team',
+        label: 'Deal Team',
+        columns: 2,
+        fields: ['account_manager', 'solution_manager', 'delivery_manager'],
       },
       {
         name: 'forecast',

@@ -24,7 +24,7 @@ export const TravelCostViews = defineView({
     type: 'simple',
     sections: [
       { name: 'basic', label: 'Travel Cost', columns: 2, fields: [
-        { field: 'crm_delivery_project', required: true }, 'owner_id', 'expense_date', { field: 'amount', required: true }, 'receipt_number', 'description',
+        'travel_number', { field: 'crm_delivery_project', required: true }, 'owner_id', 'expense_date', { field: 'amount', required: true }, 'receipt_number', 'description',
       ] },
     ],
   },

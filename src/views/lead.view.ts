@@ -272,6 +272,13 @@ export const LeadViews = defineView({
             field: 'owner_id',
             required: true,
           },
+          // Demo (epic #2 / T1): kept in step with `formViews.detail_form`,
+          // which is what 新建 / 编辑 actually render (see the note there).
+          // `approved_date` is readonly and stamped by the approval flow.
+          'estimated_amount',
+          'demand_type',
+          'approval_status',
+          'approved_date',
           // `disqualification_reason` is enforced by the
           // `disqualification_reason_required` validation on crm_lead, so every
           // form that lets a user pick "Unqualified" must also offer the reason
@@ -578,6 +585,15 @@ export const LeadViews = defineView({
             'industry',
             'annual_revenue',
             'number_of_employees',
+            // Demo (epic #2 / T1). THIS is the form 新建 / 编辑 render, not the
+            // default `form` above: `expandViewContainer` dedupes form views
+            // on `{ type, label, columns }`, the default form's signature
+            // equals `web_to_lead`'s, so it is dropped and the first form view
+            // (this one) becomes the object's default.
+            'estimated_amount',
+            'demand_type',
+            'approval_status',
+            'approved_date',
             // See the default form: `unqualified` requires a reason.
             {
               field: 'disqualification_reason',

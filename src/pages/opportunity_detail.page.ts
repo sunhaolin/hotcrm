@@ -154,6 +154,10 @@ export const OpportunityDetailPage: Page = {
                       // `highlightFields` is a different list and is not consulted
                       // by this component — `stage` sits in it and still renders.
                       sections: [
+                        // Demo (epic #2 / T1): this list is the whole body, so
+                        // the fields added to the object reach this tab only by
+                        // being named here — as the four demo sections below,
+                        // one per customer notion (跟单信息 / 立项 / 铁三角 / 赢丢单).
                         {
                           name: 'info',
                           label: 'Opportunity Information',
