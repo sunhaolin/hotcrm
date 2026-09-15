@@ -86,7 +86,7 @@ const PAGES = [
     lang: 'en',
     heading: '## Where to find things',
     /** The group size, stated in prose. */
-    count: /nine entries/,
+    count: /eight entries/,
     /** The en page names the object entries in English, so they are checked verbatim. */
     checkObjectLabels: true,
   },
@@ -94,14 +94,14 @@ const PAGES = [
     file: 'content/docs/sales/index.zh-Hans.mdx',
     lang: 'zh-Hans',
     heading: '## 在哪里找到这些功能',
-    count: /九个条目/,
+    count: /八个条目/,
     checkObjectLabels: false,
   },
   {
     file: 'content/docs/sales/index.zh-Hant.mdx',
     lang: 'zh-Hant',
     heading: '## 在哪裡找到這些功能',
-    count: /九個條目/,
+    count: /八個條目/,
     checkObjectLabels: false,
   },
 ] as const;
@@ -163,7 +163,7 @@ describe('sales/index lists the whole Sales navigation group (#997)', () => {
 });
 
 describe('the source facts that section now rests on (#997)', () => {
-  it('the Sales group holds nine entries, in this order', () => {
+  it('the Sales group holds eight entries, in this order', () => {
     expect(SALES_CHILDREN.map((c) => c.label)).toEqual([
       'Leads',
       'Accounts',
@@ -171,26 +171,37 @@ describe('the source facts that section now rests on (#997)', () => {
       'Contacts',
       'Opportunities',
       'Quotes',
-      'Contracts',
       'Products',
       'Sales Performance',
     ]);
   });
 
-  it('seven of them open an object list; two open something else', () => {
+  it('six of them open an object list; two open something else', () => {
     expect(OBJECT_ENTRIES.map((c) => c.label)).toEqual([
       'Leads',
       'Accounts',
       'Contacts',
       'Opportunities',
       'Quotes',
-      'Contracts',
       'Products',
     ]);
     expect(OTHER_ENTRIES.map((c) => c.label)).toEqual([
       'Account Workbench',
       'Sales Performance',
     ]);
+  });
+
+  it('Contracts left this group and leads Project Finance', () => {
+    // The section re-points the reader instead of dropping the name, so the
+    // destination it names is a fact this file has to hold: a delivery project
+    // looks its sales contract up (`crm_delivery_project.crm_contract`) and
+    // the group's invoicing, collections and margin rows are all measured
+    // against that contract's value, which is why the row leads **Project
+    // Finance** rather than sitting under **Quotes**.
+    expect(SALES_CHILDREN.filter((c) => c.objectName === 'crm_contract')).toEqual([]);
+    const finance = NAV.find((n) => n.type === 'group' && n.label === 'Project Finance');
+    const children = ((finance?.children ?? []) as AnyRec[]).map((c) => c.id);
+    expect(children[0]).toBe('nav_contract');
   });
 
   it('Products is a Sales entry, not a Marketing one (#1259)', () => {

@@ -95,10 +95,11 @@ export const CrmApp = App.create({
         // "My Work" items below, which are all object + `viewName`.
         { id: 'nav_opportunity', type: 'object', objectName: 'crm_opportunity', label: 'Opportunities', icon: 'target' },
         { id: 'nav_quote',       type: 'object', objectName: 'crm_quote',       label: 'Quotes',        icon: 'receipt' },
-        // Contracts close the sales cycle: quote → signed agreement → renewal.
-        // The object, its views and its renewal automation all shipped, but
-        // there was no way to reach any of it from the app.
-        { id: 'nav_contract',    type: 'object', objectName: 'crm_contract',    label: 'Contracts',     icon: 'file-signature' },
+        // No Contracts row here: the entry moved to Project Finance, at the
+        // head of the group (see the comment on it there). It is still the
+        // app's only sidebar route to a contract, and
+        // `content/docs/sales/index.mdx` re-points the reader rather than
+        // dropping the name.
         // Products sit here, not under Marketing (#1259): they are the
         // revenue master data every quote line and opportunity line item
         // points at — a sales object that happened to be filed next to
@@ -134,6 +135,12 @@ export const CrmApp = App.create({
       icon: 'dollar-sign',
       expanded: true,
       children: [
+        // The sales contract leads the group because every row under it is
+        // measured against that contract: `crm_delivery_project.crm_contract`
+        // carries its value onto the project, and invoicing, collections and
+        // the project's margin all read from there. Its counterpart on the buy
+        // side, Purchase Contracts, sits three rows down.
+        { id: 'nav_contract',                  type: 'object',    objectName: 'crm_contract',                label: 'Contracts',         icon: 'file-signature' },
         { id: 'nav_invoice',                   type: 'object',    objectName: 'crm_invoice',                 label: 'Invoices',          icon: 'file-text' },
         { id: 'nav_collection',                type: 'object',    objectName: 'crm_collection',              label: 'Collections',       icon: 'dollar-sign' },
         { id: 'nav_purchase_contract',         type: 'object',    objectName: 'crm_purchase_contract',       label: 'Purchase Contracts', icon: 'briefcase' },
