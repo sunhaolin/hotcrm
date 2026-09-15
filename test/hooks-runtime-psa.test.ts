@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import timesheetHooks from '../src/objects/timesheet.hook';
 import costPlanLineHooks from '../src/objects/cost_plan_line.hook';
+import presalesProjectHooks from '../src/objects/presales_project.hook';
 import deliveryProjectHooks from '../src/objects/delivery_project.hook';
 import leaveRequestHooks from '../src/objects/leave_request.hook';
 import businessTripHooks from '../src/objects/business_trip.hook';
@@ -18,8 +19,9 @@ import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harnes
  * Every hook here is a derivation or a gate the customer's 40-step process
  * names: cost from hours × rate (step 34), the over-budget block (36), the
  * Bizcase baseline and its cost plan (27), leave hours on a timesheet (33),
- * trip days and the unapproved-trip block (35), and the account classification
- * / EAR gates on a new opportunity (steps 1 and 3).
+ * trip days and the unapproved-trip block (35), the account a presales project
+ * takes from its opportunity (15), and the account classification / EAR gates
+ * on a new opportunity (steps 1 and 3).
  */
 
 const USER = { id: 'user_1' };
@@ -61,11 +63,69 @@ describe('timesheet_rate_fill', () => {
     expect(input.cost).toBe(144_000);
   });
 
-  it('leaves an explicitly written rate alone', async () => {
+  /**
+   * ⭐ REVERSES the pin that stood here ("leaves an explicitly written rate
+   * alone"). Customer ruling: 「计算人工成本时使用的费率从选择的岗位级别 /
+   * 费率卡中获取。」 — the card is the rate's source, so a rate on the payload
+   * is not an author's choice to respect. It was also the DEFECT: the create
+   * form carried an empty `费率标准` box, so every sheet posted
+   * `hourly_rate: 0`, the old guard read that as "explicitly written" and
+   * priced the sheet at zero. The box is gone from the form and both columns
+   * are `readonly: true` now (`test/timesheet-derived-price-surface.test.ts`),
+   * so the value the engine would strip anyway no longer reaches the price.
+   */
+  it('prices by the card even when the payload carries a rate of its own', async () => {
     const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }] });
     const input: Rec = { crm_rate_card: 'rc_pm', hours: 10, hourly_rate: 500 };
     await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
-    expect(input.hourly_rate).toBe(500);
+    expect(input.hourly_rate).toBe(900);
+    expect(input.cost).toBe(9_000);
+  });
+
+  /** The empty-form payload the narrowing retired, priced correctly anyway. */
+  it('a zero on the payload never reaches the price', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_eng', hourly_rate: 600 }] });
+    const input: Rec = { crm_rate_card: 'rc_eng', hours: 3, hourly_rate: 0, cost: 0 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(600);
+    expect(input.cost).toBe(1_800);
+  });
+
+  /**
+   * The snapshot the docs promise — 「费率卡改了只影响新表，不动已审批的历史」.
+   * The sheet keeps the card it already priced against, so a later edit of the
+   * card's own `hourly_rate` does not reprice it.
+   */
+  it('keeps the rate a sheet already priced itself at when the card is unchanged', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 1_100 }] });
+    const input: Rec = { hours: 20 };
+    const previous: Rec = { crm_rate_card: 'rc_pm', hourly_rate: 900 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(900);
+    expect(input.cost).toBe(18_000);
+  });
+
+  /** Picking a DIFFERENT card is the write that reprices. */
+  it('reprices when the write picks another card', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }, { id: 'rc_arch', hourly_rate: 1_000 }] });
+    const input: Rec = { crm_rate_card: 'rc_arch' };
+    const previous: Rec = { crm_rate_card: 'rc_pm', hourly_rate: 900, hours: 10 };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(1_000);
+    expect(input.cost).toBe(10_000);
+  });
+
+  /**
+   * A sheet priced some other way — the seeded rows that carry `hourly_rate`
+   * and no card — keeps its own rate. Without this branch the hook would zero
+   * every one of them (`src/data/psa.seed.ts`).
+   */
+  it('leaves a sheet that names no rate card alone', async () => {
+    const h = makeHarness({ crm_rate_card: [{ id: 'rc_pm', hourly_rate: 900 }] });
+    const input: Rec = { hours: 160, hourly_rate: 800 };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.hourly_rate).toBe(800);
+    expect(input.cost).toBeUndefined();
   });
 });
 
@@ -151,6 +211,69 @@ describe('cost_plan_line_fill', () => {
   });
 });
 
+// ───────────────────────────────────────────────────── presales project ──
+
+/**
+ * 所属客户 is DERIVED from 关联商机 (spec step 15, 「所属客户跟着带出」) — the
+ * write half of the same rule `crm_presales_project.crm_opportunity`'s
+ * `lookupFilters` scopes the picker with (pinned in
+ * `test/presales-project-opportunity-gate.test.ts`).
+ */
+describe('presales_project_account_carry', () => {
+  const hook = hookNamed(presalesProjectHooks, 'presales_project_account_carry');
+  const deals = () => ({
+    crm_opportunity: [
+      { id: 'opp_1', name: '华信核心系统升级', crm_account: 'acc_1' },
+      { id: 'opp_2', name: '北辰 MES 二期', crm_account: 'acc_2' },
+    ],
+  });
+
+  it('fills a blank account from the opportunity on insert', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('leaves an account the write names alone', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_1', crm_account: 'acc_9' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_9');
+  });
+
+  it('follows a re-pointed opportunity when the stored account was the old one’s', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { crm_opportunity: 'opp_2' };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1', crm_account: 'acc_1' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_2');
+  });
+
+  it('keeps a hand-picked account when the opportunity is re-pointed', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { crm_opportunity: 'opp_2' };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1', crm_account: 'acc_7' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBeUndefined();
+  });
+
+  it('fills a blank account on an update that does not name the opportunity', async () => {
+    const h = makeHarness(deals());
+    const input: Rec = { quote_amount: 1_400_000 };
+    const previous: Rec = { id: 'psp_1', crm_opportunity: 'opp_1' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous, user: USER, api: h.api }));
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('writes nothing when the opportunity carries no account of its own', async () => {
+    const h = makeHarness({ crm_opportunity: [{ id: 'opp_3', name: '待补客户' }] });
+    const input: Rec = { name: '售前项目1', crm_opportunity: 'opp_3' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_account).toBeUndefined();
+  });
+});
+
 // ───────────────────────────────────────────────────── delivery project ──
 
 const bizcase = () => ({
@@ -178,6 +301,74 @@ describe('delivery_project_defaults', () => {
     await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
     expect(input.budget_baseline).toBe(500_000);
     expect(input.contract_amount).toBe(1);
+  });
+
+  // ── the 商机 / 客户 half of the carry ───────────────────────────────────
+  //
+  // Asserted above as two lines inside the baseline case; the four below are
+  // the cases that half has of its own. They exist because this is the pair a
+  // creator WATCHES: the console create form resolves no lookup-driven
+  // default, so picking the presales project leaves both pickers empty on
+  // screen and the carry is invisible until the record is saved (measured on
+  // the pinned 17.4.0, driving the real form). What answers "did it work?" is
+  // therefore this hook, and nothing else.
+
+  it('carries 商机 / 客户 when the form omits the keys entirely', async () => {
+    // Exactly what the console posts when only the name and the presales
+    // project are filled in: no `crm_opportunity` key at all.
+    const h = makeHarness(bizcase());
+    const input: Rec = { name: '华信核心系统升级 — 交付', status: 'planning', crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('treats a blank string the same as an absent key', async () => {
+    // A form that posts every field it rendered sends `''`, not `undefined`.
+    // `empty()` covers both, and this is the case that says so.
+    const h = makeHarness(bizcase());
+    const input: Rec = { crm_presales_project: 'psp_1', crm_opportunity: '', crm_account: '' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+  });
+
+  it('never overwrites a 商机 / 客户 the user picked, or one already on the record', async () => {
+    const h = makeHarness(bizcase());
+    const typed: Rec = { crm_presales_project: 'psp_1', crm_opportunity: 'opp_typed', crm_account: 'acc_typed' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input: typed, user: USER, api: h.api }));
+    expect(typed.crm_opportunity).toBe('opp_typed');
+    expect(typed.crm_account).toBe('acc_typed');
+
+    // Re-pointing the presales project on an existing record does NOT re-carry
+    // over values that are already there.
+    const h2 = makeHarness(bizcase());
+    const repointed: Rec = { crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({
+      event: 'beforeUpdate',
+      input: repointed,
+      previous: { crm_opportunity: 'opp_old', crm_account: 'acc_old' },
+      user: USER,
+      api: h2.api,
+    }));
+    expect(repointed.crm_opportunity).toBeUndefined();
+    expect(repointed.crm_account).toBeUndefined();
+  });
+
+  it('carries 商机 / 客户 from a presales project whose Bizcase is empty', async () => {
+    // The baseline and the pair are independent claims: a presales project
+    // that has not been costed yet still names the opportunity and the client,
+    // and the creator still wants those two.
+    const store = bizcase();
+    Object.assign(store.crm_presales_project[0], {
+      labor_cost: 0, third_party_service_cost: 0, procurement_cost: 0, project_expense: 0,
+    });
+    const h = makeHarness(store);
+    const input: Rec = { crm_presales_project: 'psp_1' };
+    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
+    expect(input.crm_opportunity).toBe('opp_1');
+    expect(input.crm_account).toBe('acc_1');
+    expect(input.budget_baseline).toBeUndefined();
   });
 });
 

@@ -189,7 +189,14 @@ describe('deleting an account whose contact is still referenced', () => {
     // Named, not keyed (#1243): the sentence carries `full_name`, which is what
     // every contact surface in the app shows. The id is what the guard queried
     // BY, and it stays out of the prose.
-    expect(message).toContain('Contact Ada Lovelace is still referenced by');
+    //
+    // ⚠️ `LovelaceAda`, not `Ada Lovelace`, and ⛔ not a typo to correct:
+    // `crm_contact.full_name` is `joinNonEmpty([last_name, first_name], '')`
+    // (epic #2, the Chinese name order), so that IS the string every contact
+    // surface shows for this fixture. Carrying `full_name`'s VALUE is the
+    // assertion; spelling the name some other way here would pin the guard
+    // against a title the app renders nowhere.
+    expect(message).toContain('Contact LovelaceAda is still referenced by');
     expect(message).not.toContain(contact.id);
     expect(message).toContain('1 open opportunity(ies)');
     expect(message).toContain('neither can its account');
@@ -210,7 +217,7 @@ describe('deleting an account whose contact is still referenced', () => {
     // named, so both invocations get one accurate sentence.
     const { contact } = await build();
     const message = await deleteAndCatch('crm_contact', contact.id);
-    expect(message).toContain('Contact Ada Lovelace is still referenced by');
+    expect(message).toContain('Contact LovelaceAda is still referenced by');
     expect(message).not.toContain(contact.id);
     expect(message).toContain('1 open opportunity(ies)');
   });

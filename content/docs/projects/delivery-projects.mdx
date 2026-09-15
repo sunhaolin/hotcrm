@@ -40,6 +40,8 @@ A **budget adjustment** (预算调整, `crm_budget_adjustment`) asks for more (o
 ### On create — defaults from the Bizcase
 When a delivery project is created with a presales project and **no budget baseline**, the baseline is taken from that presales project's Total Cost, and the contract amount from the sales contract's value (`delivery_project_defaults`). Type a baseline yourself and it is kept.
 
+The same step fills the **Opportunity** and the **Account** from that presales project when you leave them empty (the Account also follows a sales contract). Both are filled when the record is saved, not when you pick the presales project, so the two pickers stay empty on screen until you create the record — open it afterwards and they are set. Pick either one yourself and your choice is kept.
+
 ### On create — the cost plan carried in
 Right after that, when the presales project is *approved* and the baseline is exactly its Total Cost, the four Bizcase cost lines are carried in as four cost plan lines — labor, third-party service, procurement, expense — each with the Bizcase amount (`delivery_project_cost_plan_carry`). Nothing is carried for an unapproved Bizcase, for a baseline typed by hand, or for a system write such as a seed replay.
 

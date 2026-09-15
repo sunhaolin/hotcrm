@@ -671,7 +671,7 @@ const GUARDS: GuardCase[] = [
     other: 'opp_2',
     businessField: 'company',
     businessValue: 'Globex',
-    refusal: /Cannot edit converted lead Ada Lovelace - Acme/,
+    refusal: /Cannot edit converted lead LovelaceAda - Acme/,
   },
 ];
 

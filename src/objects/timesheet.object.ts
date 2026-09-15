@@ -8,7 +8,8 @@ import { APPROVAL_STATUS_OPTIONS } from './_psa-picklists';
  *
  * `cost` is a STORED currency, not a formula: `Field.summary` on the parent has
  * precedent only over stored columns in this repo, so the timesheet hook (T6)
- * fills `hours × hourly_rate` and the seed carries the value outright.
+ * fills `hours × hourly_rate` and the seed carries the value outright. Stored
+ * does not mean authored — see the note on `hourly_rate` / `cost` below.
  *
  * ⭐ The delivery project is OPTIONAL (maintainer request, 2026-09-15:
  * 「交付项目 不要必填」), which is one decision with two halves — a `lookup`
@@ -73,8 +74,22 @@ export const Timesheet = ObjectSchema.create({
     leave_hours: Field.number({ label: 'Leave Hours', group: 'basic', description: 'Synced from approved leave requests of the submitter for this month.' }),
     overtime_hours: Field.number({ label: 'Overtime Hours', group: 'basic' }),
     hours: Field.number({ label: 'Hours', group: 'basic' }),
-    hourly_rate: Field.currency({ label: 'Hourly Rate', scale: 2, group: 'basic' }),
-    cost: Field.currency({ label: 'Cost', scale: 2, group: 'basic', description: 'Hours × hourly rate; filled by the timesheet hook.' }),
+    // DERIVED, never authored — and `readonly` is the declaration that says so
+    // (the `crm_case` narrowing in `src/views/case.view.ts` is the precedent).
+    // The rate is the rate card's, the cost is hours × rate, and
+    // `timesheet.hook.ts` is the only writer of either. A caller's own value is
+    // stripped from the payload while a value a hook wrote survives — the
+    // UPDATE side of that is measured in `test/readonly-write-semantics.test.ts`,
+    // and the file's retired INSERT describe records the 17.4.0 change that
+    // made the create path behave the same way.
+    //
+    // ⚠️ `readonly` is a WRITE contract, not `hidden`: both columns still
+    // render on the list view and on the synthesized detail page. Keeping them
+    // off the CREATE/EDIT form is the form's own field set — see the note on
+    // `src/views/timesheet.view.ts`, pinned by
+    // `test/timesheet-derived-price-surface.test.ts`.
+    hourly_rate: Field.currency({ label: 'Hourly Rate', scale: 2, group: 'basic', readonly: true, description: 'Copied from the rate card the sheet names; never typed (timesheet_rate_fill).' }),
+    cost: Field.currency({ label: 'Cost', scale: 2, group: 'basic', readonly: true, description: 'Hours × hourly rate; filled by the timesheet hook.' }),
     notes: Field.textarea({ label: 'Notes', group: 'basic' }),
     // readonly: rendered on forms, written only by the 发起审批 button
     // (`src/actions/psa-approval.actions.ts`) and the approval flow.

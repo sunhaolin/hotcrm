@@ -30,6 +30,7 @@ import quoteLineItemHook from '../objects/quote_line_item.hook';
 import taskHook from '../objects/task.hook';
 import timesheetHook from '../objects/timesheet.hook';
 import costPlanLineHook from '../objects/cost_plan_line.hook';
+import presalesProjectHook from '../objects/presales_project.hook';
 import deliveryProjectHook from '../objects/delivery_project.hook';
 import leaveRequestHook from '../objects/leave_request.hook';
 import businessTripHook from '../objects/business_trip.hook';
@@ -55,6 +56,7 @@ const entries: Array<Hook | Hook[]> = [
   taskHook,
   timesheetHook,
   costPlanLineHook,
+  presalesProjectHook,
   deliveryProjectHook,
   leaveRequestHook,
   businessTripHook,
