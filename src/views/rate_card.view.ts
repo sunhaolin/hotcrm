@@ -6,7 +6,7 @@ export const RateCardViews = defineView({
   list: {
     type: 'grid',
     name: 'all_rate_cards',
-    label: '全部费率卡',
+    label: 'All Rate Cards',
     data: { provider: 'object', object: 'crm_rate_card' },
     columns: [
       { field: 'name', width: 180, sortable: true },

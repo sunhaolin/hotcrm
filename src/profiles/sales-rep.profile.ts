@@ -49,8 +49,8 @@ export const SalesRepProfile = {
     crm_collection: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
     crm_purchase_contract: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
     crm_sales_order: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
-    crm_business_trip: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
-    crm_leave_request: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false },
+    crm_business_trip: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
+    crm_leave_request: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: false, modifyAllRecords: false, readScope: 'own' as const },
     // `allowExport` where an export surface exists — canonical note in
     // `src/profiles/index.ts`. Safe alongside `readScope: 'own'`: export is
     // read-derived, so a rep's CSV carries their own book, not the org's.

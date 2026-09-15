@@ -6,7 +6,7 @@ export const BusinessTripViews = defineView({
   list: {
     type: 'grid',
     name: 'all_business_trips',
-    label: '全部出差申请',
+    label: 'All Business Trips',
     data: { provider: 'object', object: 'crm_business_trip' },
     columns: [
       { field: 'trip_code', width: 110, sortable: true },

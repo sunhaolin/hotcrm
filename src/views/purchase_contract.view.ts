@@ -6,7 +6,7 @@ export const PurchaseContractViews = defineView({
   list: {
     type: 'grid',
     name: 'all_purchase_contracts',
-    label: '全部采购合同',
+    label: 'All Purchase Contracts',
     data: { provider: 'object', object: 'crm_purchase_contract' },
     columns: [
       { field: 'contract_code', width: 110, sortable: true },

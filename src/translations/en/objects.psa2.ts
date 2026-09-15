@@ -16,7 +16,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_delivery_project: {
     label: 'Delivery Project',
-    pluralLabel: 'Delivery Project',
+    pluralLabel: 'Delivery Projects',
     fields: {
       budget_current: { help: 'Budget baseline + approved adjustments.' },
       labor_actual: { help: 'Approved timesheets only.' },
@@ -30,7 +30,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_timesheet: {
     label: 'Timesheet',
-    pluralLabel: 'Timesheet',
+    pluralLabel: 'Timesheets',
     fields: {
       standard_hours: { help: 'Hours due this month; on a draft sheet hours = standard − leave + overtime.' },
     },
@@ -40,7 +40,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_budget_adjustment: {
     label: 'Budget Adjustment',
-    pluralLabel: 'Budget Adjustment',
+    pluralLabel: 'Budget Adjustments',
     description: 'A request to add to or cut a delivery project\'s budget: amount, reason and variance analysis; counted into the current budget once approved',
     fields: {
       adjustment_number: { label: 'Adjustment #' },
@@ -84,7 +84,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_business_trip: {
     label: 'Business Trip',
-    pluralLabel: 'Business Trip',
+    pluralLabel: 'Business Trips',
     description: 'Business trip requests and approval: destination, dates, purpose and estimated cost; travel costs booked to the trip roll up as its actual cost',
     fields: {
       actual_cost: { label: 'Actual Cost' },
@@ -135,7 +135,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_collection: {
     label: 'Collection',
-    pluralLabel: 'Collection',
+    pluralLabel: 'Collections',
     description: 'Collections recorded per delivery project, optionally linked to an invoice',
     fields: {
       description: { label: 'Description' },
@@ -166,11 +166,11 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_cost_plan_line: {
     label: 'Cost Plan Line',
-    pluralLabel: 'Cost Plan Line',
+    pluralLabel: 'Cost Plan Lines',
   },
   crm_invoice: {
     label: 'Invoice',
-    pluralLabel: 'Invoice',
+    pluralLabel: 'Invoices',
     description: 'Invoices recorded per delivery project: invoice details, amount and status; collections roll up to the outstanding balance',
     fields: {
       description: { label: 'Description' },
@@ -219,7 +219,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_leave_request: {
     label: 'Leave Request',
-    pluralLabel: 'Leave Request',
+    pluralLabel: 'Leave Requests',
     description: 'Leave requests and approval; once approved, the hours sync to the requester\'s timesheet for the month',
     fields: {
       approval_status: {
@@ -268,7 +268,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_legal_entity: {
     label: 'Contracting Entity',
-    pluralLabel: 'Contracting Entity',
+    pluralLabel: 'Contracting Entities',
     description: 'Master data of our contracting entities (legal companies), selected on opportunities and contracts',
     fields: {
       address: { label: 'Registered Address' },
@@ -300,14 +300,14 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_presales_project: {
     label: 'Presales Project',
-    pluralLabel: 'Presales Project',
+    pluralLabel: 'Presales Projects',
     _actions: {
       submit_approval: { confirmText: 'Submit the presales project for approval? The record is locked until the approval completes.', label: 'Submit for Approval', successMessage: 'The presales project has been submitted for approval.' },
     },
   },
   crm_purchase_contract: {
     label: 'Purchase Contract',
-    pluralLabel: 'Purchase Contract',
+    pluralLabel: 'Purchase Contracts',
     description: 'Subcontract, software and hardware purchase contracts under a delivery project, with payment progress',
     fields: {
       description: { label: 'Description' },
@@ -351,7 +351,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_rate_card: {
     label: 'Rate Card',
-    pluralLabel: 'Rate Card',
+    pluralLabel: 'Rate Cards',
     description: 'Grade × rate standard: the unit price source for timesheets and labor cost plans',
     fields: {
       daily_rate: { help: 'Reference value at 8 hours per day', label: 'Daily Rate' },
@@ -372,7 +372,7 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_sales_order: {
     label: 'Sales Order',
-    pluralLabel: 'Sales Order',
+    pluralLabel: 'Sales Orders',
     description: 'Customer orders under a sales contract, with delivery and acceptance progress',
     fields: {
       description: { label: 'Description' },
@@ -404,6 +404,6 @@ export const psa2: Record<string, Partial<ObjectTranslationData>> = {
   },
   crm_travel_cost: {
     label: 'Travel Cost',
-    pluralLabel: 'Travel Cost',
+    pluralLabel: 'Travel Costs',
   },
 };
