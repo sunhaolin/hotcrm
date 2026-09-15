@@ -6,7 +6,7 @@ export const BudgetAdjustmentViews = defineView({
   list: {
     type: 'grid',
     name: 'all_budget_adjustments',
-    label: '全部预算调整',
+    label: 'All Budget Adjustments',
     data: { provider: 'object', object: 'crm_budget_adjustment' },
     columns: [
       { field: 'adjustment_number', width: 110, sortable: true },

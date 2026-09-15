@@ -1,0 +1,43 @@
+---
+title: Master Data
+description: Rate cards — a grade and its hourly and daily rate — and contracting entities, the legal entity that signs; two public read/write tables the rest of the module prices and contracts from.
+---
+
+# Master Data
+
+Two small tables sit under everything else in this module. A **rate card** (费率卡, `crm_rate_card`) says what an hour of a given grade costs; a **contracting entity** (签约主体, `crm_legal_entity`) is the legal entity of your own company that signs a contract. Both live in the **Master Data** navigation group, which is collapsed when the app loads.
+
+## Rate cards
+
+| Field | What it is |
+| --- | --- |
+| Name, Grade Code | The grade — *senior engineer*, *architect*, *project manager* … |
+| Hourly Rate, Daily Rate | What the grade costs; the hourly rate is what timesheets and labor plan lines copy |
+| Effective From, Effective To, Active | The card's validity; pick an active card |
+| Notes | Anything the rate assumes |
+
+Where it is used:
+
+- a **timesheet** picks a grade and `timesheet_rate_fill` copies the hourly rate onto the sheet — see [Timesheets & Leave](/docs/projects/timesheets-and-leave);
+- a **labor cost plan line** picks a grade and `cost_plan_line_fill` copies the hourly rate as its unit price — see [Delivery Projects](/docs/projects/delivery-projects).
+
+Both are copies made at save time. Changing a rate card re-prices nothing already saved: approved timesheets keep the rate they were approved at, which is the behaviour finance wants.
+
+## Contracting entities
+
+| Field | What it is |
+| --- | --- |
+| Name, Short Name, Registration Number, Legal Representative, Address | The legal entity |
+| Bank Name, Bank Account | Where the customer pays |
+| Active, Notes | Whether it may still be picked |
+
+An **opportunity** names its contracting entity in the *Bid & Contracting Entity* section (see [Opportunities](/docs/sales/opportunities)), so the bid already states which company will sign before a contract exists.
+
+## Sharing
+
+Both tables are **Public Read/Write**: everyone reads them and everyone with edit on the object may change them, with no ownership in the way. That is what master data is — one shared list — and it is why they carry no owner-scoped views. In practice the PMO maintains rate cards and finance maintains contracting entities; if your org wants to narrow that, an admin lowers the OWD to *Public Read-Only* and grants edit to one profile. See [Sharing & Security](/docs/administration/sharing-and-security).
+
+## Tips for admins
+
+- ✅ **Retire a rate card by clearing *Active* and setting *Effective To*** rather than editing its rate — a new grade rate is a new card, so the history of what an hour cost stays readable.
+- ✅ **Keep one entity per legal registration**; the registration number is the natural key.

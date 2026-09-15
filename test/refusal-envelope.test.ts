@@ -135,7 +135,9 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
   );
 
   it('found every swept call site', () => {
-    expect(sites).toHaveLength(17);
+    // 21 since the PSA demo (epic #2): timesheet_budget_gate, travel_cost_trip_fill
+    // and the two opportunity_account_classification_gate refusals.
+    expect(sites).toHaveLength(21);
   });
 
   it('uses only members of the platform ErrorCode enum', () => {

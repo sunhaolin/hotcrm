@@ -550,7 +550,7 @@ describe('source token ratchet — the header table is derived from the ceilings
    * it produced per layer. Since #1320 each table row is dated with the run its
    * reading came from, so these are what makes that column mean something.
    */
-  const RUN = / \* +node scripts\/check-source-token-ratchet\.mjs +# (?<date>\d{4}-\d{2}-\d{2}) [\d:]+ UTC, `main` at (?<sha>[0-9a-f]{7,40})\s*$/;
+  const RUN = / \* +node scripts\/check-source-token-ratchet\.mjs +# (?<date>\d{4}-\d{2}-\d{2}) [\d:]+ UTC, `(?<branch>[^`]+)` at (?<sha>[0-9a-f]{7,40})\s*$/;
   const RUN_READINGS = / \* +(?<readings>\S[^~]*~[\d,]+.*)$/;
 
   function runs(): { date: string; readings: Map<string, number> }[] {

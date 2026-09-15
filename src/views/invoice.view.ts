@@ -6,7 +6,7 @@ export const InvoiceViews = defineView({
   list: {
     type: 'grid',
     name: 'all_invoices',
-    label: '全部开票',
+    label: 'All Invoices',
     data: { provider: 'object', object: 'crm_invoice' },
     columns: [
       { field: 'invoice_code', width: 110, sortable: true },

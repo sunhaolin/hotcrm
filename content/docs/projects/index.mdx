@@ -1,0 +1,51 @@
+---
+title: Projects
+description: The project (PSA) family — presales projects, delivery projects with cost plans and budgets, timesheets and leave, trips and travel costs, project finance, and the master data underneath.
+---
+
+# Projects
+
+The **Projects** module is what a software or professional-services company runs its delivery on, in the same app and the same metadata as the CRM it sells from. A won opportunity becomes a **presales project** (the bid and its Bizcase), an approved Bizcase becomes a **delivery project** with a budget and a cost plan, and everything the project then spends — hours, travel, subcontracts — lands on that project as actual cost, next to what it invoices and collects.
+
+## What's included
+
+| Area | What it does |
+| --- | --- |
+| [**Presales Projects**](/docs/projects/presales-projects) | The bid: roles, the cost estimate and quote, information security class, and the presales approval. |
+| [**Delivery Projects**](/docs/projects/delivery-projects) | The project once won: budget baseline, cost plan lines, budget adjustments, actuals, burn and margin — and the gate that stops timesheets on an over-budget project. |
+| [**Timesheets & Leave**](/docs/projects/timesheets-and-leave) | Monthly hours per person and project, priced from the rate card; approved leave flows into the month's timesheet. |
+| [**Trips & Travel Costs**](/docs/projects/trips-and-travel-costs) | A business trip is requested and approved first; travel costs are then booked against it and roll up into the project. |
+| [**Project Finance**](/docs/projects/project-finance) | Invoices, collections, purchase contracts and sales orders, each rolled up onto the delivery project. |
+| [**Master Data**](/docs/projects/master-data) | Rate cards (grade and hourly rate) and contracting entities (the legal entity that signs). |
+
+## The project lifecycle
+
+```
+Opportunity (initiated)
+   │
+   ▼
+Presales project ── cost estimate + quote ── approval (售前立项审批)
+   │ (approved)
+   ▼
+Delivery project ── budget baseline + cost plan lines carried in ── approval (交付立项审批)
+   │
+   ├── timesheets (approved → labor actual)
+   ├── business trips → travel costs (→ travel actual)
+   ├── budget adjustments (approved → current budget)
+   └── invoices / collections / purchase contracts / sales orders (→ finance totals)
+```
+
+1. **Initiate the opportunity** — an opportunity carries an *Initiation status* of its own (see [Opportunities](/docs/sales/opportunities)); an account classified as a bidding agency or *other*, or one confirmed on the US EAR entity list, cannot open an opportunity at all.
+2. **Open a presales project** on the opportunity, estimate the four cost lines and the quote, and submit it for approval.
+3. **Open the delivery project** once the Bizcase is approved — leave the budget baseline blank and it is taken from the Bizcase total, with one cost plan line per cost category carried in.
+4. **Book the work** — timesheets, trips and travel costs, purchases — and let the rollups do the arithmetic.
+5. **Adjust the budget** through a budget adjustment when the scope moves; the current budget only moves on an approved adjustment.
+6. **Read the two dashboards** — [Project Cost and Project Finance](/docs/analytics/dashboards) — for the portfolio view.
+
+## Where to find things
+
+In the HotCRM app the family sits in three navigation groups: **Projects** (presales and delivery projects, timesheets, travel costs, business trips, leave requests, budget adjustments and the Project Cost dashboard), **Project Finance** (invoices, collections, purchase contracts, sales orders and the Project Finance dashboard) and **Master Data** (rate cards and contracting entities), which is collapsed when the app loads. Cost plan lines have no sidebar entry of their own: they are edited on the delivery project.
+
+## How approvals work here
+
+Every approvable record in this family — the two projects, timesheets, budget adjustments, business trips and leave requests, and also accounts, leads and the opportunity's initiation — is submitted with the **Submit for Approval** button at the top of its record page, never by editing the status field: the approval status is read-only on the form and on the API. Submitting locks the record until the approver decides; the verdict and its date are stamped back and the owner is notified. The nine flows are listed in [Administration › Automation](/docs/administration/automation).

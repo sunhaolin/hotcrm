@@ -6,7 +6,7 @@ export const TimesheetViews = defineView({
   list: {
     type: 'grid',
     name: 'all_timesheets',
-    label: 'Timesheets',
+    label: 'All Timesheets',
     data: { provider: 'object', object: 'crm_timesheet' },
     columns: [
       { field: 'timesheet_number', width: 110, sortable: true },

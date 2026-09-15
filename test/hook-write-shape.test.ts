@@ -140,6 +140,17 @@ interface WriteCase {
 }
 
 const CASES: Record<string, WriteCase> = {
+  'leave_timesheet_sync — an approved leave re-saves the requester’s sheet for that month (PSA demo, epic #2)': {
+    hook: 'leave_timesheet_sync',
+    event: 'afterUpdate',
+    input: { approval_status: 'approved' },
+    previous: { id: 'lv_1', owner_id: 'user_1', start_date: '2026-09-07', end_date: '2026-09-08', approval_status: 'submitted' },
+    seed: {
+      crm_timesheet: [{ id: 'ts_1', owner_id: 'user_1', period_month: '2026-09-01', leave_hours: 0 }],
+    },
+    // The sheet is re-saved with its own leave figure so timesheet_attendance_sync recomputes it.
+    writes: [{ object: 'crm_timesheet', id: 'ts_1', doc: { leave_hours: 0 } }],
+  },
   'opportunity_amount_rollup — the opportunity amount re-rolls from its lines': {
     hook: 'opportunity_amount_rollup',
     event: 'afterInsert',

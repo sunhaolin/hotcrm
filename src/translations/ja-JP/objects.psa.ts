@@ -45,7 +45,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       planned_start: { label: '計画開始日' },
       presales_hours: { label: 'プリセールス工数' },
       presales_labor_actual: { label: 'プリセールス人件費実績' },
-      pricing_owner: { label: '見積責任者' },
+      pricing_manager: { label: '見積責任者' },
       procurement_cost: { label: 'ハード・ソフト購買コスト' },
       project_director: { label: 'プロジェクトディレクター' },
       project_expense: { label: 'プロジェクト経費' },
@@ -148,7 +148,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       planned_end: { label: '計画終了日' },
       planned_start: { label: '計画開始日' },
       planned_total: { label: '計画合計' },
-      pricing_owner: { label: '見積責任者' },
+      pricing_manager: { label: '見積責任者' },
       progress_pct: { help: '0〜100、プロジェクトマネージャーが更新。', label: '進捗率 (%)' },
       project_director: { label: 'プロジェクトディレクター' },
       project_manager: { label: 'プロジェクトマネージャー' },
@@ -181,7 +181,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         label: '状況',
         options: { active: '進行中', closed: '終了', planning: '計画中' },
       },
-      subcontract_ts_owner: { label: '外注 TS 担当者' },
+      subcontract_ts_lead: { label: '外注 TS 担当者' },
       travel_actual: { label: '旅費実績' },
     },
     _sections: {
@@ -783,7 +783,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       is_bid: { label: '入札案件' },
       level: {
         label: '商談ランク',
-        options: { level_a: 'A', level_b: 'B', level_c: 'C' },
+        options: { level_a: 'A — 戦略', level_b: 'B — 重要', level_c: 'C — 通常' },
       },
       opportunity_number: { label: '商談番号' },
       priority: {

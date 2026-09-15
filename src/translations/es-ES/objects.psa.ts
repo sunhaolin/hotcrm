@@ -45,7 +45,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       planned_start: { label: 'Inicio previsto' },
       presales_hours: { label: 'Horas de preventa' },
       presales_labor_actual: { label: 'Coste real de personal de preventa' },
-      pricing_owner: { label: 'Responsable de precios' },
+      pricing_manager: { label: 'Responsable de precios' },
       procurement_cost: { label: 'Coste de compra de hardware/software' },
       project_director: { label: 'Director de proyecto' },
       project_expense: { label: 'Gastos del proyecto' },
@@ -148,7 +148,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       planned_end: { label: 'Fin previsto' },
       planned_start: { label: 'Inicio previsto' },
       planned_total: { label: 'Total planificado' },
-      pricing_owner: { label: 'Responsable de precios' },
+      pricing_manager: { label: 'Responsable de precios' },
       progress_pct: { help: '0–100, mantenido por el jefe de proyecto.', label: 'Progreso (%)' },
       project_director: { label: 'Director de proyecto' },
       project_manager: { label: 'Jefe de proyecto' },
@@ -181,7 +181,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         label: 'Estado',
         options: { active: 'Activo', closed: 'Cerrado', planning: 'Planificación' },
       },
-      subcontract_ts_owner: { label: 'Responsable de TS de subcontratación' },
+      subcontract_ts_lead: { label: 'Responsable de TS de subcontratación' },
       travel_actual: { label: 'Coste real de viajes' },
     },
     _sections: {
@@ -783,7 +783,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       is_bid: { label: 'Requiere licitación' },
       level: {
         label: 'Nivel de la oportunidad',
-        options: { level_a: 'A', level_b: 'B', level_c: 'C' },
+        options: { level_a: 'A — estratégica', level_b: 'B — importante', level_c: 'C — rutinaria' },
       },
       opportunity_number: { label: 'Número de oportunidad' },
       priority: {
