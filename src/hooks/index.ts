@@ -18,6 +18,7 @@ import campaignMemberHook from '../objects/campaign_member.hook';
 import caseHook from '../objects/case.hook';
 import contactHook from '../objects/contact.hook';
 import contractHook from '../objects/contract.hook';
+import deliveryProjectHook from '../objects/delivery_project.hook';
 import eventHook from '../objects/event.hook';
 import forecastHook from '../objects/forecast.hook';
 import knowledgeArticleHook from '../objects/knowledge_article.hook';
@@ -38,6 +39,7 @@ const entries: Array<Hook | Hook[]> = [
   caseHook,
   contactHook,
   contractHook,
+  deliveryProjectHook,
   eventHook,
   forecastHook,
   knowledgeArticleHook,

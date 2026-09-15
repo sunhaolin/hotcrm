@@ -88,7 +88,7 @@ export const psa: Record<string, ObjectTranslationData> = {
       pricing_owner: { label: '资源报价负责人' },
       subcontract_ts_owner: { label: '分包 TS 填写人' },
       qa_lead: { label: 'QA 负责人' },
-      budget_baseline: { label: '预算基线', help: '审批通过的 Bizcase 总成本，作为考核基线。' },
+      budget_baseline: { label: '预算基线', help: '审批通过的 Bizcase 总成本，作为考核基线；新建时留空，则连同成本计划行一起从已审批的售前项目自动带入。' },
       planned_total: { label: '计划总额' },
       labor_actual: { label: '人工实际成本' },
       travel_actual: { label: '差旅实际成本' },
