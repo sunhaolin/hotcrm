@@ -8,9 +8,12 @@ import { APPROVAL_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS, BUSINESS_CATEGORY_OPTION
  * 交付项目 — steps 21–26 plus the cost rollups steps 27, 36 and 39 read
  * (epic #2 / T3). Demo branch only.
  *
- * The rollups are platform-native `Field.summary` over the three master-detail
- * children (T4); the two percentages inline the two summaries rather than read
- * a formula from a formula.
+ * The rollups are platform-native `Field.summary` over the three cost children
+ * (T4); the two percentages inline the two summaries rather than read a formula
+ * from a formula. Two of the three are master-detail: `crm_timesheet` became a
+ * `lookup` child when its delivery project stopped being mandatory (「交付项目
+ * 不要必填」, 2026-09-15), and `Field.summary` reads either relationship — a
+ * sheet that names no project simply joins no project's `labor_actual`.
  */
 export const DeliveryProject = ObjectSchema.create({
   name: 'crm_delivery_project',

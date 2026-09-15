@@ -147,11 +147,11 @@ export const psa: Record<string, ObjectTranslationData> = {
   crm_timesheet: {
     label: '工时表',
     pluralLabel: '工时表',
-    description: '人员按月填报到交付项目的工时，由项目经理审批',
+    description: '人员按月填报到交付项目或售前项目的工时，由项目经理审批',
     fields: {
       timesheet_number: { label: '工时单号' },
       owner_id: { label: '填报人' },
-      crm_delivery_project: { label: '交付项目' },
+      crm_delivery_project: { label: '交付项目', help: '可选；不填表示只填报售前工时或考勤工时。已审批的工时表汇总到交付项目的人工实际。' },
       crm_presales_project: { label: '售前项目', help: '可选；售前工时按已审批口径汇总到售前项目。' },
       crm_rate_card: { label: '岗位级别 / 费率卡', help: '选费率卡后自动带出费率标准。' },
       standard_hours: { label: '标准工时（小时）', help: '本月应出勤工时；草稿工时表的工时 = 标准 − 请假 + 加班。' },

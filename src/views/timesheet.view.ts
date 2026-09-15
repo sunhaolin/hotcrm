@@ -60,7 +60,7 @@ export const TimesheetViews = defineView({
     type: 'simple',
     sections: [
       { name: 'basic', label: 'Timesheet', columns: 2, fields: [
-        'timesheet_number', { field: 'crm_delivery_project', required: true }, 'crm_presales_project', 'owner_id', 'period_month',
+        'timesheet_number', 'crm_delivery_project', 'crm_presales_project', 'owner_id', 'period_month',
         'crm_rate_card', 'standard_hours', 'leave_hours', 'overtime_hours', 'hours', 'notes',
       ] },
       { name: 'approval', label: 'Approval', columns: 2, fields: ['approval_status', 'approved_date'] },

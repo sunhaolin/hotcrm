@@ -234,7 +234,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_timesheet: {
     label: 'Hoja de horas',
     pluralLabel: 'Hoja de horas',
-    description: 'Horas mensuales que una persona imputa a un proyecto de entrega, aprobadas por el jefe de proyecto',
+    description: 'Horas mensuales que una persona imputa a un proyecto de entrega o de preventa, aprobadas por el jefe de proyecto',
     fields: {
       approval_status: {
         label: 'Estado de aprobación',
@@ -248,7 +248,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: 'Fecha de aprobación' },
       cost: { help: 'Horas × tarifa por hora; lo rellena el hook de la hoja de horas.', label: 'Coste' },
-      crm_delivery_project: { label: 'Proyecto de entrega' },
+      crm_delivery_project: { help: 'Opcional: una hoja sin proyecto de entrega solo imputa horas de preventa o de asistencia. Las hojas aprobadas se totalizan en el Coste real de personal del proyecto.', label: 'Proyecto de entrega' },
       crm_presales_project: { help: 'Opcional: las horas de preventa se registran pero no se totalizan (decisión 4 de la épica).', label: 'Proyecto de preventa' },
       crm_rate_card: { help: 'Toma la tarifa por hora de la tarifa (timesheet_rate_fill).', label: 'Categoría / tarifa' },
       hourly_rate: { help: 'Copiada de la tarifa que indica la hoja; nunca se escribe a mano (timesheet_rate_fill).', label: 'Tarifa por hora' },

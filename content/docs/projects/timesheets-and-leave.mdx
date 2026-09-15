@@ -12,7 +12,7 @@ A **timesheet** (工时表, `crm_timesheet`) is one person's hours on one projec
 | Field | What it is |
 | --- | --- |
 | Submitter, Month | Whose hours, which month — one sheet per person, project and month |
-| Delivery Project *or* Presales Project | Where the hours are booked; a sheet on a presales project rolls into that bid's Presales Hours |
+| Delivery Project *or* Presales Project | Where the hours are booked — both optional: a sheet on a presales project rolls into that bid's Presales Hours, and a sheet naming neither records attendance only |
 | Grade / Rate Card | The [rate card](/docs/projects/master-data) row that prices the hours |
 | Hourly Rate | Filled from the rate card — read-only, and not on the form at all |
 | Standard Hours, Leave Hours, Overtime Hours, Hours | The month's arithmetic — see below |
@@ -40,7 +40,7 @@ When a leave request is **approved**, `leave_timesheet_sync` finds the requester
 
 ## Sharing
 
-Timesheets are *Controlled by Parent*: whoever can see the delivery project sees its sheets, and nobody else — a rep who cannot open the project cannot open a sheet on it. Leave requests are **private**: the requester's own, plus the Sales Manager and System Administrator, who read all.
+Timesheets are **private**, like leave requests: the submitter's own sheets, plus the Sales Manager — who decides the 工时审批 — and the System Administrator, who read all. They were *Controlled by Parent* under the delivery project until that project became optional on a sheet: a record that may name no parent cannot derive its visibility from one.
 
 ## Tips
 
