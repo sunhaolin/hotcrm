@@ -1,6 +1,6 @@
 # AGENTS.md — HotCRM
 
-Single source of truth for every AI coding agent working on **HotCRM**. Tool-specific files (`CLAUDE.md`, `.github/copilot-instructions.md`) only point here and restate nothing.
+Single source of truth for every AI coding agent working on **HotCRM**. Tool-specific files (`CLAUDE.md`, `.github/copilot-instructions.md`) only point here and restate nothing — except the 🗣️ 沟通语言 rules, which `CLAUDE.md` carries so they bind before this file is opened.
 
 ## 🚫 Scope — a pure metadata application
 
@@ -36,8 +36,13 @@ Writing an `emptyState` on every tile, or hand-tuning tile placement to dodge a 
 
 ## 🗣️ 沟通语言 / Communication Language
 
-**始终使用中文与用户沟通。** 所有面向用户的回复、解释、总结、提问都用中文；代码、标识符、提交信息、PR 标题/正文、代码注释保持英文不变。
-**Always communicate with the user in Chinese (中文)**; code, identifiers, commit messages, PR titles/bodies and code comments stay in English.
+维护者裁定（2026-09-16）：本项目的**每一次会话**都用中文，而且**不要太技术化**——用户不是技术人员。
+
+1. **始终使用中文与用户沟通。** 所有面向用户的回复、解释、总结、提问都用中文，**从第一句回复起**就是，⛔ 不能等读完本文件再切换；代码、标识符、提交信息、PR 标题/正文、代码注释保持英文不变。
+2. **面向用户的表述不要太技术。** 讲业务含义，不讲实现细节：说"做了什么、对业务意味着什么"，不说"怎么写的"；文件路径、函数名、配置项只在用户要求时出现。
+3. **提到字段、对象、视图、流程时，必须带中文名。** ⛔ 不能只列英文标识符：写「客户分类」或「客户分类（`account_type`）」，⛔ 不要单写 `account_type`。中文名取自 zh-CN 语言包（`src/translations/zh-CN.ts`）里的标签，⛔ 不要自己另造译法。
+
+**Always communicate with the user in Chinese (中文)**, from the first reply on, in non-technical language — the user is not an engineer. Never name a field, object, view or flow by its bare identifier: give its Chinese label from the zh-CN language pack (`客户分类` or `客户分类 (account_type)`, never `account_type` alone). Code, identifiers, commit messages, PR titles/bodies and code comments stay in English.
 
 ## 🏗️ Project Architecture
 
