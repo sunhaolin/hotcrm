@@ -140,7 +140,10 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
     // timesheet_budget_gate grew its second refusal — the sheet under write
     // costs more than the project's remaining budget, as opposed to a project
     // that was already over it.
-    expect(sites).toHaveLength(22);
+    // +2 (#cost-plan): `cost_plan_defaults` refuses a change to a frozen
+    // baseline and `cost_plan_lock` refuses a line / month write on a plan that
+    // is not a draft — one registration over five objects, so one site.
+    expect(sites).toHaveLength(24);
   });
 
   it('uses only members of the platform ErrorCode enum', () => {

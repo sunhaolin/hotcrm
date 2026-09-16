@@ -25,7 +25,11 @@ import { Lead } from '../objects/lead.object';
 import { Opportunity } from '../objects/opportunity.object';
 import { PresalesProject } from '../objects/presales_project.object';
 import { DeliveryProject } from '../objects/delivery_project.object';
-import { CostPlanLine } from '../objects/cost_plan_line.object';
+import { CostPlan } from '../objects/cost_plan.object';
+import { LaborCostLine } from '../objects/labor_cost_line.object';
+import { ServiceCostLine } from '../objects/service_cost_line.object';
+import { ProcurementCostLine } from '../objects/procurement_cost_line.object';
+import { ExpenseCostLine } from '../objects/expense_cost_line.object';
 import { Timesheet } from '../objects/timesheet.object';
 import { TravelCost } from '../objects/travel_cost.object';
 import { Task } from '../objects/task.object';
@@ -220,15 +224,11 @@ export const presalesProjects = defineSeed(PresalesProject, {
       planned_start: celDaysAgo(20),
       planned_end: celDaysFromNow(40),
       expected_contract_amount: 1400000,
-      labor_cost: 600000,
-      third_party_service_cost: 250000,
-      procurement_cost: 100000,
-      project_expense: 50000,
       quote_amount: 1400000,
       security_class: 'confidential',
       security_note: '涉及客户业务数据，交付团队须签署保密协议；开发环境使用脱敏数据。',
       approval_status: 'approved',
-      description: 'Bizcase：总成本 100 万，报价 140 万，毛利率 28.6%。五级审批（成本中心负责人 → 事业部负责人 → Bizcase 审核 → 事业本部负责人 → 事业群运营负责人）已通过。',
+      description: 'Bizcase：总成本 105.4 万，报价 140 万，毛利率 24.7%（四项成本为其 Bizcase 成本计划的汇总）。五级审批（成本中心负责人 → 事业部负责人 → Bizcase 审核 → 事业本部负责人 → 事业群运营负责人）已通过。',
     },
   ],
 });
@@ -251,7 +251,7 @@ export const deliveryProjects = defineSeed(DeliveryProject, {
       impl_cost_center: 'dc_north',
       accounting_cost_center: 'dc_north',
       department: 'bu_government',
-      budget_baseline: 1000000,
+      budget_baseline: 1054320,
       security_class: 'confidential',
       approval_status: 'approved',
       // Round 2: the sales contract (contract_amount follows it), progress for revenue.
@@ -285,18 +285,62 @@ export const deliveryProjects = defineSeed(DeliveryProject, {
 const month1 = celDaysAgo(45);
 const month2 = celDaysAgo(15);
 
-export const costPlanLines = defineSeed(CostPlanLine, {
+// Cost plans (steps 27–31): the 华信 Bizcase (phase bizcase, on the presales
+// project) and the delivery plan v1 it was imported as. Lines are seeded; the
+// month ledger is generated from them by `cost_line_decompose`, and every
+// total on the plan and both projects is a rollup of that ledger. Months are
+// calendar months on purpose: a plan is authored for specific months.
+const PLAN_HX_BIZCASE = '华信核心系统升级 · Bizcase 成本计划 v1';
+const PLAN_HX_DELIVERY = '华信一期交付 · 成本计划 v1';
+
+export const costPlans = defineSeed(CostPlan, {
+  mode: 'upsert',
+  externalId: 'name',
+  records: [
+    { name: PLAN_HX_BIZCASE, crm_presales_project: PSP, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved', notes: '步骤 18 的成本测算：四类明细行按月分解，售前项目的四项成本读此版本。' },
+    { name: PLAN_HX_DELIVERY, crm_delivery_project: DLV_A, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 1054320, approval_status: 'approved', notes: '步骤 27 导入 Bizcase 预算的结果：冻结基线 1,054,320，明细行自 Bizcase 克隆。' },
+  ],
+});
+
+export const laborCostLines = defineSeed(LaborCostLine, {
   mode: 'upsert',
   externalId: 'description',
   records: [
-    { crm_delivery_project: DLV_A, category: 'labor',               period_month: month1, description: '人工 · 高级工程师 × 4 · 第 1 月', quantity: 640, unit_price: 468.75, planned_amount: 300000 },
-    { crm_delivery_project: DLV_A, category: 'labor',               period_month: month2, description: '人工 · 高级工程师 × 4 · 第 2 月', quantity: 640, unit_price: 468.75, planned_amount: 300000 },
-    { crm_delivery_project: DLV_A, category: 'third_party_service', period_month: month1, description: '第三方 · 数据迁移分包 · 第 1 月', quantity: 1, unit_price: 125000, planned_amount: 125000 },
-    { crm_delivery_project: DLV_A, category: 'third_party_service', period_month: month2, description: '第三方 · 数据迁移分包 · 第 2 月', quantity: 1, unit_price: 125000, planned_amount: 125000 },
-    { crm_delivery_project: DLV_A, category: 'procurement',         period_month: month1, description: '采购 · 中间件许可 · 第 1 月', quantity: 2, unit_price: 25000, planned_amount: 50000 },
-    { crm_delivery_project: DLV_A, category: 'procurement',         period_month: month2, description: '采购 · 测试服务器 · 第 2 月', quantity: 1, unit_price: 50000, planned_amount: 50000 },
-    { crm_delivery_project: DLV_A, category: 'expense',             period_month: month1, description: '费用 · 差旅与驻场 · 第 1 月', quantity: 1, unit_price: 25000, planned_amount: 25000 },
-    { crm_delivery_project: DLV_A, category: 'expense',             period_month: month2, description: '费用 · 差旅与驻场 · 第 2 月', quantity: 1, unit_price: 25000, planned_amount: 25000 },
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 高级工程师 × 2', crm_rate_card: '高级工程师', headcount: 2, hours_per_month: 160, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 80, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 高级工程师 × 2', crm_rate_card: '高级工程师', headcount: 2, hours_per_month: 160, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 项目经理', crm_rate_card: '项目经理', headcount: 1, hours_per_month: 80, start_month: '2026-08-01', end_month: '2026-09-01' },
+  ],
+});
+
+export const serviceCostLines = defineSeed(ServiceCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 数据迁移分包', vendor: '数联科技', pricing_basis: 'per_month', unit_price: 62500, headcount: 2, start_month: '2026-08-01', duration: 2 },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 数据迁移分包', vendor: '数联科技', pricing_basis: 'per_month', unit_price: 62500, headcount: 2, start_month: '2026-08-01', duration: 2 },
+  ],
+});
+
+export const procurementCostLines = defineSeed(ProcurementCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 中间件许可', procurement_category: 'software_license', quantity: 2, unit_price: 25000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 测试服务器', procurement_category: 'hardware', quantity: 1, unit_price: 50000, start_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 中间件许可', procurement_category: 'software_license', quantity: 2, unit_price: 25000, start_month: '2026-08-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 测试服务器', procurement_category: 'hardware', quantity: 1, unit_price: 50000, start_month: '2026-09-01' },
+  ],
+});
+
+export const expenseCostLines = defineSeed(ExpenseCostLine, {
+  mode: 'upsert',
+  externalId: 'description',
+  records: [
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_BIZCASE, description: 'Bizcase · 华信 · 驻场补贴', expense_type: 'other', budget_amount: 20000, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 差旅', expense_type: 'travel', crm_travel_standard: '一线城市标准', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' },
+    { crm_cost_plan: PLAN_HX_DELIVERY, description: '交付 · 华信 · 驻场补贴', expense_type: 'other', budget_amount: 20000, start_month: '2026-08-01', end_month: '2026-09-01' },
   ],
 });
 

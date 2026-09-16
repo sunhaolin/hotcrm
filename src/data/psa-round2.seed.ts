@@ -11,6 +11,7 @@
  */
 import { defineSeed } from '@objectstack/spec/data';
 import { RateCard } from '../objects/rate_card.object';
+import { TravelStandard } from '../objects/travel_standard.object';
 import { LegalEntity } from '../objects/legal_entity.object';
 import { Contract } from '../objects/contract.object';
 import { BudgetAdjustment } from '../objects/budget_adjustment.object';
@@ -39,6 +40,17 @@ export const rateCards = defineSeed(RateCard, {
     { name: '数据工程师', grade_code: 'P6', hourly_rate: 800, daily_rate: 6400, effective_from: '2026-01-01', is_active: true },
     { name: '工程师', grade_code: 'P5', hourly_rate: 600, daily_rate: 4800, effective_from: '2026-01-01', is_active: true },
     { name: '初级工程师', grade_code: 'P4', hourly_rate: 400, daily_rate: 3200, effective_from: '2025-01-01', effective_to: '2025-12-31', is_active: false, notes: '2025 年费率，已停用' },
+  ],
+});
+
+export const travelStandards = defineSeed(TravelStandard, {
+  mode: 'upsert',
+  externalId: 'name',
+  records: [
+    { name: '一线城市标准', city_tier: 'tier_1', lodging_per_day: 500, meal_per_day: 100, local_transport_per_day: 80, fare_per_trip: 1500, effective_from: '2026-01-01', is_active: true, notes: '北上广深及同级城市' },
+    { name: '二线城市标准', city_tier: 'tier_2', lodging_per_day: 400, meal_per_day: 80, local_transport_per_day: 60, fare_per_trip: 1000, effective_from: '2026-01-01', is_active: true },
+    { name: '三线城市标准', city_tier: 'tier_3', lodging_per_day: 300, meal_per_day: 60, local_transport_per_day: 50, fare_per_trip: 800, effective_from: '2026-01-01', is_active: true },
+    { name: '海外出差标准', city_tier: 'overseas', lodging_per_day: 1200, meal_per_day: 300, local_transport_per_day: 150, fare_per_trip: 8000, effective_from: '2026-01-01', is_active: true },
   ],
 });
 
@@ -80,7 +92,7 @@ export const budgetAdjustments = defineSeed(BudgetAdjustment, {
       crm_delivery_project: DLV_A,
       amount: 150000,
       reason: 'scope_change',
-      analysis: '客户在需求确认后新增「AI 审批助手」模块：预计增加高级工程师 2 人 × 1.5 个月（约 120,000）与模型服务费（约 30,000）。原基线 1,000,000 未包含该范围，申请追加 150,000。',
+      analysis: '客户在需求确认后新增「AI 审批助手」模块：预计增加高级工程师 2 人 × 1.5 个月（约 120,000）与模型服务费（约 30,000）。原基线 1,054,320 未包含该范围，申请追加 150,000。',
       approval_status: 'draft',
       notes: '演示：现场提交审批，通过后「当前预算」变为 1,150,000，预算消耗率随之下降。',
     },

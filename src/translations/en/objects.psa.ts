@@ -4,8 +4,11 @@ import type { ObjectTranslationData } from '@objectstack/spec/system';
 
 /**
  * English (en) — `objects` translations for the PSA family (demo, epic #2):
- * `crm_presales_project`, `crm_delivery_project`, `crm_cost_plan_line`,
- * `crm_timesheet`, `crm_travel_cost`.
+ * `crm_presales_project`, `crm_delivery_project`, `crm_timesheet`,
+ * `crm_travel_cost`, and the cost-plan model (steps 27–32): `crm_cost_plan`,
+ * its four line objects (`crm_labor_cost_line`, `crm_service_cost_line`,
+ * `crm_procurement_cost_line`, `crm_expense_cost_line`), the month ledger
+ * `crm_cost_plan_month` and the `crm_travel_standard` master data.
  */
 const approval = {
   approval_status: {
@@ -18,6 +21,25 @@ const projectType = { label: 'Project Type', options: { software_development: 'S
 const businessCategory = { label: 'Business Category', options: { government_enterprise: 'Government & Enterprise', finance: 'Finance', manufacturing: 'Manufacturing', internet: 'Internet' } };
 const securityClass = { label: 'Security Class', options: { public: 'Public', internal: 'Internal', confidential: 'Confidential', secret: 'Secret' } };
 const costCenter = { options: { dc_east: 'Delivery Center East', dc_south: 'Delivery Center South', dc_north: 'Delivery Center North' } };
+const costCategory = { label: 'Cost Category', options: { labor: 'Labor Service', third_party_service: 'Third-party Service', procurement: 'Hardware/Software Procurement', expense: 'Project Expense' } };
+const expenseType = { label: 'Expense Type', options: { travel: 'Travel', meeting: 'Meeting', training: 'Training', office: 'Office', communication: 'Communication', entertainment: 'Business Entertainment', other: 'Other Reimbursement' } };
+/** The fields every cost-plan line shares (`src/objects/_cost-line.ts`), spread into the four line objects. */
+const costLineFields = {
+  crm_cost_plan: { label: 'Cost Plan' },
+  description: { label: 'Description' },
+  start_month: { label: 'Start Month', help: 'The first month of the breakdown, recorded as the 1st of that month.' },
+  end_month: { label: 'End Month', help: 'The last month of the breakdown; leave it empty to land everything in the start month.' },
+  planned_amount: { label: 'Planned Amount', help: 'The sum of this line\'s cost plan months; never typed in.' },
+  notes: { label: 'Notes' },
+};
+/** `redecompose_months` is registered once per line object (`src/actions/cost_plan.actions.ts`), with the same copy on each. */
+const redecomposeMonths = {
+  redecompose_months: {
+    label: 'Regenerate Monthly Breakdown',
+    confirmText: 'Clear every manually adjusted month on this line and regenerate the monthly breakdown from headcount, unit price and the month range?',
+    successMessage: 'The monthly breakdown has been regenerated.',
+  },
+};
 
 export const psa: Record<string, ObjectTranslationData> = {
   crm_presales_project: {
@@ -41,10 +63,10 @@ export const psa: Record<string, ObjectTranslationData> = {
       project_director: { label: 'Project Director' },
       project_qa: { label: 'Project QA' },
       pricing_manager: { label: 'Pricing Owner' },
-      labor_cost: { label: 'Labor Service Cost' },
-      third_party_service_cost: { label: 'Third-party Service Cost' },
-      procurement_cost: { label: 'Hardware/Software Procurement Cost' },
-      project_expense: { label: 'Project Expense' },
+      labor_cost: { label: 'Labor Service Cost', help: 'Labor Service total of the current Bizcase cost plan; never typed in.' },
+      third_party_service_cost: { label: 'Third-party Service Cost', help: 'Third-party Service total of the current Bizcase cost plan; never typed in.' },
+      procurement_cost: { label: 'Hardware/Software Procurement Cost', help: 'Hardware/Software Procurement total of the current Bizcase cost plan; never typed in.' },
+      project_expense: { label: 'Project Expense', help: 'Project Expense total of the current Bizcase cost plan; never typed in.' },
       total_cost: { label: 'Total Cost' },
       quote_amount: { label: 'Quote Amount' },
       gross_margin_pct: { label: 'Gross Margin %', help: '(Quote − Total Cost) ÷ Quote × 100. Reads 0 until a positive quote is set.' },
@@ -88,8 +110,8 @@ export const psa: Record<string, ObjectTranslationData> = {
       pricing_manager: { label: 'Pricing Owner' },
       subcontract_ts_lead: { label: 'Subcontract TS Owner' },
       qa_lead: { label: 'QA Lead' },
-      budget_baseline: { label: 'Budget Baseline', help: 'The approved Bizcase total cost, carried over as the control baseline. Leave it empty on create and it is carried from the approved presales project, together with its cost plan lines.' },
-      planned_total: { label: 'Planned Total' },
+      budget_baseline: { label: 'Budget Baseline', help: 'The approved Bizcase total cost, the control baseline. Leave it empty on create and it defaults from the approved presales project; Import Bizcase Budget writes it together with cost plan v1 (spec step 27).' },
+      planned_total: { label: 'Planned Total', help: 'Total of the cost plan version currently in force; a draft version changes nothing here until approved.' },
       labor_actual: { label: 'Labor Actual' },
       travel_actual: { label: 'Travel Actual' },
       actual_cost: { label: 'Actual Cost' },
@@ -107,25 +129,6 @@ export const psa: Record<string, ObjectTranslationData> = {
       budget: { label: 'Budget & Actuals' },
       security: { label: 'Information Security' },
       approval: { label: 'Approval' },
-    },
-  },
-  crm_cost_plan_line: {
-    label: 'Cost Plan Line',
-    pluralLabel: 'Cost Plan Lines',
-    description: 'One planned cost amount for a delivery project, by category and month',
-    fields: {
-      crm_delivery_project: { label: 'Delivery Project' },
-      category: { label: 'Cost Category', options: { labor: 'Labor Service', third_party_service: 'Third-party Service', procurement: 'Hardware/Software Procurement', expense: 'Project Expense' } },
-      period_month: { label: 'Period (Month)' },
-      description: { label: 'Description', help: 'Grade / service name / procurement category the line is for.' },
-      quantity: { label: 'Quantity' },
-      unit_price: { label: 'Unit Price' },
-      planned_amount: { label: 'Planned Amount' },
-      notes: { label: 'Notes' },
-    },
-    _views: { all_cost_plan_lines: { label: 'All Cost Plan Lines' } },
-    _sections: {
-      basic: { label: 'Cost Plan Line' },
     },
   },
   crm_timesheet: {
@@ -166,6 +169,161 @@ export const psa: Record<string, ObjectTranslationData> = {
     _views: { all_travel_costs: { label: 'All Travel Costs' } },
     _sections: {
       basic: { label: 'Travel Cost' },
+    },
+  },
+  crm_travel_standard: {
+    label: 'Travel Standard',
+    pluralLabel: 'Travel Standards',
+    description: 'Daily lodging, meal and local transport standards per city tier plus a return-fare estimate: the unit price source for travel-type project expenses',
+    fields: {
+      name: { label: 'Standard Name' },
+      city_tier: { label: 'City Tier', options: { tier_1: 'Tier 1 City', tier_2: 'Tier 2 City', tier_3: 'Tier 3 and Below', overseas: 'Overseas' } },
+      lodging_per_day: { label: 'Lodging / Day' },
+      meal_per_day: { label: 'Meal Allowance / Day' },
+      local_transport_per_day: { label: 'Local Transport / Day' },
+      fare_per_trip: { label: 'Return Fare / Person-Trip' },
+      daily_total: { label: 'Daily Standard Total' },
+      effective_from: { label: 'Effective From' },
+      effective_to: { label: 'Effective To' },
+      is_active: { label: 'Active' },
+      notes: { label: 'Notes' },
+    },
+    _views: { all_travel_standards: { label: 'All Travel Standards' } },
+    _sections: {
+      basic: { label: 'Travel Standard' },
+    },
+  },
+  crm_cost_plan: {
+    label: 'Cost Plan',
+    pluralLabel: 'Cost Plans',
+    description: 'One version of a project cost plan: phase, version number, frozen baseline, and the rollup of its four line categories and monthly breakdown',
+    fields: {
+      plan_number: { label: 'Plan #' },
+      name: { label: 'Plan Name' },
+      owner_id: { label: 'Cost Manager' },
+      crm_presales_project: { label: 'Presales Project', help: 'A Bizcase-phase plan hangs off the presales project; set this or the delivery project, not both.' },
+      crm_delivery_project: { label: 'Delivery Project', help: 'A delivery-phase plan hangs off the delivery project; set this or the presales project, not both.' },
+      phase: { label: 'Phase', options: { bizcase: 'Bizcase (Presales)', delivery: 'Delivery' }, help: 'Set automatically on save from the project the plan hangs off.' },
+      version_no: { label: 'Version No.', help: 'Increments sequentially within a project; leave it empty and it is numbered on save.' },
+      is_current: { label: 'Current Version', help: 'The project reads only the current version\'s figures; marking a version current supersedes every other version automatically.' },
+      source_plan: { label: 'Cloned From' },
+      crm_budget_adjustment: { label: 'Triggering Budget Adjustment' },
+      baseline_total: { label: 'Frozen Baseline', help: 'The control baseline written when the Bizcase budget is imported; it cannot be changed afterwards.' },
+      planned_total: { label: 'Planned Total' },
+      labor_total: { label: 'Labor Service Total' },
+      service_total: { label: 'Third-party Service Total' },
+      procurement_total: { label: 'Hardware/Software Procurement Total' },
+      expense_total: { label: 'Project Expense Total' },
+      travel_total: { label: 'Of Which Travel' },
+      approval_status: {
+        label: 'Approval Status',
+        options: { draft: 'Draft', submitted: 'Submitted', pending: 'Pending', approved: 'Approved', rejected: 'Rejected', superseded: 'Superseded' },
+      },
+      approved_date: { label: 'Approved Date' },
+      notes: { label: 'Notes' },
+    },
+    _views: { all_cost_plans: { label: 'All Cost Plans' } },
+    _sections: {
+      basic: { label: 'Plan Information' },
+      totals: { label: 'Plan Amounts' },
+      approval: { label: 'Approval' },
+    },
+    _actions: {
+      submit_approval: { confirmText: 'Submit the cost plan for approval? The record is locked until the approval completes.', label: 'Submit for Approval', successMessage: 'The cost plan has been submitted for approval.' },
+      create_plan_version: { confirmText: 'Clone this version into a new draft version? The new version becomes current only once it is approved.', label: 'New Plan Version', successMessage: 'The new plan version has been created. Adjust its lines, then submit a budget adjustment for approval.' },
+    },
+    _validations: { one_project_per_plan: { message: 'A cost plan belongs to exactly one project: a presales project or a delivery project' } },
+  },
+  crm_labor_cost_line: {
+    label: 'Labor Service Cost Line',
+    pluralLabel: 'Labor Service Cost Lines',
+    description: 'Labor plan line: grade × rate × headcount × hours per month, split by month',
+    fields: {
+      ...costLineFields,
+      crm_rate_card: { label: 'Grade / Rate Card', help: 'The rate standard comes from the rate card; the rate in force is resolved month by month.' },
+      hourly_rate: { label: 'Rate Standard (Hourly)', help: 'The rate card\'s hourly rate in force in the start month, filled automatically on save.' },
+      headcount: { label: 'Headcount' },
+      hours_per_month: { label: 'Hours per Person per Month' },
+    },
+    _sections: {
+      basic: { label: 'Labor Service Cost Line' },
+    },
+    _actions: { ...redecomposeMonths },
+  },
+  crm_service_cost_line: {
+    label: 'Third-party Service Cost Line',
+    pluralLabel: 'Third-party Service Cost Lines',
+    description: 'Third-party service plan line: pricing basis × unit price × headcount × duration, split by month',
+    fields: {
+      ...costLineFields,
+      vendor: { label: 'Vendor' },
+      pricing_basis: { label: 'Pricing Basis', options: { per_month: 'Per Person-Month', per_day: 'Per Person-Day', lump_sum: 'Lump Sum' } },
+      unit_price: { label: 'Unit Price', help: 'Price per person-month or person-day, or the lump-sum total; taken from the vendor\'s quote.' },
+      headcount: { label: 'Headcount' },
+      duration: { label: 'Duration', help: 'Months for per-person-month pricing, person-days for per-person-day pricing; leave it empty for lump sum.' },
+    },
+    _sections: {
+      basic: { label: 'Third-party Service Cost Line' },
+    },
+    _actions: { ...redecomposeMonths },
+  },
+  crm_procurement_cost_line: {
+    label: 'Hardware/Software Procurement Cost Line',
+    pluralLabel: 'Hardware/Software Procurement Cost Lines',
+    description: 'Hardware / software procurement plan line: category × quantity × unit price, landed in the delivery month or amortised',
+    fields: {
+      ...costLineFields,
+      procurement_category: { label: 'Procurement Category', options: { hardware: 'Hardware', software_license: 'Software License', cloud_service: 'Cloud Service', maintenance: 'Maintenance' } },
+      crm_product: { label: 'Product', help: 'When a product is selected the unit price comes from its list price; otherwise type it in.' },
+      quantity: { label: 'Quantity' },
+      unit_price: { label: 'Unit Price' },
+    },
+    _sections: {
+      basic: { label: 'Hardware/Software Procurement Cost Line' },
+    },
+    _actions: { ...redecomposeMonths },
+  },
+  crm_expense_cost_line: {
+    label: 'Project Expense Cost Line',
+    pluralLabel: 'Project Expense Cost Lines',
+    description: 'Project expense plan line: travel computed from a travel standard, reimbursement types budgeted directly, split by month',
+    fields: {
+      ...costLineFields,
+      expense_type: expenseType,
+      crm_travel_standard: { label: 'Travel Standard' },
+      trips: { label: 'Number of Trips' },
+      travelers: { label: 'Travelers per Trip' },
+      days: { label: 'Days per Trip' },
+      budget_amount: { label: 'Budget Amount', help: 'For reimbursement types, enter the total budget directly; travel is computed from the travel standard, so leave it empty.' },
+    },
+    _sections: {
+      basic: { label: 'Project Expense Cost Line' },
+    },
+    _actions: { ...redecomposeMonths },
+  },
+  crm_cost_plan_month: {
+    label: 'Cost Plan Month',
+    pluralLabel: 'Cost Plan Months',
+    description: 'One planned amount of one cost line in one month; the ledger every plan total, project rollup and report reads',
+    fields: {
+      crm_cost_plan: { label: 'Cost Plan' },
+      category: costCategory,
+      crm_labor_cost_line: { label: 'Labor Service Cost Line' },
+      crm_service_cost_line: { label: 'Third-party Service Cost Line' },
+      crm_procurement_cost_line: { label: 'Hardware/Software Procurement Cost Line' },
+      crm_expense_cost_line: { label: 'Project Expense Cost Line' },
+      period_month: { label: 'Month', help: 'Normalised to the 1st of the month on save.' },
+      description: { label: 'Description', help: 'The line description plus the year and month, written automatically on save.' },
+      expense_type: { ...expenseType, help: 'Copied down from the expense line so travel and reimbursements roll up separately.' },
+      headcount: { label: 'Headcount' },
+      quantity: { label: 'Quantity / Hours' },
+      unit_price: { label: 'Unit Price / Rate', help: 'A snapshot for the month; labor lines resolve the rate in force month by month.' },
+      amount: { label: 'Amount' },
+      is_manual: { label: 'Manually Adjusted', help: 'When set, regenerating the monthly breakdown leaves this row untouched.' },
+      allocation_key: { label: 'Allocation Key', help: 'Category, line and year-month; one row per month.' },
+    },
+    _sections: {
+      basic: { label: 'Cost Plan Month' },
     },
   },
 };

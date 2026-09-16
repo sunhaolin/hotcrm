@@ -624,7 +624,13 @@ const ROW_LABEL: Record<string, Record<Locale, string>> = {
   // source labels; zh-Hant is their Traditional form.
   crm_presales_project: { en: 'Presales Project', 'zh-Hans': '售前项目', 'zh-Hant': '售前專案' },
   crm_delivery_project: { en: 'Delivery Project', 'zh-Hans': '交付项目', 'zh-Hant': '交付專案' },
-  crm_cost_plan_line: { en: 'Cost Plan Line', 'zh-Hans': '成本计划行', 'zh-Hant': '成本計畫行' },
+  crm_cost_plan: { en: 'Cost Plan', 'zh-Hans': '成本计划', 'zh-Hant': '成本計畫' },
+  crm_labor_cost_line: { en: 'Labor Cost Line', 'zh-Hans': '人工服务成本行', 'zh-Hant': '人工服務成本行' },
+  crm_service_cost_line: { en: 'Service Cost Line', 'zh-Hans': '第三方服务成本行', 'zh-Hant': '第三方服務成本行' },
+  crm_procurement_cost_line: { en: 'Procurement Cost Line', 'zh-Hans': '软硬件采购成本行', 'zh-Hant': '軟硬體採購成本行' },
+  crm_expense_cost_line: { en: 'Expense Cost Line', 'zh-Hans': '项目费用成本行', 'zh-Hant': '專案費用成本行' },
+  crm_cost_plan_month: { en: 'Cost Plan Month', 'zh-Hans': '月度分解行', 'zh-Hant': '月度分解行' },
+  crm_travel_standard: { en: 'Travel Standard', 'zh-Hans': '差旅标准', 'zh-Hant': '差旅標準' },
   crm_timesheet: { en: 'Timesheet', 'zh-Hans': '工时表', 'zh-Hant': '工時表' },
   crm_travel_cost: { en: 'Travel Cost', 'zh-Hans': '差旅成本', 'zh-Hant': '差旅成本' },
   crm_rate_card: { en: 'Rate Card', 'zh-Hans': '费率卡', 'zh-Hant': '費率卡' },
@@ -654,9 +660,9 @@ describe('the OWD table lists every registered object, in every locale', () => {
    * `docs-drift.test.ts` uses for `CRON_LABEL`.
    */
   const COUNT_WORD: Record<Locale, Record<number, string>> = {
-    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen' },
-    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五' },
-    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五' },
+    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen' },
+    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八' },
+    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八' },
   };
 
   it('the row ledger answers exactly the objects this app registers', () => {

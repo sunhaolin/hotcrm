@@ -147,7 +147,12 @@ const DOCS_LEDGER: Record<string, LedgerEntry> = {
   // Chinese at source, so each row carries the English term its page uses.
   crm_presales_project: { page: 'projects/presales-projects', term: 'presales project' },
   crm_delivery_project: { page: 'projects/delivery-projects', term: 'delivery project' },
-  crm_cost_plan_line: { page: 'projects/delivery-projects', term: 'cost plan line' },
+  crm_cost_plan: { page: 'projects/cost-plans', term: 'cost plan' },
+  crm_labor_cost_line: { page: 'projects/cost-plans', term: 'labor cost line' },
+  crm_service_cost_line: { page: 'projects/cost-plans', term: 'service cost line' },
+  crm_procurement_cost_line: { page: 'projects/cost-plans', term: 'procurement cost line' },
+  crm_expense_cost_line: { page: 'projects/cost-plans', term: 'expense cost line' },
+  crm_cost_plan_month: { page: 'projects/cost-plans', term: 'cost plan month' },
   crm_budget_adjustment: { page: 'projects/delivery-projects', term: 'budget adjustment' },
   crm_timesheet: { page: 'projects/timesheets-and-leave', term: 'timesheet' },
   crm_leave_request: { page: 'projects/timesheets-and-leave', term: 'leave request' },
@@ -159,6 +164,7 @@ const DOCS_LEDGER: Record<string, LedgerEntry> = {
   crm_sales_order: { page: 'projects/project-finance', term: 'sales order' },
   crm_rate_card: { page: 'projects/master-data', term: 'rate card' },
   crm_legal_entity: { page: 'projects/master-data', term: 'contracting entity' },
+  crm_travel_standard: { page: 'projects/master-data', term: 'travel standard' },
 };
 
 /** Sections written for developers — see check 4 in the header note. */

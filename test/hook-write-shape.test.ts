@@ -140,6 +140,36 @@ interface WriteCase {
 }
 
 const CASES: Record<string, WriteCase> = {
+  'cost_plan_defaults — a version made current retires the version it replaces (steps 27 / 32)': {
+    hook: 'cost_plan_defaults',
+    event: 'beforeInsert',
+    input: { name: '一期 v2', crm_delivery_project: 'dlv_1', is_current: true },
+    seed: {
+      crm_cost_plan: [{ id: 'cp_1', crm_delivery_project: 'dlv_1', version_no: 1, is_current: true, approval_status: 'approved' }],
+    },
+    writes: [{ object: 'crm_cost_plan', id: 'cp_1', doc: { is_current: false, approval_status: 'superseded' } }],
+  },
+  'cost_line_decompose — a re-saved line refreshes the month it already has (steps 28–31)': {
+    hook: 'cost_line_decompose',
+    event: 'afterUpdate',
+    input: { hours_per_month: 100 },
+    previous: { id: 'lcl_1', crm_cost_plan: 'cp_1', description: 'SE', crm_rate_card: 'rc_1', headcount: 1, hours_per_month: 160, start_month: '2026-06-01' },
+    seed: {
+      crm_rate_card: [{ id: 'rc_1', name: '高级工程师', hourly_rate: 800, is_active: true }],
+      crm_cost_plan_month: [{ id: 'cpm_1', crm_cost_plan: 'cp_1', crm_labor_cost_line: 'lcl_1', period_month: '2026-06-01', amount: 128000, is_manual: false }],
+    },
+    writes: [{ object: 'crm_cost_plan_month', id: 'cpm_1', doc: { amount: 80000, quantity: 100, unit_price: 800, is_manual: false } }],
+  },
+  'budget_adjustment_version_flip — an approved adjustment puts its plan version in force (step 32)': {
+    hook: 'budget_adjustment_version_flip',
+    event: 'afterUpdate',
+    input: { approval_status: 'approved' },
+    previous: { id: 'ba_1', crm_cost_plan: 'cp_2', approval_status: 'pending' },
+    seed: {
+      crm_cost_plan: [{ id: 'cp_2', is_current: false, approval_status: 'draft' }],
+    },
+    writes: [{ object: 'crm_cost_plan', id: 'cp_2', doc: { is_current: true, approval_status: 'approved' } }],
+  },
   'leave_timesheet_sync — an approved leave re-saves the requester’s sheet for that month (PSA demo, epic #2)': {
     hook: 'leave_timesheet_sync',
     event: 'afterUpdate',

@@ -8,9 +8,9 @@ import { APPROVAL_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS, BUSINESS_CATEGORY_OPTION
  * 交付项目 — steps 21–26 plus the cost rollups steps 27, 36 and 39 read
  * (epic #2 / T3). Demo branch only.
  *
- * The rollups are platform-native `Field.summary` over the three cost children
- * (T4); the two percentages inline the two summaries rather than read a formula
- * from a formula. Two of the three are master-detail: `crm_timesheet` became a
+ * The rollups are platform-native `Field.summary` over the cost children; the
+ * two percentages inline the two summaries rather than read a formula from a
+ * formula. `planned_total` reads the current `crm_cost_plan` version. Two of the three are master-detail: `crm_timesheet` became a
  * `lookup` child when its delivery project stopped being mandatory (「交付项目
  * 不要必填」, 2026-09-15), and `Field.summary` reads either relationship — a
  * sheet that names no project simply joins no project's `labor_actual`.
@@ -74,12 +74,14 @@ export const DeliveryProject = ObjectSchema.create({
     subcontract_ts_lead: Field.lookup('sys_user', { label: 'Subcontract TS Owner', group: 'roles' }),
     qa_lead: Field.lookup('sys_user', { label: 'QA Lead', group: 'roles' }),
 
-    budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, carried over as the control baseline. Leave it empty on create and it is carried from the approved presales project, together with that Bizcase as cost plan lines (spec step 27).', scale: 2, group: 'budget' }),
+    budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, the control baseline. Leave it empty on create and it defaults from the approved presales project; 导入 Bizcase 预算 writes it together with cost plan v1 (spec step 27).', scale: 2, group: 'budget' }),
+    // Steps 27–31: the CURRENT 成本计划 version's total (itself a rollup of the
+    // month ledger); a draft revision changes nothing here until approved.
     planned_total: Field.summary({
       label: 'Planned Total',
       group: 'budget',
       scale: 2,
-      summaryOperations: { object: 'crm_cost_plan_line', field: 'planned_amount', function: 'sum', relationshipField: 'crm_delivery_project' },
+      summaryOperations: { object: 'crm_cost_plan', field: 'planned_total', function: 'sum', relationshipField: 'crm_delivery_project', filter: { is_current: true } },
     }),
     labor_actual: Field.summary({
       label: 'Labor Actual',

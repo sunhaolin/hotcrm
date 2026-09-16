@@ -4,8 +4,8 @@ import type { ObjectTranslationData } from '@objectstack/spec/system';
 
 /**
  * 简体中文 (zh-CN) — `objects` translations for the PSA family (demo, epic #2):
- * `crm_presales_project`, `crm_delivery_project`, `crm_cost_plan_line`,
- * `crm_timesheet`, `crm_travel_cost`.
+ * `crm_presales_project`, `crm_delivery_project`, `crm_timesheet`,
+ * `crm_travel_cost`.
  */
 const approval = {
   approval_status: {
@@ -122,26 +122,6 @@ export const psa: Record<string, ObjectTranslationData> = {
       finance: { label: '合同与财务' },
       security: { label: '信息安全' },
       approval: { label: '审批' },
-    },
-  },
-  crm_cost_plan_line: {
-    label: '成本计划行',
-    pluralLabel: '成本计划行',
-    description: '交付项目按类别、按月的一条计划成本',
-    fields: {
-      crm_delivery_project: { label: '交付项目' },
-      category: { label: '成本类别', options: { labor: '人工服务', third_party_service: '第三方服务', procurement: '软硬件采购', expense: '项目费用' } },
-      period_month: { label: '月份' },
-      description: { label: '说明', help: '岗位级别 / 服务名称 / 采购品类。' },
-      crm_rate_card: { label: '岗位级别 / 费率卡', help: '人工行选费率卡后自动带出单价。' },
-      quantity: { label: '数量' },
-      unit_price: { label: '单价' },
-      planned_amount: { label: '计划金额' },
-      notes: { label: '备注' },
-    },
-    _views: { all_cost_plan_lines: { label: '全部成本计划行' } },
-    _sections: {
-      basic: { label: '成本计划行' },
     },
   },
   crm_timesheet: {

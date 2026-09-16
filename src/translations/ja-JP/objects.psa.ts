@@ -3,7 +3,7 @@
 import type { ObjectTranslationData } from '@objectstack/spec/system';
 
 /**
- * ja-JP — the PSA family (demo, epic #2): the fourteen project / finance objects in full, and the keys the demo added to crm_account, crm_contact, crm_lead and crm_opportunity (merged over the base pack at the locale root).
+ * ja-JP — the PSA family (demo, epic #2): the twenty project / finance objects in full, and the keys the demo added to crm_account, crm_contact, crm_lead and crm_opportunity (merged over the base pack at the locale root).
  */
 export const psa: Record<string, Partial<ObjectTranslationData>> = {
   crm_presales_project: {
@@ -38,7 +38,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       crm_opportunity: { label: '商談' },
       expected_contract_amount: { label: '契約見込金額' },
       gross_margin_pct: { help: '（見積 − 総コスト）÷ 見積 × 100。見積が正の値になるまでは 0。', label: '粗利率 (%)' },
-      labor_cost: { label: '人的サービスコスト' },
+      labor_cost: { label: '人的サービスコスト', help: '現行 Bizcase コスト計画の人的サービス合計。手入力はできません。' },
       name: { label: 'プロジェクト名' },
       owner_id: { label: 'プロジェクト責任者' },
       planned_end: { label: '計画終了日' },
@@ -46,9 +46,9 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       presales_hours: { label: 'プリセールス工数' },
       presales_labor_actual: { label: 'プリセールス人件費実績' },
       pricing_manager: { label: '見積責任者' },
-      procurement_cost: { label: 'ハード・ソフト購買コスト' },
+      procurement_cost: { label: 'ハード・ソフト購買コスト', help: '現行 Bizcase コスト計画のハードウェア/ソフトウェア調達合計。手入力はできません。' },
       project_director: { label: 'プロジェクトディレクター' },
-      project_expense: { label: 'プロジェクト経費' },
+      project_expense: { label: 'プロジェクト経費', help: '現行 Bizcase コスト計画のプロジェクト経費合計。手入力はできません。' },
       project_manager: { label: 'プロジェクトマネージャー' },
       project_number: { label: 'プロジェクト番号' },
       project_qa: { label: 'プロジェクト QA' },
@@ -72,7 +72,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         },
       },
       security_note: { label: 'セキュリティ備考' },
-      third_party_service_cost: { label: '第三者サービスコスト' },
+      third_party_service_cost: { label: '第三者サービスコスト', help: '現行 Bizcase コスト計画の第三者サービス合計。手入力はできません。' },
       total_cost: { label: '総コスト' },
     },
     _sections: {
@@ -113,7 +113,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: '承認日時' },
       budget_adjustment_total: { label: '承認済み調整額' },
-      budget_baseline: { help: '承認済み Bizcase の総コストを管理ベースラインとして引き継ぎます。作成時に空欄にすると、承認済みプリセールスプロジェクトから Bizcase ごとコスト計画明細として引き継がれます（仕様ステップ 27）。', label: '予算ベースライン' },
+      budget_baseline: { help: '承認済み Bizcase の総コスト、すなわち管理ベースライン。作成時に空欄にすると承認済みプリセールスプロジェクトから既定値が入ります。「Bizcase 予算を取込」がコスト計画 v1 とともに書き込みます（仕様ステップ 27）。', label: '予算ベースライン' },
       budget_burn_pct: { help: '実績 ÷ 現行予算 × 100。予算が正の値になるまでは 0。', label: '予算消化率 (%)' },
       budget_current: { help: '予算ベースライン + 承認済み予算調整。', label: '現行予算' },
       budget_variance: { label: '予算差異' },
@@ -147,7 +147,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       owner_id: { label: 'プロジェクト責任者' },
       planned_end: { label: '計画終了日' },
       planned_start: { label: '計画開始日' },
-      planned_total: { label: '計画合計' },
+      planned_total: { label: '計画合計', help: '現行コスト計画バージョンの合計。下書きは承認されるまでここに影響しません。' },
       pricing_manager: { label: '見積責任者' },
       progress_pct: { help: '0〜100、プロジェクトマネージャーが更新。', label: '進捗率 (%)' },
       project_director: { label: 'プロジェクトディレクター' },
@@ -198,15 +198,196 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       project_overview: { label: 'プロジェクト総合照会' },
     },
     _actions: {
+      import_bizcase_budget: { confirmText: 'プリセールスプロジェクトの承認済み Bizcase コスト計画を管理ベースラインとして、デリバリーコスト計画 v1 を生成しますか？取込後はベースラインを変更できません。', label: 'Bizcase 予算を取込', successMessage: 'Bizcase 予算を取り込みました。ベースラインを凍結し、コスト計画 v1 を生成しました。' },
       submit_approval: { confirmText: 'デリバリープロジェクトの承認を申請しますか？承認が完了するまでレコードはロックされます。', label: '承認を申請', successMessage: 'デリバリープロジェクトの承認を申請しました。承認者の処理をお待ちください。' },
     },
   },
-  crm_cost_plan_line: {
-    label: 'コスト計画明細',
-    pluralLabel: 'コスト計画明細',
-    description: 'デリバリープロジェクトの区分別・月別の計画コスト 1 件',
+  crm_cost_plan: {
+    label: 'コスト計画',
+    pluralLabel: 'コスト計画',
+    description: 'プロジェクトのコスト計画の 1 バージョン：フェーズ、版番号、凍結ベースライン、4 種類の明細行とコスト計画月次行の集計',
     fields: {
-      description: { help: '明細の対象となるグレード / サービス名 / 購買区分。', label: '説明' },
+      approval_status: {
+        label: '承認状況',
+        options: {
+          approved: '承認済み',
+          draft: '下書き',
+          pending: '承認待ち',
+          rejected: '却下',
+          submitted: '承認申請済み',
+          superseded: '廃止',
+        },
+      },
+      approved_date: { label: '承認日時' },
+      baseline_total: { help: 'Bizcase 予算の取込時に書き込まれる管理ベースライン。以後変更できません。', label: '凍結ベースライン' },
+      crm_budget_adjustment: { label: 'このバージョンを起こした予算調整' },
+      crm_delivery_project: { help: 'デリバリーフェーズの計画はデリバリープロジェクトに紐づけます。プリセールスプロジェクトとはどちらか一方のみ。', label: 'デリバリープロジェクト' },
+      crm_presales_project: { help: 'Bizcase フェーズの計画はプリセールスプロジェクトに紐づけます。デリバリープロジェクトとはどちらか一方のみ。', label: 'プリセールスプロジェクト' },
+      expense_total: { label: 'プロジェクト経費合計' },
+      is_current: { help: 'プロジェクトは現行バージョンの金額のみ参照します。現行にすると他のバージョンは自動的に廃止されます。', label: '現行バージョン' },
+      labor_total: { label: '人的サービス合計' },
+      name: { label: '計画名' },
+      notes: { label: '備考' },
+      owner_id: { label: 'コスト管理者' },
+      phase: {
+        help: '保存時に紐づくプロジェクトから自動設定されます。',
+        label: 'フェーズ',
+        options: {
+          bizcase: 'Bizcase（プリセールス）',
+          delivery: 'デリバリー',
+        },
+      },
+      plan_number: { label: '計画番号' },
+      planned_total: { label: '計画総額' },
+      procurement_total: { label: 'ハード・ソフト購買合計' },
+      service_total: { label: '第三者サービス合計' },
+      source_plan: { label: '複製元' },
+      travel_total: { label: 'うち出張' },
+      version_no: { help: '同一プロジェクト内で連番。空欄のまま保存すると自動採番されます。', label: '版番号' },
+    },
+    _sections: {
+      approval: { label: '承認' },
+      basic: { label: '計画情報' },
+      totals: { label: '計画金額' },
+    },
+    _views: {
+      all_cost_plans: { label: 'すべてのコスト計画' },
+    },
+    _actions: {
+      create_plan_version: { confirmText: '現行バージョンを元に新しい下書きバージョンを複製しますか？新バージョンは承認後に現行バージョンになります。', label: '計画バージョンを新規作成', successMessage: '新しい計画バージョンを作成しました。新バージョンで明細行を調整し、予算調整の承認を申請してください。' },
+      submit_approval: { confirmText: 'コスト計画の承認を申請しますか？承認が完了するまでレコードはロックされます。', label: '承認を申請', successMessage: 'コスト計画の承認を申請しました。承認者の処理をお待ちください。' },
+    },
+    _validations: { one_project_per_plan: { message: 'コスト計画は 1 つのプロジェクト（プリセールスまたはデリバリー）にのみ紐づけられます' } },
+  },
+  crm_labor_cost_line: {
+    label: '人的サービスコスト明細',
+    pluralLabel: '人的サービスコスト明細',
+    description: '人件費計画明細：グレード × 単価 × 人数 × 月間工数を月別に分解',
+    fields: {
+      description: { label: '説明' },
+      crm_cost_plan: { label: 'コスト計画' },
+      crm_rate_card: { help: '単価基準は単価表から設定し、月ごとに有効な単価を解決します。', label: 'グレード / 単価表' },
+      end_month: { help: '分解する最後の月。空欄の場合は開始月のみに計上します。', label: '終了月' },
+      headcount: { label: '人数' },
+      hourly_rate: { help: '開始月に有効な単価表の時間単価。保存時に自動設定されます。', label: '単価基準（時間）' },
+      hours_per_month: { label: '1 人あたり月間工数' },
+      notes: { label: '備考' },
+      planned_amount: { label: '計画金額', help: 'この明細の各月の合計。手入力はできません。' },
+      start_month: { help: '分解する最初の月。その月の 1 日として記録します。', label: '開始月' },
+    },
+    _sections: {
+      basic: { label: '人的サービスコスト明細' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: 'この明細行で手動調整した月をすべて解除し、人数・単価・開始月/終了月から再分解しますか？', label: '再分解', successMessage: '月次分解を再生成しました。' },
+    },
+  },
+  crm_service_cost_line: {
+    label: '第三者サービスコスト明細',
+    pluralLabel: '第三者サービスコスト明細',
+    description: '第三者サービス計画明細：課金方式 × 単価 × 人数 × 期間を月別に分解',
+    fields: {
+      description: { label: '説明' },
+      crm_cost_plan: { label: 'コスト計画' },
+      duration: { help: '人月課金は月数、人日課金は人日数。一括請負では空欄。', label: '期間' },
+      end_month: { help: '分解する最後の月。空欄の場合は開始月のみに計上します。', label: '終了月' },
+      headcount: { label: '人数' },
+      notes: { label: '備考' },
+      planned_amount: { label: '計画金額', help: 'この明細の各月の合計。手入力はできません。' },
+      pricing_basis: {
+        label: '課金方式',
+        options: {
+          lump_sum: '一括請負',
+          per_day: '人日',
+          per_month: '人月',
+        },
+      },
+      start_month: { help: '分解する最初の月。その月の 1 日として記録します。', label: '開始月' },
+      unit_price: { help: '人月 / 人日単価、または一括請負の総額。サプライヤーの見積に基づきます。', label: '単価' },
+      vendor: { label: 'サプライヤー' },
+    },
+    _sections: {
+      basic: { label: '第三者サービスコスト明細' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: 'この明細行で手動調整した月をすべて解除し、人数・単価・開始月/終了月から再分解しますか？', label: '再分解', successMessage: '月次分解を再生成しました。' },
+    },
+  },
+  crm_procurement_cost_line: {
+    label: 'ハード・ソフト購買コスト明細',
+    pluralLabel: 'ハード・ソフト購買コスト明細',
+    description: 'ハード・ソフト購買計画明細：品目区分 × 数量 × 単価。納品月に計上、または期間で按分',
+    fields: {
+      description: { label: '説明' },
+      crm_cost_plan: { label: 'コスト計画' },
+      crm_product: { help: '製品を選ぶと単価は価格表から設定されます。選ばない場合は手入力。', label: '製品' },
+      end_month: { help: '分解する最後の月。空欄の場合は開始月のみに計上します。', label: '終了月' },
+      notes: { label: '備考' },
+      planned_amount: { label: '計画金額', help: 'この明細の各月の合計。手入力はできません。' },
+      procurement_category: {
+        label: '購買品目区分',
+        options: {
+          cloud_service: 'クラウドサービス',
+          hardware: 'ハードウェア',
+          maintenance: '保守',
+          software_license: 'ソフトウェアライセンス',
+        },
+      },
+      quantity: { label: '数量' },
+      start_month: { help: '分解する最初の月。その月の 1 日として記録します。', label: '開始月' },
+      unit_price: { label: '単価' },
+    },
+    _sections: {
+      basic: { label: 'ハード・ソフト購買コスト明細' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: 'この明細行で手動調整した月をすべて解除し、人数・単価・開始月/終了月から再分解しますか？', label: '再分解', successMessage: '月次分解を再生成しました。' },
+    },
+  },
+  crm_expense_cost_line: {
+    label: 'プロジェクト経費コスト明細',
+    pluralLabel: 'プロジェクト経費コスト明細',
+    description: 'プロジェクト経費計画明細：出張は出張基準から計算、精算型は直接予算計上。月別に分解',
+    fields: {
+      description: { label: '説明' },
+      budget_amount: { help: '精算型経費は予算総額を直接入力。出張は出張基準から計算するため空欄。', label: '予算額' },
+      crm_cost_plan: { label: 'コスト計画' },
+      crm_travel_standard: { label: '出張基準' },
+      days: { label: '1 回あたり日数' },
+      end_month: { help: '分解する最後の月。空欄の場合は開始月のみに計上します。', label: '終了月' },
+      expense_type: {
+        label: '経費種別',
+        options: {
+          communication: '通信費',
+          entertainment: '交際費',
+          meeting: '会議費',
+          office: '事務費',
+          other: 'その他精算',
+          training: '研修費',
+          travel: '出張',
+        },
+      },
+      notes: { label: '備考' },
+      planned_amount: { label: '計画金額', help: 'この明細の各月の合計。手入力はできません。' },
+      start_month: { help: '分解する最初の月。その月の 1 日として記録します。', label: '開始月' },
+      travelers: { label: '1 回あたり人数' },
+      trips: { label: '出張回数' },
+    },
+    _sections: {
+      basic: { label: 'プロジェクト経費コスト明細' },
+    },
+    _actions: {
+      redecompose_months: { confirmText: 'この明細行で手動調整した月をすべて解除し、人数・単価・開始月/終了月から再分解しますか？', label: '再分解', successMessage: '月次分解を再生成しました。' },
+    },
+  },
+  crm_cost_plan_month: {
+    label: 'コスト計画月次行',
+    pluralLabel: 'コスト計画月次行',
+    description: '1 つのコスト明細行の 1 か月分の計画金額。計画の合計、プロジェクトの集計、レポートのすべてが参照する台帳',
+    fields: {
+      description: { help: '明細行の説明に年月を付けたもの。保存時に自動設定されます。', label: '説明' },
+      allocation_key: { help: '区分・明細行・年月の組み合わせ。1 か月につき 1 行。', label: '分解キー' },
+      amount: { label: '金額' },
       category: {
         label: 'コスト区分',
         options: {
@@ -216,19 +397,32 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
           third_party_service: '第三者サービス',
         },
       },
-      crm_delivery_project: { label: 'デリバリープロジェクト' },
-      crm_rate_card: { help: '人件費明細：単価表から単価を設定 (cost_plan_line_fill)。', label: 'グレード / 単価表' },
-      notes: { label: '備考' },
-      period_month: { label: '対象月' },
-      planned_amount: { label: '計画金額' },
-      quantity: { label: '数量' },
-      unit_price: { label: '単価' },
+      crm_cost_plan: { label: 'コスト計画' },
+      crm_expense_cost_line: { label: 'プロジェクト経費コスト明細' },
+      crm_labor_cost_line: { label: '人的サービスコスト明細' },
+      crm_procurement_cost_line: { label: 'ハード・ソフト購買コスト明細' },
+      crm_service_cost_line: { label: '第三者サービスコスト明細' },
+      expense_type: {
+        help: '経費行から複製。出張と精算を分けて集計するために使います。',
+        label: '経費種別',
+        options: {
+          communication: '通信費',
+          entertainment: '交際費',
+          meeting: '会議費',
+          office: '事務費',
+          other: 'その他精算',
+          training: '研修費',
+          travel: '出張',
+        },
+      },
+      headcount: { label: '人数' },
+      is_manual: { help: 'オンにすると再分解でこの行は上書きされません。', label: '手動調整' },
+      period_month: { help: '保存時にその月の 1 日に正規化されます。', label: '対象月' },
+      quantity: { label: '数量 / 工数' },
+      unit_price: { help: 'その月のスナップショット。人件費行は月ごとに有効な単価を解決します。', label: '単価 / レート' },
     },
     _sections: {
-      basic: { label: 'コスト計画明細' },
-    },
-    _views: {
-      all_cost_plan_lines: { label: 'コスト計画明細' },
+      basic: { label: 'コスト計画月次行' },
     },
   },
   crm_timesheet: {
@@ -306,12 +500,53 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       is_active: { label: '有効' },
       name: { label: '職位グレード' },
       notes: { label: '備考' },
+      rate_standard: {
+        help: '同じ職位グレードでも基準ごとに行を分けられます。人件費明細はグレードと基準からその月に有効な単価を解決します。',
+        label: '単価基準',
+        options: {
+          discount: '優待',
+          outsourced: '外注',
+          standard: '標準',
+        },
+      },
     },
     _sections: {
       basic: { label: '単価表' },
     },
     _views: {
       all_rate_cards: { label: 'すべての単価表' },
+    },
+  },
+  crm_travel_standard: {
+    label: '出張基準',
+    pluralLabel: '出張基準',
+    description: '都市区分ごとの宿泊・食事・市内交通の日額基準と往復交通費の見積：出張型プロジェクト経費の単価の出所',
+    fields: {
+      city_tier: {
+        label: '都市区分',
+        options: {
+          overseas: '海外',
+          tier_1: '一線都市',
+          tier_2: '二線都市',
+          tier_3: '三線都市以下',
+        },
+      },
+      daily_total: { label: '日額基準合計' },
+      effective_from: { label: '有効開始日' },
+      effective_to: { label: '失効日' },
+      fare_per_trip: { label: '往復交通費 / 人回' },
+      is_active: { label: '有効' },
+      local_transport_per_day: { label: '市内交通 / 日' },
+      lodging_per_day: { label: '宿泊基準 / 日' },
+      meal_per_day: { label: '食事手当 / 日' },
+      name: { label: '基準名' },
+      notes: { label: '備考' },
+    },
+    _sections: {
+      basic: { label: '出張基準' },
+    },
+    _views: {
+      all_travel_standards: { label: 'すべての出張基準' },
     },
   },
   crm_legal_entity: {
@@ -343,7 +578,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
     description: 'デリバリープロジェクトの予算追加・削減申請：調整額、理由、差異分析。承認後に現行予算へ反映',
     fields: {
       adjustment_number: { label: '調整番号' },
-      amount: { help: '追加は正の値、削減は負の値', label: '調整額' },
+      amount: { help: '追加は正の値、削減は負の値。計画バージョンを紐づけた場合はバージョン総額の差からシステムが書き込みます。', label: '調整額' },
       analysis: { help: '予算不足の理由、ベースラインとの差異と影響', label: '差異分析' },
       approval_status: {
         label: '承認状況',
@@ -356,6 +591,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
         },
       },
       approved_date: { label: '承認日時' },
+      crm_cost_plan: { help: 'コスト計画の「計画バージョンを新規作成」で得た下書きバージョン。承認後に現行バージョンとなり、調整額 = 新旧バージョンの総額の差。', label: '調整後の計画バージョン' },
       crm_delivery_project: { label: 'デリバリープロジェクト' },
       notes: { label: '備考' },
       owner_id: { label: '申請者' },

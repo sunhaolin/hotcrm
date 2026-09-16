@@ -119,6 +119,7 @@ export const CrmApp = App.create({
       children: [
         { id: 'nav_presales_project',       type: 'object',    objectName: 'crm_presales_project',      label: 'Presales Projects', icon: 'lightbulb' },
         { id: 'nav_delivery_project',       type: 'object',    objectName: 'crm_delivery_project',      label: 'Delivery Projects', icon: 'hammer' },
+        { id: 'nav_cost_plan',              type: 'object',    objectName: 'crm_cost_plan',             label: 'Cost Plans',        icon: 'calculator' },
         { id: 'nav_timesheet',              type: 'object',    objectName: 'crm_timesheet',             label: 'Timesheets',        icon: 'clock' },
         { id: 'nav_travel_cost',            type: 'object',    objectName: 'crm_travel_cost',           label: 'Travel Costs',      icon: 'plane' },
         { id: 'nav_business_trip',          type: 'object',    objectName: 'crm_business_trip',         label: 'Business Trips',    icon: 'map-pin' },
@@ -157,6 +158,7 @@ export const CrmApp = App.create({
       expanded: false,
       children: [
         { id: 'nav_rate_card',    type: 'object', objectName: 'crm_rate_card',    label: 'Rate Cards',           icon: 'tag' },
+        { id: 'nav_travel_standard', type: 'object', objectName: 'crm_travel_standard', label: 'Travel Standards', icon: 'map-pin' },
         { id: 'nav_legal_entity', type: 'object', objectName: 'crm_legal_entity', label: 'Contracting Entities', icon: 'building' },
       ],
     },

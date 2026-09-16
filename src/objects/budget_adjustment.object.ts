@@ -26,7 +26,8 @@ export const BudgetAdjustment = ObjectSchema.create({
     adjustment_number: Field.autonumber({ label: '调整单号', format: 'BA-{0000}', group: 'basic' }),
     owner_id: Field.lookup('sys_user', { label: '申请人', group: 'basic', system: true, readonly: false }),
     crm_delivery_project: Field.masterDetail('crm_delivery_project', { label: '交付项目', group: 'basic', required: true, storage: { notNull: true }, deleteBehavior: 'cascade' }),
-    amount: Field.currency({ label: '调整金额', scale: 2, required: true, storage: { notNull: true }, group: 'basic', description: '追加为正数，核减为负数' }),
+    crm_cost_plan: Field.lookup('crm_cost_plan', { label: '调整后的计划版本', group: 'basic', description: '在成本计划上「新建计划版本」得到的草稿版本；审批通过后成为当前版本，调整金额 = 新旧版本总额之差。' }),
+    amount: Field.currency({ label: '调整金额', scale: 2, required: true, storage: { notNull: true }, group: 'basic', description: '追加为正数，核减为负数；挂了计划版本时由系统按版本总额之差写入' }),
     reason: Field.select({
       label: '调整原因',
       group: 'basic',
@@ -50,6 +51,7 @@ export const BudgetAdjustment = ObjectSchema.create({
   indexes: [
     { fields: ['crm_delivery_project'] },
     { fields: ['approval_status'] },
+    { fields: ['crm_cost_plan'] },
   ],
   enable: {
     apiEnabled: true,

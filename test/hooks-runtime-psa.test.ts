@@ -2,7 +2,6 @@
 
 import { describe, it, expect } from 'vitest';
 import timesheetHooks from '../src/objects/timesheet.hook';
-import costPlanLineHooks from '../src/objects/cost_plan_line.hook';
 import presalesProjectHooks from '../src/objects/presales_project.hook';
 import deliveryProjectHooks from '../src/objects/delivery_project.hook';
 import leaveRequestHooks from '../src/objects/leave_request.hook';
@@ -300,27 +299,6 @@ describe('timesheet_budget_gate', () => {
   });
 });
 
-// ─────────────────────────────────────────────────────── cost plan line ──
-
-describe('cost_plan_line_fill', () => {
-  const hook = hookNamed(costPlanLineHooks, 'cost_plan_line_fill');
-
-  it('takes the unit price from the rate card and multiplies it out', async () => {
-    const h = makeHarness({ crm_rate_card: [{ id: 'rc_se', hourly_rate: 800 }] });
-    const input: Rec = { crm_rate_card: 'rc_se', quantity: 160 };
-    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
-    expect(input.unit_price).toBe(800);
-    expect(input.planned_amount).toBe(128_000);
-  });
-
-  it('leaves a planned amount the caller wrote alone', async () => {
-    const h = makeHarness();
-    const input: Rec = { quantity: 2, unit_price: 25_000, planned_amount: 40_000 };
-    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
-    expect(input.planned_amount).toBe(40_000);
-  });
-});
-
 // ───────────────────────────────────────────────────── presales project ──
 
 /**
@@ -389,7 +367,6 @@ describe('presales_project_account_carry', () => {
 const bizcase = () => ({
   crm_presales_project: [{ id: 'psp_1', project_number: 'PSP-0001', approval_status: 'approved', labor_cost: 600_000, third_party_service_cost: 250_000, procurement_cost: 100_000, project_expense: 50_000, crm_opportunity: 'opp_1', crm_account: 'acc_1' }],
   crm_contract: [{ id: 'ctr_1', contract_value: 1_400_000, crm_account: 'acc_1' }],
-  crm_cost_plan_line: [] as Rec[],
 });
 
 describe('delivery_project_defaults', () => {
@@ -481,39 +458,6 @@ describe('delivery_project_defaults', () => {
     expect(input.budget_baseline).toBeUndefined();
   });
 });
-
-describe('delivery_project_cost_plan_carry', () => {
-  const hook = hookNamed(deliveryProjectHooks, 'delivery_project_cost_plan_carry');
-  const created = { id: 'dlv_1', crm_presales_project: 'psp_1', budget_baseline: 1_000_000 };
-
-  it('carries the four Bizcase figures as four plan lines on a user create', async () => {
-    const h = makeHarness(bizcase());
-    await hook.handler(withResult(makeCtx({ event: 'afterInsert', input: created, user: USER, api: h.api }), created));
-    const lines = h.rows('crm_cost_plan_line');
-    expect(lines.map((l) => [l.category, l.planned_amount])).toEqual([
-      ['labor', 600_000], ['third_party_service', 250_000], ['procurement', 100_000], ['expense', 50_000],
-    ]);
-    expect(lines.every((l) => l.crm_delivery_project === 'dlv_1')).toBe(true);
-  });
-
-  it('carries nothing for a system write, an unapproved Bizcase, or a baseline that is not that total', async () => {
-    const asSystem = makeHarness(bizcase());
-    await hook.handler(withResult(makeCtx({ event: 'afterInsert', input: created, session: { isSystem: true }, api: asSystem.api }), created));
-    expect(asSystem.rows('crm_cost_plan_line')).toHaveLength(0);
-
-    const draft = bizcase(); draft.crm_presales_project[0].approval_status = 'draft';
-    const h2 = makeHarness(draft);
-    await hook.handler(withResult(makeCtx({ event: 'afterInsert', input: created, user: USER, api: h2.api }), created));
-    expect(h2.rows('crm_cost_plan_line')).toHaveLength(0);
-
-    const h3 = makeHarness(bizcase());
-    const typed = { ...created, budget_baseline: 500_000 };
-    await hook.handler(withResult(makeCtx({ event: 'afterInsert', input: typed, user: USER, api: h3.api }), typed));
-    expect(h3.rows('crm_cost_plan_line')).toHaveLength(0);
-  });
-});
-
-// ─────────────────────────────────────────────────────── leave request ──
 
 describe('leave_days_fill', () => {
   const hook = hookNamed(leaveRequestHooks, 'leave_days_fill');

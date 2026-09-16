@@ -1,27 +1,38 @@
 ---
 title: Master Data
-description: Rate cards — a grade and its hourly and daily rate — and contracting entities, the legal entity that signs; two public read/write tables the rest of the module prices and contracts from.
+description: Rate cards — a grade, a rate standard and its effective hourly and daily rate — travel standards, and contracting entities, the legal entity that signs; three public read/write tables the rest of the module prices and contracts from.
 ---
 
 # Master Data
 
-Two small tables sit under everything else in this module. A **rate card** (费率卡, `crm_rate_card`) says what an hour of a given grade costs; a **contracting entity** (签约主体, `crm_legal_entity`) is the legal entity of your own company that signs a contract. Both live in the **Master Data** navigation group, which is collapsed when the app loads.
+Three small tables sit under everything else in this module. A **rate card** (费率卡, `crm_rate_card`) says what an hour of a given grade costs; a **travel standard** (差旅标准, `crm_travel_standard`) says what a day away costs in a given city tier; a **contracting entity** (签约主体, `crm_legal_entity`) is the legal entity of your own company that signs a contract. All three live in the **Master Data** navigation group, which is collapsed when the app loads.
 
 ## Rate cards
 
 | Field | What it is |
 | --- | --- |
-| Name, Grade Code | The grade — *senior engineer*, *architect*, *project manager* … |
+| Name, Grade Code, Rate Standard | The grade — *senior engineer*, *architect*, *project manager* … — and the standard it is priced under (*standard, discount, outsourced*) |
 | Hourly Rate, Daily Rate | What the grade costs; the hourly rate is what timesheets and labor plan lines copy |
-| Effective From, Effective To, Active | The card's validity; pick an active card |
+| Effective From, Effective To, Active | The interval this row's rate applies to; the same grade and standard may have one row per interval |
 | Notes | Anything the rate assumes |
 
 Where it is used:
 
 - a **timesheet** picks a grade and `timesheet_rate_fill` copies the hourly rate onto the sheet — see [Timesheets & Leave](/docs/projects/timesheets-and-leave);
-- a **labor cost plan line** picks a grade and `cost_plan_line_fill` copies the hourly rate as its unit price — see [Delivery Projects](/docs/projects/delivery-projects).
+- a **labor cost line** picks a grade and `cost_line_rate_fill` copies the hourly rate onto the line; when the line is split into months, each month is priced by the row of that grade and standard effective in that month — see [Cost Plans](/docs/projects/cost-plans).
 
-Both are copies made at save time. Changing a rate card re-prices nothing already saved: approved timesheets keep the rate they were approved at, which is the behaviour finance wants.
+The timesheet's rate is a copy made at save time, so changing a rate card re-prices nothing already approved. A plan month is priced when the line is saved or re-split; a new row for a later interval changes the months it covers the next time their line is saved, which is what a *rate change* adjustment is for.
+
+## Travel standards
+
+| Field | What it is |
+| --- | --- |
+| Name, City Tier | The standard — *tier-1 city*, *tier-2 city*, *tier-3 and below*, *overseas* |
+| Lodging / day, Meals / day, Local transport / day, Daily Total | The per-day allowances and their sum |
+| Return fare / person-trip | The return transport estimate for one person on one trip |
+| Effective From, Effective To, Active | The standard's validity |
+
+A **travel** expense line on a [cost plan](/docs/projects/cost-plans) picks a standard and the plan computes the line as trips × travellers × (return fare + days × daily total). Other expense types are budgeted directly and do not use this table.
 
 ## Contracting entities
 
@@ -35,9 +46,9 @@ An **opportunity** names its contracting entity in the *Bid & Contracting Entity
 
 ## Sharing
 
-Both tables are **Public Read/Write**: everyone reads them and everyone with edit on the object may change them, with no ownership in the way. That is what master data is — one shared list — and it is why they carry no owner-scoped views. In practice the PMO maintains rate cards and finance maintains contracting entities; if your org wants to narrow that, an admin lowers the OWD to *Public Read-Only* and grants edit to one profile. See [Sharing & Security](/docs/administration/sharing-and-security).
+All three tables are **Public Read/Write**: everyone reads them and everyone with edit on the object may change them, with no ownership in the way. That is what master data is — one shared list — and it is why they carry no owner-scoped views. In practice the PMO maintains rate cards and travel standards and finance maintains contracting entities; if your org wants to narrow that, an admin lowers the OWD to *Public Read-Only* and grants edit to one profile. See [Sharing & Security](/docs/administration/sharing-and-security).
 
 ## Tips for admins
 
-- ✅ **Retire a rate card by clearing *Active* and setting *Effective To*** rather than editing its rate — a new grade rate is a new card, so the history of what an hour cost stays readable.
+- ✅ **Retire a rate card row by clearing *Active* and setting *Effective To*** rather than editing its rate — a new rate is a new row for the same grade and standard, so the history of what an hour cost stays readable and plan months keep resolving by date.
 - ✅ **Keep one entity per legal registration**; the registration number is the natural key.

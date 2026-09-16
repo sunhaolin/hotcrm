@@ -273,6 +273,7 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   delivery_project_approval: { 'zh-Hans': '交付立项审批', 'zh-Hant': '交付立項審批' },
   timesheet_approval: { 'zh-Hans': '工时审批', 'zh-Hant': '工時審批' },
   budget_adjustment_approval: { 'zh-Hans': '预算调整审批', 'zh-Hant': '預算調整審批' },
+  cost_plan_approval: { 'zh-Hans': '成本计划审批', 'zh-Hant': '成本計畫審批' },
   business_trip_approval: { 'zh-Hans': '出差审批', 'zh-Hant': '出差審批' },
   leave_request_approval: { 'zh-Hans': '请假审批', 'zh-Hant': '請假審批' },
 };

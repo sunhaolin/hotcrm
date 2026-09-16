@@ -17,7 +17,7 @@ A **presales project** (售前项目, `crm_presales_project`) is the bid: the wo
 | **Information Security** | Security Class and a note — the classification a bid has to declare before it leaves the building |
 | **Approval** | Approval Status *(read-only)*, Approved Date |
 
-**Total Cost** is the sum of the four cost lines and **Gross Margin %** is derived from it and the quote amount. Neither is typed in.
+The four cost figures are **rollups of the presales project's current [cost plan](/docs/projects/cost-plans)** — its Bizcase, phase *Bizcase* — and **Total Cost** is their sum; **Gross Margin %** is derived from it and the quote amount. None of the five is typed in: plan the Bizcase on the cost plan and the figures follow.
 
 **Presales Hours** and **Presales Labor Actual** are rollups: the hours and cost of every *approved* [timesheet](/docs/projects/timesheets-and-leave) booked against this presales project. A draft or rejected timesheet counts for nothing, so the figure on the record is the figure finance would accept.
 
@@ -33,7 +33,7 @@ Leave **Account** empty and it is filled from the opportunity you picked (`presa
 
 The bid is approved by the **售前立项审批** flow. Click **Submit for Approval** at the top of the record — the *Approval Status* field itself is read-only, on the form and on the API, so there is no other way to move it. Submitting locks the record; the approval goes to an executive; on the verdict the status and the approved date are stamped and the owner is notified. A rejected bid can be corrected and resubmitted.
 
-Only an **approved** presales project carries anything into a delivery project — see *What the system does automatically* on [Delivery Projects](/docs/projects/delivery-projects).
+Only an **approved** presales project can have its Bizcase imported into a delivery project — see *Importing the Bizcase* on [Delivery Projects](/docs/projects/delivery-projects).
 
 ## Sharing
 
@@ -41,6 +41,6 @@ Presales projects are **private** and no sharing rule widens them: the owner rea
 
 ## Tips
 
-- ✅ **Estimate all four lines, even when one is zero.** The delivery project carries them in as four cost plan lines, and an empty line is a line nobody budgeted.
+- ✅ **Plan every cost category on the Bizcase cost plan, even when one is zero.** The delivery project imports that plan as its version 1, and a category nobody planned is a category nobody budgeted.
 - ✅ **Book presales hours to the presales project, not to the opportunity.** Only a timesheet against the project rolls into Presales Labor Actual.
 - ✅ **Attach the Bizcase document.** Files are enabled on presales projects.

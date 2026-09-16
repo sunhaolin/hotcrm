@@ -81,11 +81,6 @@ export const psa3: Record<string, Partial<ObjectTranslationData>> = {
     },
     _sections: { finance: { label: 'Contract & Finance' } },
   },
-  crm_cost_plan_line: {
-    fields: {
-      crm_rate_card: { label: 'Grade / Rate Card', help: 'Labor lines: fills the unit price from the rate card (cost_plan_line_fill).' },
-    },
-  },
   crm_timesheet: {
     fields: {
       crm_rate_card: { label: 'Grade / Rate Card', help: 'Fills the hourly rate from the rate card (timesheet_rate_fill).' },

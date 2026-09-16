@@ -290,11 +290,43 @@ describe('every script action body executes under QuickJS', () => {
         ['crm_budget_adjustment', 'approval_status'],
         ['crm_business_trip', 'approval_status'],
         ['crm_leave_request', 'approval_status'],
+        ['crm_cost_plan', 'approval_status'],
       ] as Array<[string, string]>).map(([objectName, field]) => [
         `${objectName}:submit_approval`,
         {
           opts: { objectName, record: { id: 'rec_1', [field]: 'draft' } },
           seed: { [objectName]: [{ id: 'rec_1', [field]: 'draft' }] },
+        },
+      ]),
+    ),
+    // Cost plan (steps 27 / 32): the import clones an approved Bizcase, the
+    // version action clones a plan, and each line's re-split clears its marks.
+    'crm_delivery_project:import_bizcase_budget': {
+      opts: { objectName: 'crm_delivery_project', record: { id: 'dlv_1', name: '一期交付', crm_presales_project: 'psp_1' } },
+      seed: {
+        crm_delivery_project: [{ id: 'dlv_1', name: '一期交付', crm_presales_project: 'psp_1' }],
+        crm_presales_project: [{ id: 'psp_1', name: '售前', approval_status: 'approved' }],
+        crm_cost_plan: [{ id: 'cp_b', name: 'Bizcase v1', crm_presales_project: 'psp_1', phase: 'bizcase', is_current: true, planned_total: 256000 }],
+        crm_labor_cost_line: [{ id: 'lcl_1', crm_cost_plan: 'cp_b', description: 'SE', crm_rate_card: 'rc_1', headcount: 2, hours_per_month: 160, start_month: '2026-06-01' }],
+        crm_cost_plan_month: [{ id: 'cpm_1', crm_cost_plan: 'cp_b', crm_labor_cost_line: 'lcl_1', period_month: '2026-06-01', amount: 1, is_manual: true }],
+      },
+    },
+    'crm_cost_plan:create_plan_version': {
+      opts: { objectName: 'crm_cost_plan', record: { id: 'cp_1' } },
+      seed: {
+        crm_cost_plan: [{ id: 'cp_1', name: '一期 v1', crm_delivery_project: 'dlv_1', phase: 'delivery', version_no: 1, is_current: true, baseline_total: 1000, approval_status: 'approved' }],
+        crm_expense_cost_line: [{ id: 'ecl_1', crm_cost_plan: 'cp_1', description: '差旅', expense_type: 'travel', crm_travel_standard: 'ts_1', trips: 2, travelers: 1, days: 2, start_month: '2026-06-01' }],
+      },
+    },
+    ...Object.fromEntries(
+      ['crm_labor_cost_line', 'crm_service_cost_line', 'crm_procurement_cost_line', 'crm_expense_cost_line'].map((objectName) => [
+        `${objectName}:redecompose_months`,
+        {
+          opts: { objectName, record: { id: 'line_1', start_month: '2026-06-01' } },
+          seed: {
+            [objectName]: [{ id: 'line_1', crm_cost_plan: 'cp_1', description: '行', start_month: '2026-06-01' }],
+            crm_cost_plan_month: [{ id: 'cpm_1', crm_cost_plan: 'cp_1', [objectName]: 'line_1', period_month: '2026-06-01', amount: 5, is_manual: true }],
+          },
         },
       ]),
     ),

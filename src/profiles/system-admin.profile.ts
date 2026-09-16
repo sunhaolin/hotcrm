@@ -17,7 +17,14 @@ export const SystemAdminProfile = {
     // Demo PSA objects (epic #2)
     crm_presales_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     crm_delivery_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
-    crm_cost_plan_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // Cost plan (steps 27–32): the versioned plan, its four line objects, the month ledger and travel standards.
+    crm_cost_plan: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_labor_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_service_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_procurement_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_expense_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_cost_plan_month: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_travel_standard: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
     // Round 2 (Chinese-only): master data, budget adjustments, finance, trips and leave — same grant as the travel cost row.

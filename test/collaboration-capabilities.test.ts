@@ -78,6 +78,7 @@ const FILES_ENABLED = [
   'crm_sales_order',
   'crm_business_trip',
   'crm_leave_request',
+  'crm_cost_plan',
 ] as const;
 
 const filesFlag = (name: string) => objectByName.get(name)?.enable?.files;
