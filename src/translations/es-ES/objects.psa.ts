@@ -220,7 +220,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: 'Fecha de aprobación' },
       baseline_total: { help: 'Línea base de control escrita al importar el presupuesto del Bizcase; no se puede modificar después.', label: 'Línea base congelada' },
-      compare_plan: { help: 'La versión vigente en el momento de enviar el plan a aprobación; si está vacío, esta es la primera versión del proyecto y cada diferencia de abajo es el alta completa.', label: 'Versión actual comparada' },
+      compare_plan: { help: 'El plan marcado como versión actual cuando este se envió a aprobación; apunta a este mismo registro cuando ya es la versión actual, por lo que todas las diferencias son 0. Si está vacío, el proyecto no tenía versión actual y cada diferencia de abajo es el alta completa.', label: 'Versión actual comparada' },
       crm_budget_adjustment: { label: 'Ajuste presupuestario que originó esta versión' },
       crm_delivery_project: { help: 'Un plan en fase de entrega se vincula al proyecto de entrega; excluyente con el proyecto de preventa.', label: 'Proyecto de entrega' },
       crm_presales_project: { help: 'Un plan en fase Bizcase se vincula al proyecto de preventa; excluyente con el proyecto de entrega.', label: 'Proyecto de preventa' },
@@ -234,8 +234,8 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       delta_baseline_total: { label: 'Diferencia de línea base congelada' },
       delta_expense_total: { label: 'Diferencia del total de gastos del proyecto' },
       delta_labor_total: { label: 'Diferencia del total de servicio de personal' },
-      delta_planned_pct: { help: 'Diferencia ÷ total planificado de la versión vigente × 100. Se lee 0 mientras ese total sea 0.', label: 'Diferencia del total planificado %' },
-      delta_planned_total: { help: 'El total planificado sometido a aprobación menos el total planificado de la versión vigente; positivo es un aumento y negativo una reducción.', label: 'Diferencia del total planificado' },
+      delta_planned_pct: { help: 'Diferencia ÷ total planificado de la versión vigente en el momento del envío × 100. Se lee 0 mientras ese total sea 0.', label: 'Diferencia del total planificado %' },
+      delta_planned_total: { help: 'El total planificado sometido a aprobación menos el total planificado de la versión vigente en el momento del envío; positivo es un aumento, negativo una reducción, y 0 cuando este registro es la propia versión actual.', label: 'Diferencia del total planificado' },
       delta_procurement_total: { label: 'Diferencia del total de compra de hardware/software' },
       delta_service_total: { label: 'Diferencia del total de servicios de terceros' },
       delta_travel_total: { label: 'Diferencia de viajes incluidos' },
@@ -264,7 +264,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
     _sections: {
       approval: { label: 'Aprobación' },
       basic: { label: 'Información del plan' },
-      comparison: { label: 'Comparación con la versión actual' },
+      comparison: { label: 'Comparación con la versión actual', description: 'Punto por punto frente al plan marcado como versión actual EN EL MOMENTO DEL ENVÍO, capturado al enviar y conservado después como constancia de la aprobación. Un registro que ya es la versión actual se compara consigo mismo, así que todas las diferencias son 0.' },
       totals: { label: 'Importes del plan' },
     },
     _views: {

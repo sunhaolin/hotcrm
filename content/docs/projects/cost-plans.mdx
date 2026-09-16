@@ -13,7 +13,7 @@ A **cost plan** (成本计划, `crm_cost_plan`) is one version of what a project
 | --- | --- |
 | **Plan Information** | Plan Number, Name, Cost Manager, the Presales Project *or* the Delivery Project it belongs to, Phase (*Bizcase / Delivery*), Version Number, Current Version, the plan it was cloned from, the budget adjustment that produced it |
 | **Plan Amounts** | Frozen Baseline, Planned Total, and the four category totals — Labor Service, Third-party Service, Hardware/Software Procurement, Project Expense — plus *of which Travel* |
-| **Comparison with the Current Version** | The version in force when the plan was submitted, its amounts, and the difference against each of this version's — see [What the approver sees](#what-the-approver-sees) |
+| **Comparison with the Current Version** | The version in force **when the plan was submitted**, its amounts, and the difference against each of this version's — 0 across the board when this plan is itself the current version; see [What the approver sees](#what-the-approver-sees) |
 | **Approval** | Approval Status *(read-only)*, Approved Date |
 
 A plan belongs to exactly one project: a Bizcase hangs off a presales project, a delivery plan off a delivery project, and the phase is set from whichever you picked. Every amount on the plan is a **rollup of the month ledger** described below; none is typed in.
@@ -54,9 +54,9 @@ Every total on the plan, the presales project's four Bizcase figures and the del
 
 Approving a cost plan is a decision about a **difference**, not about a number in isolation: what matters is how this version compares with the version the project is executing on today. So submitting a plan records the version currently in force for the same project, copies its amounts onto the submitted plan, and shows each pair with the gap between them — the frozen baseline, the planned total and all four category totals including travel, each as *this version*, *the version in force* and *the difference*. The planned total also carries the gap as a percentage. A positive difference is an increase, a negative one a reduction; the differences are computed from the pair, so they can never disagree with the figures above them.
 
-The snapshot is taken at the moment of submission — the same moment the plan's lines and months freeze — so the two sides of the comparison are exactly the two versions the approver is deciding between, and the record keeps them as the audit trail of what was put in front of them.
+The snapshot is taken at the moment of submission — the same moment the plan's lines and months freeze — so the two sides of the comparison are exactly the two versions the approver is deciding between, and the record keeps them as the audit trail of what was put in front of them. The group stays on the record after the decision for that reason, and it reads **the version in force at submit time**, not whichever version is in force when you open it later.
 
-A project's **first** plan has nothing to compare against: the compared version is left empty and every amount reads as new spend, which is what a first version is.
+The compared version is the plan marked **Current Version**, taken as the data declares it — including when that is the plan being submitted. A project's first version is usually already the current one, so it compares with itself and every difference reads **0**: nothing is being changed, and that is what 与当前版本对比 says on a record that *is* the current version. Only a project with no current version at all (every version superseded) leaves the compared version empty, and there every amount reads as new spend.
 
 **Cost Plans Awaiting Approval** is the same comparison as a queue — one row per plan in flight, every category's difference on the row — so an approver can rank a stack of them before opening any.
 

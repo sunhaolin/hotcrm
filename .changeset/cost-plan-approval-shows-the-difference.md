@@ -21,9 +21,9 @@ carries the gap as a percentage. Positive is an increase, negative a reduction.
 The snapshot is taken at the submit transition and nowhere else — the same
 transition that freezes the plan's lines and months — so the two sides of the
 comparison are the two versions the approver is deciding between, and the row
-stays the audit record of what was shown. A project's first plan has no version
-in force: `compare_plan` is empty and the snapshot reads zero, which makes the
-whole amount the increase, and the percentage reads 0 rather than dividing by it.
+stays the audit record of what was shown. A project with no version in force at
+all leaves `compare_plan` empty and the snapshot at zero, which makes the whole
+amount the increase, and the percentage reads 0 rather than dividing by it.
 
 The platform has no cross-record formula (ADR-0055: a field path is a single
 column), so the other version's figures are carried on this row to be subtracted

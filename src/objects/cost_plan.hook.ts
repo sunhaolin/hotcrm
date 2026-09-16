@@ -98,9 +98,19 @@ const costPlanDefaults: Hook = {
  * Written at the submit transition and nowhere else: the plan's lines and
  * months freeze on that same transition (`cost_plan_lock`), so the two sides
  * of the comparison are the two the approver will decide between, and the row
- * stays the audit record of what was put in front of them. No in-force
- * version (the project's first plan) leaves `compare_plan` empty and the
- * snapshot at zero — the whole amount IS the increase.
+ * stays the audit record of what was put in front of them — which is why the
+ * comparison keeps showing after the decision, reading the version in force
+ * AT SUBMIT TIME rather than today's.
+ *
+ * The version in force is taken as declared — `is_current: true` — with no
+ * exception for the row being submitted. A plan that is ALREADY the current
+ * version therefore snapshots its own amounts and every `delta_*` reads 0,
+ * which is what 「与当前版本对比」 says on a record that IS the current version.
+ * Excluding itself and calling the whole amount an increase read as a
+ * 1,566,320 raise on a project whose plan had not changed at all. A project
+ * with no current version at all (every version superseded) leaves
+ * `compare_plan` empty and the snapshot at zero — there the whole amount IS
+ * the increase.
  */
 const costPlanCompare: Hook = {
   name: 'cost_plan_compare',
@@ -120,12 +130,10 @@ const costPlanCompare: Hook = {
     const projectId = delivery || presales;
     if (!projectId) return;
     const amounts = ['baseline_total', 'planned_total', 'labor_total', 'service_total', 'procurement_total', 'expense_total', 'travel_total'];
-    const inForce = await api.object('crm_cost_plan').find({
+    const current = await api.object('crm_cost_plan').findOne({
       where: { [delivery ? 'crm_delivery_project' : 'crm_presales_project']: projectId, is_current: true },
       fields: ['id', ...amounts],
     });
-    const selfId = id(previous?.id) || id(input.id);
-    const current = inForce.find((plan) => id(plan.id) !== selfId);
     input.compare_plan = current ? id(current.id) : null;
     for (const field of amounts) input['current_' + field] = current ? num(current[field]) : 0;
   },

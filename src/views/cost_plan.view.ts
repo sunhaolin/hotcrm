@@ -29,10 +29,13 @@ export const CostPlanViews = defineView({
     /**
      * The approver's queue. A cost plan approval is a decision about a
      * DIFFERENCE — 「本次审批数据和当前执行的成本计划记录的所有金额的对比和差异」
-     * — so this view puts every amount's delta against the version in force on
-     * the row, ahead of the plan's own totals. The record page carries the same
-     * comparison in full (the object's `comparison` group); this is the list
-     * that lets one approver rank a queue of them without opening each.
+     * — so this view puts every amount's delta against the version marked
+     * 当前版本 on the row, ahead of the plan's own totals. The record page
+     * carries the same comparison in full (the object's `comparison` group);
+     * this is the list that lets one approver rank a queue of them without
+     * opening each. A version that is itself 当前版本 reads zeroes across the
+     * row — nothing is being changed, and that is the honest answer, not a
+     * full-amount increase against a version that does not exist.
      *
      * `submitted` and `pending` are the two in-flight states the one-tier flow
      * (`cost_plan_approval`) passes through — `submitted` is the stamp the
