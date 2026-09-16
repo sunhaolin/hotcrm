@@ -10,14 +10,16 @@ import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-pickli
  * A plan hangs off a presales project (phase `bizcase`, the step-18 estimate
  * the executive approves) or a delivery project (phase `delivery`). The four
  * line objects and the monthly ledger (`crm_cost_plan_month`) are its
- * children; every total here is a platform rollup over that ledger, so a
- * plan's figures are never typed in.
+ * children; every total here is a platform rollup — over that ledger on a
+ * delivery plan, over the lines' own estimates on a Bizcase — so a plan's
+ * figures are never typed in.
  *
  * A Bizcase is a whole-range estimate (2026-09-16): its lines are NOT split by
- * month — each lands in the ledger as one row (`cost_line_decompose`) — and
- * approving it makes it the current version (`cost_plan_defaults`), which is
- * the moment the presales project's four figures show it. Splitting by month
- * is the delivery plan's job, once the Bizcase is imported.
+ * month and it has NO month rows at all — each line carries its figure in
+ * `estimate_amount` (`cost_line_estimate`) — and approving it makes it the
+ * current version (`cost_plan_defaults`), which is the moment the presales
+ * project's four figures show it. Splitting by month is the delivery plan's
+ * job, once the Bizcase is imported.
  *
  * `is_current` marks the version the project reads: `crm_delivery_project`
  * and `crm_presales_project` roll up the current version only. Step 27's
@@ -33,11 +35,30 @@ import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-pickli
  * showing after the decision, as the record of what was put in front of the
  * approver.
  */
+/**
+ * Every total is a rollup, and every rollup targets a STORED column — a
+ * formula is virtual (no column), so a parent summary cannot read one. The
+ * phase decides which ledger a plan's amounts live in: a delivery plan's in
+ * its month rows, a Bizcase's on its lines (`estimate_amount`). So each amount
+ * is a hidden pair of summaries — `*_month_total` over the ledger,
+ * `*_line_total` over the lines — of which exactly one is non-zero on any
+ * plan, plus the visible formula that adds the pair. The presales project
+ * rolls up the `*_line_total` columns, the delivery project
+ * `planned_month_total`, and `cost_plan_compare` snapshots the pairs.
+ */
 const monthSum = (label: string, filter?: Record<string, unknown>) => Field.summary({
   label,
   group: 'totals',
+  hidden: true,
   scale: 2,
   summaryOperations: { object: 'crm_cost_plan_month', field: 'amount', function: 'sum', relationshipField: 'crm_cost_plan', ...(filter ? { filter } : {}) },
+});
+const lineSum = (label: string, object: string, filter?: Record<string, unknown>) => Field.summary({
+  label,
+  group: 'totals',
+  hidden: true,
+  scale: 2,
+  summaryOperations: { object, field: 'estimate_amount', function: 'sum', relationshipField: 'crm_cost_plan', ...(filter ? { filter } : {}) },
 });
 
 export const CostPlan = ObjectSchema.create({
@@ -62,18 +83,35 @@ export const CostPlan = ObjectSchema.create({
     owner_id: Field.lookup('sys_user', { label: '成本管理员', group: 'basic', system: true, readonly: false }),
     crm_presales_project: Field.lookup('crm_presales_project', { label: '售前项目', group: 'basic', description: 'Bizcase 阶段的计划挂在售前项目上；与交付项目二选一。' }),
     crm_delivery_project: Field.lookup('crm_delivery_project', { label: '交付项目', group: 'basic', description: '交付阶段的计划挂在交付项目上；与售前项目二选一。' }),
-    phase: Field.select({ label: '阶段', group: 'basic', options: [...COST_PLAN_PHASE_OPTIONS], description: '保存时按所挂项目自动写入。Bizcase（售前）阶段的明细行不按月拆分，整段落为一行；交付阶段按月分解。' }),
+    phase: Field.select({ label: '阶段', group: 'basic', options: [...COST_PLAN_PHASE_OPTIONS], description: '保存时按所挂项目自动写入。Bizcase（售前）阶段的明细行不按月拆分、不生成月度分解行，金额直接算在明细行上；交付阶段按月分解。' }),
     version_no: Field.number({ label: '版本号', group: 'basic', description: '同一项目下顺序递增；留空时保存自动编号。' }),
     is_current: Field.boolean({ label: '当前版本', group: 'basic', defaultValue: false, description: '项目只读当前版本的金额；置为当前时其余版本自动作废。Bizcase 计划审批通过即自动成为当前版本。' }),
     source_plan: Field.lookup('crm_cost_plan', { label: '克隆来源', group: 'basic' }),
     crm_budget_adjustment: Field.lookup('crm_budget_adjustment', { label: '触发本版本的预算调整', group: 'basic' }),
     baseline_total: Field.currency({ label: '冻结基线', scale: 2, group: 'totals', description: '导入 Bizcase 预算时写入的考核基线，之后不可更改。' }),
-    planned_total: monthSum('计划总额'),
-    labor_total: monthSum('人工服务合计', { category: 'labor' }),
-    service_total: monthSum('第三方服务合计', { category: 'third_party_service' }),
-    procurement_total: monthSum('软硬件采购合计', { category: 'procurement' }),
-    expense_total: monthSum('项目费用合计', { category: 'expense' }),
-    travel_total: monthSum('其中差旅', { expense_type: 'travel' }),
+    planned_month_total: monthSum('月度分解计划总额'),
+    labor_month_total: monthSum('月度分解人工服务合计', { category: 'labor' }),
+    service_month_total: monthSum('月度分解第三方服务合计', { category: 'third_party_service' }),
+    procurement_month_total: monthSum('月度分解软硬件采购合计', { category: 'procurement' }),
+    expense_month_total: monthSum('月度分解项目费用合计', { category: 'expense' }),
+    travel_month_total: monthSum('月度分解其中差旅', { expense_type: 'travel' }),
+    labor_line_total: lineSum('估算人工服务合计', 'crm_labor_cost_line'),
+    service_line_total: lineSum('估算第三方服务合计', 'crm_service_cost_line'),
+    procurement_line_total: lineSum('估算软硬件采购合计', 'crm_procurement_cost_line'),
+    expense_line_total: lineSum('估算项目费用合计', 'crm_expense_cost_line'),
+    travel_line_total: lineSum('估算其中差旅', 'crm_expense_cost_line', { expense_type: 'travel' }),
+    planned_total: Field.formula({
+      label: '计划总额',
+      group: 'totals',
+      description: 'Bizcase 为四类明细行估算之和；交付计划为月度分解行之和。',
+      expression: F`coalesce(record.planned_month_total, 0) + coalesce(record.labor_line_total, 0) + coalesce(record.service_line_total, 0) + coalesce(record.procurement_line_total, 0) + coalesce(record.expense_line_total, 0)`,
+      scale: 2,
+    }),
+    labor_total: Field.formula({ label: '人工服务合计', group: 'totals', expression: F`coalesce(record.labor_month_total, 0) + coalesce(record.labor_line_total, 0)`, scale: 2 }),
+    service_total: Field.formula({ label: '第三方服务合计', group: 'totals', expression: F`coalesce(record.service_month_total, 0) + coalesce(record.service_line_total, 0)`, scale: 2 }),
+    procurement_total: Field.formula({ label: '软硬件采购合计', group: 'totals', expression: F`coalesce(record.procurement_month_total, 0) + coalesce(record.procurement_line_total, 0)`, scale: 2 }),
+    expense_total: Field.formula({ label: '项目费用合计', group: 'totals', expression: F`coalesce(record.expense_month_total, 0) + coalesce(record.expense_line_total, 0)`, scale: 2 }),
+    travel_total: Field.formula({ label: '其中差旅', group: 'totals', expression: F`coalesce(record.travel_month_total, 0) + coalesce(record.travel_line_total, 0)`, scale: 2 }),
 
     // 审批对比 (2026-09-16): the approver decides on ONE version, so every
     // amount it carries is shown against the version actually in force.
@@ -102,49 +140,49 @@ export const CostPlan = ObjectSchema.create({
       label: '计划总额差异',
       description: '本次审批的计划总额减去提交时当前版本的计划总额；正数为增加，负数为核减；本记录即当前版本时为 0。',
       group: 'comparison',
-      expression: F`coalesce(record.planned_total, 0) - coalesce(record.current_planned_total, 0)`,
+      expression: F`(coalesce(record.planned_month_total, 0) + coalesce(record.labor_line_total, 0) + coalesce(record.service_line_total, 0) + coalesce(record.procurement_line_total, 0) + coalesce(record.expense_line_total, 0)) - coalesce(record.current_planned_total, 0)`,
       scale: 2,
     }),
     delta_planned_pct: Field.formula({
       label: '计划总额差异率 %',
       description: '差异 ÷ 提交时当前版本的计划总额 × 100。当前版本总额为 0 时读作 0。',
       group: 'comparison',
-      expression: F`coalesce(record.current_planned_total, 0) > 0 ? ((coalesce(record.planned_total, 0) - record.current_planned_total) * 100.0) / record.current_planned_total : 0.0`,
+      expression: F`coalesce(record.current_planned_total, 0) > 0 ? (((coalesce(record.planned_month_total, 0) + coalesce(record.labor_line_total, 0) + coalesce(record.service_line_total, 0) + coalesce(record.procurement_line_total, 0) + coalesce(record.expense_line_total, 0)) - record.current_planned_total) * 100.0) / record.current_planned_total : 0.0`,
       scale: 2,
     }),
     current_labor_total: Field.currency({ label: '当前版本人工服务合计', scale: 2, group: 'comparison', readonly: true }),
     delta_labor_total: Field.formula({
       label: '人工服务合计差异',
       group: 'comparison',
-      expression: F`coalesce(record.labor_total, 0) - coalesce(record.current_labor_total, 0)`,
+      expression: F`(coalesce(record.labor_month_total, 0) + coalesce(record.labor_line_total, 0)) - coalesce(record.current_labor_total, 0)`,
       scale: 2,
     }),
     current_service_total: Field.currency({ label: '当前版本第三方服务合计', scale: 2, group: 'comparison', readonly: true }),
     delta_service_total: Field.formula({
       label: '第三方服务合计差异',
       group: 'comparison',
-      expression: F`coalesce(record.service_total, 0) - coalesce(record.current_service_total, 0)`,
+      expression: F`(coalesce(record.service_month_total, 0) + coalesce(record.service_line_total, 0)) - coalesce(record.current_service_total, 0)`,
       scale: 2,
     }),
     current_procurement_total: Field.currency({ label: '当前版本软硬件采购合计', scale: 2, group: 'comparison', readonly: true }),
     delta_procurement_total: Field.formula({
       label: '软硬件采购合计差异',
       group: 'comparison',
-      expression: F`coalesce(record.procurement_total, 0) - coalesce(record.current_procurement_total, 0)`,
+      expression: F`(coalesce(record.procurement_month_total, 0) + coalesce(record.procurement_line_total, 0)) - coalesce(record.current_procurement_total, 0)`,
       scale: 2,
     }),
     current_expense_total: Field.currency({ label: '当前版本项目费用合计', scale: 2, group: 'comparison', readonly: true }),
     delta_expense_total: Field.formula({
       label: '项目费用合计差异',
       group: 'comparison',
-      expression: F`coalesce(record.expense_total, 0) - coalesce(record.current_expense_total, 0)`,
+      expression: F`(coalesce(record.expense_month_total, 0) + coalesce(record.expense_line_total, 0)) - coalesce(record.current_expense_total, 0)`,
       scale: 2,
     }),
     current_travel_total: Field.currency({ label: '当前版本其中差旅', scale: 2, group: 'comparison', readonly: true }),
     delta_travel_total: Field.formula({
       label: '其中差旅差异',
       group: 'comparison',
-      expression: F`coalesce(record.travel_total, 0) - coalesce(record.current_travel_total, 0)`,
+      expression: F`(coalesce(record.travel_month_total, 0) + coalesce(record.travel_line_total, 0)) - coalesce(record.current_travel_total, 0)`,
       scale: 2,
     }),
     approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...COST_PLAN_STATUS_OPTIONS] }),

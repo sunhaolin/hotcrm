@@ -6,11 +6,11 @@ import { COST_CATEGORY_OPTIONS, EXPENSE_TYPE_OPTIONS } from './_psa-picklists';
 
 /**
  * 月度分解行 — the one ledger every cost-plan total and report reads (steps
- * 28–31, 39). `cost_line_decompose` writes one row per line per month on a
- * delivery plan, and ONE whole-range row per line on a Bizcase — a presales
- * estimate is not split by month (2026-09-16); `cost_plan_month_fill`
- * normalises the month, copies the category and the expense type down, and
- * derives the unique 分解键.
+ * 28–31, 39) on a DELIVERY plan. `cost_line_decompose` writes one row per line
+ * per month; a Bizcase has no rows here at all — a presales estimate is not
+ * split by month (2026-09-16), its lines carry their figures themselves;
+ * `cost_plan_month_fill` normalises the month, copies the category and the
+ * expense type down, and derives the unique 分解键.
  *
  * `Field.lookup` takes exactly one target, so the row points back to its
  * line the way `crm_task.related_to_*` does: `category` names the line
@@ -40,7 +40,7 @@ export const CostPlanMonth = ObjectSchema.create({
     crm_service_cost_line: Field.lookup('crm_service_cost_line', { label: '第三方服务成本行', group: 'basic', requiredWhen: cat('third_party_service') }),
     crm_procurement_cost_line: Field.lookup('crm_procurement_cost_line', { label: '软硬件采购成本行', group: 'basic', requiredWhen: cat('procurement') }),
     crm_expense_cost_line: Field.lookup('crm_expense_cost_line', { label: '项目费用成本行', group: 'basic', requiredWhen: cat('expense') }),
-    period_month: Field.date({ label: '月份', required: true, storage: { notNull: true }, group: 'basic', description: '保存时归一到当月 1 日；Bizcase 计划的整段行记起始月份。' }),
+    period_month: Field.date({ label: '月份', required: true, storage: { notNull: true }, group: 'basic', description: '保存时归一到当月 1 日。' }),
     description: Field.text({ label: '说明', group: 'basic', description: '明细行说明加年月，保存时自动写入。' }),
     expense_type: Field.select({ label: '费用类型', group: 'basic', options: [...EXPENSE_TYPE_OPTIONS], description: '费用行复制下来，供差旅与报销分开汇总。' }),
     headcount: Field.number({ label: '人数', group: 'basic' }),

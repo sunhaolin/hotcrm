@@ -306,7 +306,7 @@ describe('every script action body executes under QuickJS', () => {
       seed: {
         crm_delivery_project: [{ id: 'dlv_1', name: '一期交付', crm_presales_project: 'psp_1' }],
         crm_presales_project: [{ id: 'psp_1', name: '售前', approval_status: 'approved' }],
-        crm_cost_plan: [{ id: 'cp_b', name: 'Bizcase v1', crm_presales_project: 'psp_1', phase: 'bizcase', is_current: true, planned_total: 256000 }],
+        crm_cost_plan: [{ id: 'cp_b', name: 'Bizcase v1', crm_presales_project: 'psp_1', phase: 'bizcase', is_current: true, labor_line_total: 256000 }],
         crm_labor_cost_line: [{ id: 'lcl_1', crm_cost_plan: 'cp_b', description: 'SE', crm_rate_card: 'rc_1', headcount: 2, hours_per_month: 160, start_month: '2026-06-01' }],
         crm_cost_plan_month: [{ id: 'cpm_1', crm_cost_plan: 'cp_b', crm_labor_cost_line: 'lcl_1', period_month: '2026-06-01', amount: 1, is_manual: true }],
       },

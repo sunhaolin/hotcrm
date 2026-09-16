@@ -287,9 +287,10 @@ const month2 = celDaysAgo(15);
 
 // Cost plans (steps 27–31): the 华信 Bizcase (phase bizcase, on the presales
 // project) and the delivery plan v1 it was imported as. Lines are seeded; the
-// month ledger is generated from them by `cost_line_decompose` — one row per
-// month on the delivery plan, one whole-range row per line on the Bizcase —
-// and every total on the plan and both projects is a rollup of that ledger.
+// month ledger is generated from them by `cost_line_decompose` on the
+// delivery plan (one row per month); the Bizcase has no month rows — each of
+// its lines carries its estimate (`cost_line_estimate`) — and every total on
+// the plans and both projects is a rollup of one of the two.
 // Months are calendar months on purpose: a plan is authored for specific months.
 const PLAN_HX_BIZCASE = '华信核心系统升级 · Bizcase 成本计划 v1';
 const PLAN_HX_DELIVERY = '华信一期交付 · 成本计划 v1';

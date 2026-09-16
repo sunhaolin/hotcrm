@@ -75,13 +75,15 @@ export const DeliveryProject = ObjectSchema.create({
     qa_lead: Field.lookup('sys_user', { label: 'QA Lead', group: 'roles' }),
 
     budget_baseline: Field.currency({ label: 'Budget Baseline', description: 'The approved Bizcase total cost, the control baseline. Leave it empty on create and it defaults from the approved presales project; 导入 Bizcase 预算 writes it together with cost plan v1 (spec step 27).', scale: 2, group: 'budget' }),
-    // Steps 27–31: the CURRENT 成本计划 version's total (itself a rollup of the
-    // month ledger); a draft revision changes nothing here until approved.
+    // Steps 27–31: the CURRENT 成本计划 version's total — the plan's stored
+    // rollup of the month ledger (`planned_month_total`; the plan's visible
+    // `planned_total` is a formula, which a summary cannot read); a draft
+    // revision changes nothing here until approved.
     planned_total: Field.summary({
       label: 'Planned Total',
       group: 'budget',
       scale: 2,
-      summaryOperations: { object: 'crm_cost_plan', field: 'planned_total', function: 'sum', relationshipField: 'crm_delivery_project', filter: { is_current: true } },
+      summaryOperations: { object: 'crm_cost_plan', field: 'planned_month_total', function: 'sum', relationshipField: 'crm_delivery_project', filter: { is_current: true } },
     }),
     labor_actual: Field.summary({
       label: 'Labor Actual',

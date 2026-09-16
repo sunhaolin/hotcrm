@@ -8,19 +8,29 @@ puts it in force on the presales project.
 Two things the customer read off one screen (2026-09-16):
 「成本计划的阶段是售前不需要进行按月拆分，并且此成本计划审批通过后需要将数值显示在此售前计划的成本测算与报价中」.
 
-**Not split by month.** The Bizcase is the whole-range estimate the executive
-approves; a month split is the delivery plan's job once the Bizcase is imported
-(steps 28–31). `cost_line_decompose` now reads the plan's phase: on a Bizcase a
-line lands in the ledger as **one whole-range row**, dated the line's start month,
-priced exactly as the split would have priced it — a labor line still resolves
-the rate card month by month and sums — with the per-month quantity (hours,
-person-months) multiplied out and the month range spelled out in the row's
-description. The ledger stays the one source every total reads, so the line's
-planned amount, the plan totals and the presales project's four figures are
-unchanged in value. A delivery plan is split month by month as before.
-**Import Bizcase Budget** therefore clones the Bizcase's lines only and lets the
-delivery copy split them; it no longer re-applies the source's 手工调整 rows,
-which on a Bizcase would be a whole amount landing on one month.
+**Not split by month — and no month rows at all.** The Bizcase is the
+whole-range estimate the executive approves; a month split is the delivery
+plan's job once the Bizcase is imported (steps 28–31). A Bizcase line now
+carries its figure itself: `cost_line_estimate` prices the line's factors
+exactly as the delivery split would (a labor line still resolves the rate card
+month by month and sums) and writes `estimate_amount` on the line, and
+`cost_line_decompose` writes nothing on a Bizcase — it only removes rows a line
+still has from before the rule. The ledger stays a delivery plan's, split month
+by month as before.
+
+Since a parent summary can only read a stored column and a formula is virtual,
+every amount is now a **pair of stored rollups plus a visible formula**: a
+line's `planned_amount` = `estimate_amount` (Bizcase) + `allocated_amount` (the
+sum of its month rows, delivery); each plan total = `*_month_total` (the ledger)
++ `*_line_total` (the lines' estimates), exactly one side non-zero on any plan.
+The presales project's four figures roll up the `*_line_total` columns, the
+delivery project's Planned Total rolls up `planned_month_total`, and
+`cost_plan_compare`, `budget_adjustment_amount` and **Import Bizcase Budget**
+read the stored parts. Values are unchanged where a figure existed before; a
+Bizcase's month-based reports simply have nothing to read.
+
+**FROM** a Bizcase line splitting into one ledger row per month **TO** a
+Bizcase line with no ledger rows and its figure on the line.
 
 **In force on approval.** The presales project's Labor / Third-party /
 Procurement / Expense figures roll up the *current* Bizcase, and nothing ever
@@ -40,4 +50,5 @@ wording. `test/hooks-runtime-cost-plan.test.ts` pins the whole-range row per
 category, the fold of a line that had been split before the rule, and the flip.
 
 Existing Bizcase plans keep the month rows they already have until a line is
-re-saved or **Re-split**; an approved one is frozen and keeps its split.
+re-saved or **Re-split**, which now removes them; an approved one is frozen and
+keeps its rows, so the way to see the rule on old data is a new version.

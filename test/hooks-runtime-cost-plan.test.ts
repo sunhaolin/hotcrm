@@ -97,58 +97,95 @@ describe('cost_line_decompose', () => {
 });
 
 /**
- * 售前阶段不按月拆分 (2026-09-16): a Bizcase is the whole-range estimate the
- * executive approves, so a line on a Bizcase plan lands as ONE ledger row —
- * the same figures the split would produce, folded together — and the totals
- * every rollup reads are unchanged.
+ * 售前阶段不按月拆分 — 不需要在月度分解行中生成数据 (2026-09-16): a Bizcase line
+ * carries its own whole-range figure (`cost_line_estimate` → `estimate_amount`)
+ * and the ledger stays empty; the decomposition writes nothing on a Bizcase
+ * and clears whatever rows a line still has from before the rule.
  */
 describe('cost_line_decompose on a Bizcase plan', () => {
   const hook = hookNamed(costPlanHooks, 'cost_line_decompose');
   const bizcase = () => ({ ...cards(), crm_cost_plan: [{ id: 'bc1', crm_presales_project: 'psp_1', phase: 'bizcase' }] });
 
-  it('lands a labor line as one whole-range row: the months priced by their own rate and summed, the hours multiplied out', async () => {
+  it('generates no month rows for a line on a Bizcase', async () => {
     const h = makeHarness(bizcase());
     const line = { id: 'l1', crm_cost_plan: 'bc1', description: '高级工程师 × 2', crm_rate_card: 'rc_se_2026', headcount: 2, hours_per_month: 160, start_month: '2026-06-01', end_month: '2026-07-01' };
     await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_labor_cost_line'));
-    const rows = h.rows('crm_cost_plan_month');
-    expect(rows).toHaveLength(1);
-    // 2 × 160 × 800 (June) + 2 × 160 × 840 (July): not split, not re-priced.
-    expect(rows[0]).toMatchObject({ crm_cost_plan: 'bc1', category: 'labor', crm_labor_cost_line: 'l1', period_month: '2026-06-01', headcount: 2, quantity: 320, unit_price: 800, amount: 524_800, is_manual: false });
-    expect(rows[0]!.description).toBe('高级工程师 × 2 · 2026-06 至 2026-07');
+    expect(h.rows('crm_cost_plan_month')).toEqual([]);
+    expect(h.callsFor('crm_cost_plan_month', 'insert')).toHaveLength(0);
   });
 
-  it('lands a 人月 service line as one row of unit price × headcount × duration', async () => {
-    const h = makeHarness(bizcase());
-    const line = { id: 's1', crm_cost_plan: 'bc1', description: '分包', pricing_basis: 'per_month', unit_price: 62_500, headcount: 2, duration: 3, start_month: '2026-08-01' };
-    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_service_cost_line'));
-    expect(h.rows('crm_cost_plan_month').map((r) => [r.period_month, r.quantity, r.unit_price, r.amount, r.description])).toEqual([
-      ['2026-08-01', 3, 62_500, 375_000, '分包 · 2026-08 至 2026-10'],
-    ]);
-  });
-
-  it('lands a spread line — 差旅 here — as its whole total in the start month, expense type carried down', async () => {
-    const h = makeHarness(bizcase());
-    const line = { id: 'e1', crm_cost_plan: 'bc1', description: '差旅', expense_type: 'travel', crm_travel_standard: 'ts_1', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' };
-    await hook.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: line, user: USER, api: h.api }), line), 'crm_expense_cost_line'));
-    const rows = h.rows('crm_cost_plan_month');
-    expect(rows.map((r) => [r.period_month, r.amount, r.expense_type, r.category])).toEqual([['2026-08-01', 28_320, 'travel', 'expense']]);
-  });
-
-  it('folds a line that was split by month before the rule into one row, pruning the other months', async () => {
+  it('removes the rows a line was split into before the rule, 手工调整 included', async () => {
     // The plan hangs off a presales project but carries no phase yet — read off the project.
     const store = { ...cards(), crm_cost_plan: [{ id: 'bc1', crm_presales_project: 'psp_1' }] };
     store.crm_cost_plan_month = [
-      { id: 'm_jun', crm_cost_plan: 'bc1', crm_labor_cost_line: 'l1', period_month: '2026-06-01', amount: 1, is_manual: false },
+      { id: 'm_jun', crm_cost_plan: 'bc1', crm_labor_cost_line: 'l1', period_month: '2026-06-01', amount: 1, is_manual: true },
       { id: 'm_jul', crm_cost_plan: 'bc1', crm_labor_cost_line: 'l1', period_month: '2026-07-01', amount: 2, is_manual: false },
-      { id: 'm_aug', crm_cost_plan: 'bc1', crm_labor_cost_line: 'l1', period_month: '2026-08-01', amount: 3, is_manual: false },
+      { id: 'm_other', crm_cost_plan: 'bc1', crm_labor_cost_line: 'l2', period_month: '2026-07-01', amount: 3, is_manual: false },
     ];
     const h = makeHarness(store);
-    const previous = { id: 'l1', crm_cost_plan: 'bc1', description: 'SE', crm_rate_card: 'rc_se_h2', headcount: 1, hours_per_month: 100, start_month: '2026-06-01', end_month: '2026-08-01' };
+    const previous = { id: 'l1', crm_cost_plan: 'bc1', description: 'SE', crm_rate_card: 'rc_se_h2', headcount: 1, hours_per_month: 100, start_month: '2026-06-01', end_month: '2026-07-01' };
     await hook.handler(withObject(makeCtx({ event: 'afterUpdate', input: { hours_per_month: 100 }, previous, user: USER, api: h.api }), 'crm_labor_cost_line'));
-    // 100 h × (800 in June + 840 in July + 840 in August): the whole-range row still prices each month by its own card.
-    expect(h.rows('crm_cost_plan_month').map((r) => [r.id, r.period_month, r.amount])).toEqual([['m_jun', '2026-06-01', 248_000]]);
+    expect(h.rows('crm_cost_plan_month').map((r) => r.id)).toEqual(['m_other']);
     expect(h.callsFor('crm_cost_plan_month', 'delete')).toHaveLength(2);
-    expect(h.callsFor('crm_cost_plan_month', 'insert')).toHaveLength(0);
+  });
+});
+
+describe('cost_line_estimate', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_line_estimate');
+  const bizcase = () => ({ ...cards(), crm_cost_plan: [{ id: 'bc1', crm_presales_project: 'psp_1', phase: 'bizcase' }] });
+  const run = async (store: Rec, object: string, input: Rec, event: 'beforeInsert' | 'beforeUpdate' = 'beforeInsert', previous?: Rec) => {
+    const h = makeHarness(store);
+    await hook.handler(withObject(makeCtx({ event, input, previous, user: USER, api: h.api }), object));
+    return input;
+  };
+
+  it('prices a labor line month by month off the card in force and writes the sum on the line', async () => {
+    // 2 × 160 × 800 (June) + 2 × 160 × 840 (July).
+    const input = await run(bizcase(), 'crm_labor_cost_line', { crm_cost_plan: 'bc1', crm_rate_card: 'rc_se_2026', headcount: 2, hours_per_month: 160, start_month: '2026-06-01', end_month: '2026-07-01' });
+    expect(input.estimate_amount).toBe(524_800);
+  });
+
+  it('prices the service, procurement and expense lines from their own factors', async () => {
+    expect((await run(bizcase(), 'crm_service_cost_line', { crm_cost_plan: 'bc1', pricing_basis: 'per_month', unit_price: 62_500, headcount: 2, duration: 3, start_month: '2026-08-01' })).estimate_amount).toBe(375_000);
+    expect((await run(bizcase(), 'crm_service_cost_line', { crm_cost_plan: 'bc1', pricing_basis: 'per_day', unit_price: 2_000, headcount: 2, duration: 10, start_month: '2026-08-01' })).estimate_amount).toBe(40_000);
+    expect((await run(bizcase(), 'crm_service_cost_line', { crm_cost_plan: 'bc1', pricing_basis: 'lump_sum', unit_price: 300_000, start_month: '2026-09-01', end_month: '2026-10-01' })).estimate_amount).toBe(300_000);
+    expect((await run(bizcase(), 'crm_procurement_cost_line', { crm_cost_plan: 'bc1', procurement_category: 'software_license', quantity: 2, unit_price: 25_000, start_month: '2026-08-01' })).estimate_amount).toBe(50_000);
+    expect((await run(bizcase(), 'crm_expense_cost_line', { crm_cost_plan: 'bc1', expense_type: 'travel', crm_travel_standard: 'ts_1', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' })).estimate_amount).toBe(28_320);
+    expect((await run(bizcase(), 'crm_expense_cost_line', { crm_cost_plan: 'bc1', expense_type: 'other', budget_amount: 20_000, start_month: '2026-08-01' })).estimate_amount).toBe(20_000);
+  });
+
+  it('clears the estimate on a delivery line, and leaves a write that touches no factor alone', async () => {
+    const delivery = { ...cards(), crm_cost_plan: [{ id: 'dp1', crm_delivery_project: 'dlv_1', phase: 'delivery' }] };
+    const cleared = await run(delivery, 'crm_labor_cost_line', { hours_per_month: 120 }, 'beforeUpdate', { id: 'l1', crm_cost_plan: 'dp1', crm_rate_card: 'rc_se_2026', headcount: 1, start_month: '2026-06-01', estimate_amount: 5 });
+    expect(cleared.estimate_amount).toBeNull();
+    const fresh = await run(delivery, 'crm_labor_cost_line', { crm_cost_plan: 'dp1', crm_rate_card: 'rc_se_2026', headcount: 1, hours_per_month: 100, start_month: '2026-06-01' });
+    expect(fresh.estimate_amount).toBeUndefined();
+    const untouched = await run(bizcase(), 'crm_labor_cost_line', { notes: 'x' }, 'beforeUpdate', { id: 'l1', crm_cost_plan: 'bc1', crm_rate_card: 'rc_se_2026', headcount: 1, hours_per_month: 100, start_month: '2026-06-01', estimate_amount: 80_000 });
+    expect(untouched.estimate_amount).toBeUndefined();
+  });
+
+  /**
+   * The Bizcase figure and the delivery split are the SAME pricing: what the
+   * executive approved is what the imported v1 splits, to the cent — the
+   * frozen baseline read off the Bizcase equals the delivery plan's first
+   * month total.
+   */
+  it('equals the sum of the months the same line splits into on a delivery plan', async () => {
+    const decompose = hookNamed(costPlanHooks, 'cost_line_decompose');
+    const lines: Array<[string, Rec]> = [
+      ['crm_labor_cost_line', { id: 'l1', description: 'SE', crm_rate_card: 'rc_se_2026', headcount: 2, hours_per_month: 160, start_month: '2026-06-01', end_month: '2026-08-01' }],
+      ['crm_service_cost_line', { id: 's1', description: '分包', pricing_basis: 'per_month', unit_price: 62_500, headcount: 2, duration: 3, start_month: '2026-08-01' }],
+      ['crm_procurement_cost_line', { id: 'p1', description: '云资源', quantity: 1, unit_price: 100_000, start_month: '2026-09-01', end_month: '2026-11-01' }],
+      ['crm_expense_cost_line', { id: 'e1', description: '差旅', expense_type: 'travel', crm_travel_standard: 'ts_1', trips: 4, travelers: 2, days: 3, start_month: '2026-08-01', end_month: '2026-09-01' }],
+    ];
+    for (const [object, line] of lines) {
+      const split = makeHarness({ ...cards(), crm_cost_plan: [{ id: 'dp1', crm_delivery_project: 'dlv_1', phase: 'delivery' }] });
+      const asDelivery = { ...line, crm_cost_plan: 'dp1' };
+      await decompose.handler(withObject(withResult(makeCtx({ event: 'afterInsert', input: asDelivery, user: USER, api: split.api }), asDelivery), object));
+      const months = Math.round(split.rows('crm_cost_plan_month').reduce((s, r) => s + (r.amount as number), 0) * 100) / 100;
+      const estimated = await run(bizcase(), object, { ...line, crm_cost_plan: 'bc1' });
+      expect(estimated.estimate_amount, object).toBe(months);
+    }
   });
 });
 
@@ -257,8 +294,8 @@ describe('budget_adjustment_amount', () => {
 
   it('reads the amount off the named version minus the version in force', async () => {
     const h = makeHarness({ crm_cost_plan: [
-      { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, planned_total: 1_000_000 },
-      { id: 'v2', crm_delivery_project: 'dlv_1', is_current: false, planned_total: 1_150_000 },
+      { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, planned_month_total: 1_000_000 },
+      { id: 'v2', crm_delivery_project: 'dlv_1', is_current: false, planned_month_total: 1_150_000 },
     ] });
     const input: Rec = { crm_cost_plan: 'v2', reason: 'scope_change' };
     await hook.handler(makeCtx({ event: 'beforeInsert', input, user: USER, api: h.api }));
@@ -299,9 +336,9 @@ describe('cost_plan_compare', () => {
   /** Two versions of one delivery project's plan: v1 in force, v2 the draft under review. */
   const versions = () => ({ crm_cost_plan: [
     { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'approved',
-      baseline_total: 1_000_000, planned_total: 1_000_000, labor_total: 700_000, service_total: 150_000, procurement_total: 100_000, expense_total: 50_000, travel_total: 30_000 },
+      baseline_total: 1_000_000, planned_month_total: 1_000_000, labor_month_total: 700_000, service_month_total: 150_000, procurement_month_total: 100_000, expense_month_total: 50_000, travel_month_total: 30_000 },
     { id: 'v2', crm_delivery_project: 'dlv_1', is_current: false, approval_status: 'draft',
-      baseline_total: 1_000_000, planned_total: 1_150_000, labor_total: 780_000, service_total: 180_000, procurement_total: 130_000, expense_total: 60_000, travel_total: 42_000 },
+      baseline_total: 1_000_000, planned_month_total: 1_150_000, labor_month_total: 780_000, service_month_total: 180_000, procurement_month_total: 130_000, expense_month_total: 60_000, travel_month_total: 42_000 },
   ] });
 
   it('snapshots every amount of the version in force when the plan is submitted', async () => {
@@ -326,7 +363,8 @@ describe('cost_plan_compare', () => {
     // marked 当前版本, and on a project's first version that IS this row. So the
     // snapshot is the row's own amounts and the comparison reads 0 — not a
     // full-amount increase against an absent version.
-    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: true, planned_total: 800_000, travel_total: 30_000 }] });
+    // A Bizcase carries its amounts on the line side of the pair — no month rows at all.
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: true, labor_line_total: 720_000, expense_line_total: 80_000, travel_line_total: 30_000 }] });
     const input: Rec = { approval_status: 'submitted' };
     await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v1', crm_presales_project: 'pre_1', approval_status: 'draft' }, user: USER, api: h.api }));
     expect(input.compare_plan).toBe('v1');
@@ -335,7 +373,7 @@ describe('cost_plan_compare', () => {
   });
 
   it('leaves the comparison empty when the project has no version in force', async () => {
-    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: false, approval_status: 'superseded', planned_total: 800_000 }] });
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: false, approval_status: 'superseded', labor_line_total: 800_000 }] });
     const input: Rec = { approval_status: 'submitted' };
     await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v2', crm_presales_project: 'pre_1', approval_status: 'draft' }, user: USER, api: h.api }));
     expect(input.compare_plan).toBeNull();
@@ -361,10 +399,14 @@ describe('cost_plan_compare', () => {
  * unmeasured, so the formulas are evaluated over the row the hook produced.
  */
 describe('the comparison a leader approves on', () => {
+  // A stored row carries every summary column, null until the first child
+  // lands; a fixture that names only the columns it sets would make strict
+  // CEL abort on the absent key (`No such key`), which no real row ever has.
+  const COLUMNS: Rec = Object.fromEntries(['planned', 'labor', 'service', 'procurement', 'expense', 'travel'].flatMap((k) => [[k + '_month_total', null], [k + '_line_total', null]]).filter(([k]) => k !== 'planned_line_total'));
   const evalFormula = (field: string, record: Rec): number => {
     const expression = (CostPlan as Rec).fields?.[field]?.expression;
     const source = String((expression as Rec)?.source ?? expression);
-    const result = ExpressionEngine.evaluate({ dialect: 'cel', source }, { record }) as { ok?: boolean; value?: unknown };
+    const result = ExpressionEngine.evaluate({ dialect: 'cel', source }, { record: { ...COLUMNS, ...record } }) as { ok?: boolean; value?: unknown };
     expect(result?.ok, `${field} did not evaluate: ${JSON.stringify(result)}`).toBe(true);
     return Number(result?.value);
   };
@@ -373,11 +415,11 @@ describe('the comparison a leader approves on', () => {
     const hook = hookNamed(costPlanHooks, 'cost_plan_compare');
     const submitted = {
       id: 'v2', crm_delivery_project: 'dlv_1', approval_status: 'draft',
-      baseline_total: 1_000_000, planned_total: 1_150_000, labor_total: 780_000, service_total: 180_000, procurement_total: 130_000, expense_total: 60_000, travel_total: 42_000,
+      baseline_total: 1_000_000, planned_month_total: 1_150_000, labor_month_total: 780_000, service_month_total: 180_000, procurement_month_total: 130_000, expense_month_total: 60_000, travel_month_total: 42_000,
     };
     const h = makeHarness({ crm_cost_plan: [
       { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'approved',
-        baseline_total: 1_000_000, planned_total: 1_000_000, labor_total: 700_000, service_total: 150_000, procurement_total: 100_000, expense_total: 50_000, travel_total: 30_000 },
+        baseline_total: 1_000_000, planned_month_total: 1_000_000, labor_month_total: 700_000, service_month_total: 150_000, procurement_month_total: 100_000, expense_month_total: 50_000, travel_month_total: 30_000 },
       submitted,
     ] });
     const input: Rec = { approval_status: 'submitted' };
@@ -396,9 +438,10 @@ describe('the comparison a leader approves on', () => {
 
   it('当前版本为自己时，每一项差异都是 0', async () => {
     const hook = hookNamed(costPlanHooks, 'cost_plan_compare');
+    // A Bizcase this time: the amounts sit on the line side of every pair.
     const inForce = {
-      id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'draft',
-      baseline_total: 1_054_320, planned_total: 1_566_320, labor_total: 1_168_000, service_total: 250_000, procurement_total: 100_000, expense_total: 48_320, travel_total: 28_320,
+      id: 'v1', crm_presales_project: 'pre_1', is_current: true, approval_status: 'draft',
+      baseline_total: 1_054_320, labor_line_total: 1_168_000, service_line_total: 250_000, procurement_line_total: 100_000, expense_line_total: 48_320, travel_line_total: 28_320,
     };
     const h = makeHarness({ crm_cost_plan: [inForce] });
     const input: Rec = { approval_status: 'submitted' };
@@ -410,11 +453,22 @@ describe('the comparison a leader approves on', () => {
     }
   });
 
+  it('每个可见合计 = 月度分解台账 + 明细行估算，两边只有一边非零', () => {
+    const bizcase = { labor_line_total: 720_000, service_line_total: 150_000, procurement_line_total: 50_000, expense_line_total: 80_000, travel_line_total: 30_000 };
+    expect(evalFormula('planned_total', bizcase)).toBe(1_000_000);
+    expect(evalFormula('labor_total', bizcase)).toBe(720_000);
+    expect(evalFormula('travel_total', bizcase)).toBe(30_000);
+    const delivery = { planned_month_total: 1_150_000, labor_month_total: 780_000, service_month_total: 180_000, procurement_month_total: 130_000, expense_month_total: 60_000, travel_month_total: 42_000 };
+    expect(evalFormula('planned_total', delivery)).toBe(1_150_000);
+    expect(evalFormula('expense_total', delivery)).toBe(60_000);
+    expect(evalFormula('service_total', delivery)).toBe(180_000);
+  });
+
   it('reads a reduction as a negative difference, and a plan with no version in force as zero-based', () => {
-    expect(evalFormula('delta_planned_total', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-100_000);
-    expect(evalFormula('delta_planned_pct', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-10);
+    expect(evalFormula('delta_planned_total', { planned_month_total: 900_000, current_planned_total: 1_000_000 })).toBe(-100_000);
+    expect(evalFormula('delta_planned_pct', { planned_month_total: 900_000, current_planned_total: 1_000_000 })).toBe(-10);
     // No version in force: the whole amount IS the increase, and the rate reads 0 rather than dividing by zero.
-    expect(evalFormula('delta_planned_total', { planned_total: 800_000, current_planned_total: 0 })).toBe(800_000);
-    expect(evalFormula('delta_planned_pct', { planned_total: 800_000, current_planned_total: 0 })).toBe(0);
+    expect(evalFormula('delta_planned_total', { labor_line_total: 800_000, current_planned_total: 0 })).toBe(800_000);
+    expect(evalFormula('delta_planned_pct', { labor_line_total: 800_000, current_planned_total: 0 })).toBe(0);
   });
 });

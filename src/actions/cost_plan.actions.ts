@@ -15,12 +15,13 @@ const LINE_OBJECTS = ['crm_labor_cost_line', 'crm_service_cost_line', 'crm_procu
 // Copies a plan's four line families onto `targetPlanId`. Month rows regenerate
 // from each inserted line (cost_line_decompose); with `carryManualMonths` the
 // source's 手工调整 months are then re-applied onto the regenerated rows so a
-// tuned split survives. A Bizcase → delivery import must NOT carry them: a
-// Bizcase line is one whole-range row, and a hand-set whole amount landing on
-// the first month of the delivery split would count the line twice.
+// tuned split survives. A Bizcase → delivery import has nothing to carry — a
+// Bizcase has no month rows — so the import passes `false` and the delivery
+// copy is split from its lines alone. The line-side amounts are never copied:
+// the estimate is recomputed by `cost_line_estimate` and the rest are rollups.
 const CLONE_LINES_SRC = `
   const LINES = ${JSON.stringify(LINE_OBJECTS)};
-  const SKIP = ['id', 'crm_cost_plan', 'planned_amount', 'created_at', 'updated_at', 'created_by', 'updated_by', 'owner_id', 'organization_id'];
+  const SKIP = ['id', 'crm_cost_plan', 'planned_amount', 'estimate_amount', 'allocated_amount', 'created_at', 'updated_at', 'created_by', 'updated_by', 'owner_id', 'organization_id'];
   async function cloneLines(sourcePlanId, targetPlanId, carryManualMonths) {
     for (const object of LINES) {
       const lines = await ctx.api.object(object).find({ where: { crm_cost_plan: sourcePlanId } });
@@ -42,8 +43,10 @@ const CLONE_LINES_SRC = `
 
 /**
  * Step 27 — 导入 Bizcase 预算: the approved presales Bizcase plan becomes delivery
- * plan v1 and the frozen baseline. The Bizcase carries one whole-range row per
- * line; the delivery copy is split month by month as its lines are inserted.
+ * plan v1 and the frozen baseline. A Bizcase carries its figures on its lines
+ * and has no month rows; the delivery copy is split month by month as its
+ * lines are inserted. The Bizcase total is read off the plan's stored parts
+ * (`planned_total` is a formula, virtual on the wire).
  */
 export const ImportBizcaseBudgetAction: Action = {
   name: 'import_bizcase_budget',
@@ -66,7 +69,8 @@ export const ImportBizcaseBudgetAction: Action = {
       if (!presales || presales.approval_status !== 'approved') throw new Error('售前项目尚未审批通过，只有已审批的 Bizcase 才能作为考核基线。');
       const bizcase = await ctx.api.object('crm_cost_plan').findOne({ where: { crm_presales_project: presales.id, is_current: true } });
       if (!bizcase) throw new Error('售前项目「' + presales.name + '」没有当前 Bizcase 成本计划，请先在售前项目下编制并审批通过（审批通过即成为当前版本）。');
-      const total = Number(bizcase.planned_total) || 0;
+      const PARTS = ['planned_month_total', 'labor_line_total', 'service_line_total', 'procurement_line_total', 'expense_line_total'];
+      const total = Math.round(PARTS.reduce((acc, k) => acc + (Number(bizcase[k]) || 0), 0) * 100) / 100;
       if (total <= 0) throw new Error('Bizcase 成本计划总额为 0，没有可导入的预算。');
       const plan = await ctx.api.object('crm_cost_plan').insert({
         name: project.name + ' · 交付成本计划 v1',

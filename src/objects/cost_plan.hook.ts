@@ -129,13 +129,23 @@ const costPlanCompare: Hook = {
     const presales = id(input.crm_presales_project !== undefined ? input.crm_presales_project : previous?.crm_presales_project);
     const projectId = delivery || presales;
     if (!projectId) return;
-    const amounts = ['baseline_total', 'planned_total', 'labor_total', 'service_total', 'procurement_total', 'expense_total', 'travel_total'];
+    // The visible totals are formulas (virtual), so the snapshot reads the
+    // stored pairs behind them — the month-ledger column and the line-estimate
+    // column — and adds each pair; exactly one side is non-zero on any plan.
+    const parts = ['baseline_total', 'planned_month_total', 'labor_month_total', 'service_month_total', 'procurement_month_total', 'expense_month_total', 'travel_month_total', 'labor_line_total', 'service_line_total', 'procurement_line_total', 'expense_line_total', 'travel_line_total'];
     const current = await api.object('crm_cost_plan').findOne({
       where: { [delivery ? 'crm_delivery_project' : 'crm_presales_project']: projectId, is_current: true },
-      fields: ['id', ...amounts],
+      fields: ['id', ...parts],
     });
+    const sum = (keys: string[]): number => (current ? Math.round(keys.reduce((acc, k) => acc + num(current[k]), 0) * 100) / 100 : 0);
     input.compare_plan = current ? id(current.id) : null;
-    for (const field of amounts) input['current_' + field] = current ? num(current[field]) : 0;
+    input.current_baseline_total = sum(['baseline_total']);
+    input.current_planned_total = sum(['planned_month_total', 'labor_line_total', 'service_line_total', 'procurement_line_total', 'expense_line_total']);
+    input.current_labor_total = sum(['labor_month_total', 'labor_line_total']);
+    input.current_service_total = sum(['service_month_total', 'service_line_total']);
+    input.current_procurement_total = sum(['procurement_month_total', 'procurement_line_total']);
+    input.current_expense_total = sum(['expense_month_total', 'expense_line_total']);
+    input.current_travel_total = sum(['travel_month_total', 'travel_line_total']);
   },
 };
 
@@ -207,6 +217,89 @@ const costLineRateFill: Hook = {
 };
 
 /**
+ * 售前不按月拆分 — a Bizcase line carries its own whole-range figure and the
+ * plan has NO month rows (2026-09-16, 「不需要在月度分解行中生成数据」). The
+ * estimate is the line's factors priced exactly as `cost_line_decompose`
+ * prices a delivery line's months — a labor line resolves the rate card
+ * month by month and sums, a 人月 service is 单价 × 人数 × 工期, 人天 / 包干,
+ * procurement and expenses are their totals — written to `estimate_amount`
+ * on the line itself, which the plan's `*_line_total` summaries and the
+ * presales project's four figures roll up. A delivery line's estimate is
+ * cleared: its figure is the sum of its month rows (`allocated_amount`).
+ */
+const costLineEstimate: Hook = {
+  name: 'cost_line_estimate',
+  object: [...LINE_OBJECTS],
+  events: ['beforeInsert', 'beforeUpdate'],
+  priority: 95,
+  description: "Write a Bizcase line's whole-range estimate from its factors; clear it on a delivery line.",
+  handler: async (ctx: HookContext) => {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
+    const id = (v: unknown): string => (typeof v === 'string' && v !== '' ? v : '');
+    const round2 = (v: number): number => Math.round(v * 100) / 100;
+    const monthOf = (value: unknown): string => {
+      if (value === null || value === undefined || value === '') return '';
+      const d = value instanceof Date ? value : new Date(String(value));
+      if (Number.isNaN(d.getTime())) return '';
+      return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-01';
+    };
+    const addMonths = (ym: string, n: number): string => {
+      const y = Number(ym.slice(0, 4)); const m = Number(ym.slice(5, 7)) - 1 + n;
+      return (y + Math.floor(m / 12)) + '-' + String((m % 12 + 12) % 12 + 1).padStart(2, '0') + '-01';
+    };
+    const covers = (row: Record<string, unknown>, ym: string): boolean => {
+      const from = monthOf(row.effective_from); const to = monthOf(row.effective_to);
+      return (!from || from <= ym) && (!to || to >= ym);
+    };
+    const api = ctx.api as HookApi | undefined;
+    const { input, previous } = ctx;
+    if (!input || !api) return;
+    const factors = ['crm_cost_plan', 'start_month', 'end_month', 'headcount', 'hours_per_month', 'crm_rate_card', 'pricing_basis', 'unit_price', 'duration', 'quantity', 'expense_type', 'crm_travel_standard', 'trips', 'travelers', 'days', 'budget_amount'];
+    if (ctx.event === 'beforeUpdate' && !factors.some((f) => input[f] !== undefined)) return;
+    const line = { ...(previous ?? {}), ...input } as Record<string, unknown>;
+    const object = typeof ctx.object === 'string' && ctx.object.endsWith('_cost_line') ? ctx.object : line.crm_rate_card !== undefined ? 'crm_labor_cost_line' : line.pricing_basis !== undefined ? 'crm_service_cost_line' : line.procurement_category !== undefined ? 'crm_procurement_cost_line' : 'crm_expense_cost_line';
+    const planId = id(line.crm_cost_plan);
+    const start = monthOf(line.start_month);
+    if (!planId || !start) return;
+    const plan = await api.object('crm_cost_plan').findOne({ where: { id: planId }, fields: ['phase', 'crm_presales_project'] });
+    const bizcase = plan?.phase === 'bizcase' || (!plan?.phase && !!id(plan?.crm_presales_project));
+    if (!bizcase) {
+      if (num(previous?.estimate_amount) !== 0) input.estimate_amount = null;
+      return;
+    }
+    const category = object === 'crm_labor_cost_line' ? 'labor' : object === 'crm_service_cost_line' ? 'third_party_service' : object === 'crm_procurement_cost_line' ? 'procurement' : 'expense';
+    let end = monthOf(line.end_month) || start;
+    if (category === 'third_party_service' && line.pricing_basis === 'per_month' && num(line.duration) > 0) end = addMonths(start, Math.ceil(num(line.duration)) - 1);
+    if (end < start) end = start;
+    const months: string[] = [];
+    for (let ym = start; ym <= end && months.length < 120; ym = addMonths(ym, 1)) months.push(ym);
+    const headcount = num(line.headcount) || 1;
+    let total = 0;
+    if (category === 'labor') {
+      const card = await api.object('crm_rate_card').findOne({ where: { id: id(line.crm_rate_card) }, fields: ['name', 'rate_standard', 'hourly_rate'] });
+      const where: Record<string, unknown> = { name: card?.name };
+      if (card?.rate_standard) where.rate_standard = card.rate_standard;
+      const rates = card ? await api.object('crm_rate_card').find({ where, fields: ['hourly_rate', 'effective_from', 'effective_to', 'is_active'] }) : [];
+      for (const ym of months) {
+        const live = rates.find((r) => r.is_active !== false && covers(r, ym)) ?? { hourly_rate: card?.hourly_rate };
+        total = round2(total + round2(headcount * num(line.hours_per_month) * num(live?.hourly_rate)));
+      }
+    } else if (category === 'third_party_service') {
+      total = line.pricing_basis === 'per_month' ? round2(num(line.unit_price) * headcount) * months.length : line.pricing_basis === 'per_day' ? num(line.unit_price) * headcount * num(line.duration) : num(line.unit_price);
+    } else if (category === 'procurement') {
+      total = num(line.quantity) * num(line.unit_price);
+    } else if (line.expense_type === 'travel') {
+      const std = await api.object('crm_travel_standard').findOne({ where: { id: id(line.crm_travel_standard) }, fields: ['lodging_per_day', 'meal_per_day', 'local_transport_per_day', 'fare_per_trip'] });
+      const daily = num(std?.lodging_per_day) + num(std?.meal_per_day) + num(std?.local_transport_per_day);
+      total = num(line.trips) * (num(line.travelers) || 1) * (num(std?.fare_per_trip) + num(line.days) * daily);
+    } else {
+      total = num(line.budget_amount);
+    }
+    input.estimate_amount = round2(total);
+  },
+};
+
+/**
  * Month rows carry what the ledger needs regardless of who wrote them: the
  * month normalised to its first day, the category paired to the line lookup,
  * a description when none came (the decomposition passes the line's), the
@@ -261,12 +354,12 @@ const costPlanMonthFill: Hook = {
  * are spread evenly, the last month taking the rounding remainder. Rows a
  * person marked 手工调整 are kept; rows that fell out of the range are removed.
  *
- * A Bizcase (售前) plan is NOT split by month (2026-09-16): the estimate the
- * executive approves is a whole-range figure, so its line lands as ONE ledger
- * row, dated the line's 起始月份 and priced exactly as the split would have
- * priced it — a labor line still resolves the rate month by month and sums.
- * The ledger stays the one source every total reads; the month split happens
- * on the delivery plan the Bizcase is imported into.
+ * A Bizcase (售前) plan has NO month rows (2026-09-16, 「不需要在月度分解行中
+ * 生成数据」): its line carries its figure itself (`cost_line_estimate`), so
+ * on a Bizcase this hook writes nothing and removes whatever rows a line
+ * still has from before the rule — 手工调整 or not, nothing on a Bizcase reads
+ * the ledger. The month split happens on the delivery plan the Bizcase is
+ * imported into.
  */
 const costLineDecompose: Hook = {
   name: 'cost_line_decompose',
@@ -311,10 +404,14 @@ const costLineDecompose: Hook = {
     if (end < start) end = start;
     const months: string[] = [];
     for (let ym = start; ym <= end && months.length < 120; ym = addMonths(ym, 1)) months.push(ym);
-    // Bizcase (售前): one whole-range row instead of a month split. A plan whose
-    // phase is not written yet is read off the project it hangs on.
+    // Bizcase (售前): no month rows. A plan whose phase is not written yet is
+    // read off the project it hangs on.
     const plan = await api.object('crm_cost_plan').findOne({ where: { id: planId }, fields: ['phase', 'crm_presales_project'] });
-    const whole = plan?.phase === 'bizcase' || (!plan?.phase && !!id(plan?.crm_presales_project));
+    if (plan?.phase === 'bizcase' || (!plan?.phase && !!id(plan?.crm_presales_project))) {
+      const left = await api.object('crm_cost_plan_month').find({ where: { [object]: lineId }, fields: ['id'] });
+      for (const row of left) await api.object('crm_cost_plan_month').delete({ where: { id: id(row.id) } });
+      return;
+    }
     const headcount = num(line.headcount) || 1;
     let total = 0;
     let rates: Array<Record<string, unknown>> = [];
@@ -336,21 +433,24 @@ const costLineDecompose: Hook = {
       total = num(line.budget_amount);
     }
     const lineField = object;
-    // Every month is priced first; the split and the whole-range row are the
-    // same figures, kept apart or folded together.
-    const perMonth = category === 'labor' || (category === 'third_party_service' && line.pricing_basis === 'per_month');
-    const priced: Array<Record<string, unknown>> = [];
+    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['id', 'period_month', 'is_manual'] });
+    const byMonth = new Map<string, Record<string, unknown>>();
+    for (const row of existing) byMonth.set(monthOf(row.period_month), row);
+    const kept = new Set<string>();
     const share = round2(total / months.length);
     let spread = 0;
     for (let i = 0; i < months.length; i += 1) {
       const ym = months[i]!;
-      const row: Record<string, unknown> = { period_month: ym, headcount };
+      const found = byMonth.get(ym);
+      kept.add(ym);
+      if (found?.is_manual === true) continue;
+      const row: Record<string, unknown> = { crm_cost_plan: planId, category, [lineField]: lineId, period_month: ym, is_manual: false, headcount, description: String(line.description ?? '') + ' · ' + ym.slice(0, 7) };
       if (category === 'labor') {
         const live = rates.find((r) => !r.fallback && r.is_active !== false && covers(r, ym)) ?? rates.find((r) => r.fallback);
         row.quantity = num(line.hours_per_month);
         row.unit_price = num(live?.hourly_rate);
         row.amount = round2(headcount * num(line.hours_per_month) * num(live?.hourly_rate));
-      } else if (perMonth) {
+      } else if (category === 'third_party_service' && line.pricing_basis === 'per_month') {
         row.quantity = 1;
         row.unit_price = num(line.unit_price);
         row.amount = round2(num(line.unit_price) * headcount);
@@ -358,32 +458,10 @@ const costLineDecompose: Hook = {
         const amount = i === months.length - 1 ? round2(total - spread) : share;
         spread = round2(spread + amount);
         row.quantity = category === 'procurement' ? num(line.quantity) : num(line.trips) || 1;
-        if (category === 'procurement') row.unit_price = num(line.unit_price);
+        row.unit_price = category === 'procurement' ? num(line.unit_price) : undefined;
         row.amount = amount;
+        if (category === 'expense') row.expense_type = line.expense_type;
       }
-      priced.push(row);
-    }
-    let buckets = priced;
-    if (whole) {
-      // The whole-range row: the months summed, a per-month quantity (hours or
-      // person-months) multiplied out, the first month's unit price kept as
-      // the snapshot, and the range spelled out in the description.
-      const first = priced[0]!;
-      const sum = round2(priced.reduce((acc, r) => acc + num(r.amount), 0));
-      buckets = [{ ...first, quantity: perMonth ? round2(num(first.quantity) * months.length) : first.quantity, amount: sum }];
-    }
-    const span = whole && end !== start ? start.slice(0, 7) + ' 至 ' + end.slice(0, 7) : '';
-    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['id', 'period_month', 'is_manual'] });
-    const byMonth = new Map<string, Record<string, unknown>>();
-    for (const row of existing) byMonth.set(monthOf(row.period_month), row);
-    const kept = new Set<string>();
-    for (const bucket of buckets) {
-      const ym = String(bucket.period_month);
-      const found = byMonth.get(ym);
-      kept.add(ym);
-      if (found?.is_manual === true) continue;
-      const row: Record<string, unknown> = { ...bucket, crm_cost_plan: planId, category, [lineField]: lineId, is_manual: false, description: String(line.description ?? '') + ' · ' + (span || ym.slice(0, 7)) };
-      if (category === 'expense') row.expense_type = line.expense_type;
       if (row.unit_price === undefined) delete row.unit_price;
       if (found) {
         const foundId = id(found.id);
@@ -419,13 +497,17 @@ const budgetAdjustmentAmount: Hook = {
     if (!input || !api) return;
     const planId = id(input.crm_cost_plan !== undefined ? input.crm_cost_plan : previous?.crm_cost_plan);
     if (!planId || (input.crm_cost_plan === undefined && input.amount !== undefined)) return;
-    const plan = await api.object('crm_cost_plan').findOne({ where: { id: planId }, fields: ['planned_total', 'crm_delivery_project'] });
+    // `planned_total` is a formula (virtual); the version total is its stored
+    // parts — the month ledger plus the four line estimates, one side zero.
+    const parts = ['planned_month_total', 'labor_line_total', 'service_line_total', 'procurement_line_total', 'expense_line_total'];
+    const totalOf = (row: Record<string, unknown> | null | undefined): number => parts.reduce((acc, k) => acc + num(row?.[k]), 0);
+    const plan = await api.object('crm_cost_plan').findOne({ where: { id: planId }, fields: [...parts, 'crm_delivery_project'] });
     if (!plan) return;
     const projectId = id(plan.crm_delivery_project) || id(input.crm_delivery_project !== undefined ? input.crm_delivery_project : previous?.crm_delivery_project);
     if (!projectId) return;
-    const current = await api.object('crm_cost_plan').findOne({ where: { crm_delivery_project: projectId, is_current: true }, fields: ['planned_total'] });
+    const current = await api.object('crm_cost_plan').findOne({ where: { crm_delivery_project: projectId, is_current: true }, fields: parts });
     if (!id(input.crm_delivery_project) && !id(previous?.crm_delivery_project)) input.crm_delivery_project = projectId;
-    input.amount = Math.round((num(plan.planned_total) - num(current?.planned_total)) * 100) / 100;
+    input.amount = Math.round((totalOf(plan) - totalOf(current)) * 100) / 100;
   },
 };
 
@@ -447,4 +529,4 @@ const budgetAdjustmentVersionFlip: Hook = {
   },
 };
 
-export default [costPlanDefaults, costPlanCompare, costPlanLock, costLineRateFill, costPlanMonthFill, costLineDecompose, budgetAdjustmentAmount, budgetAdjustmentVersionFlip];
+export default [costPlanDefaults, costPlanCompare, costPlanLock, costLineRateFill, costLineEstimate, costPlanMonthFill, costLineDecompose, budgetAdjustmentAmount, budgetAdjustmentVersionFlip];
