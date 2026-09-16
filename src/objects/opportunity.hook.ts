@@ -197,10 +197,12 @@ const opportunityValidationHook: Hook = {
           // the record id — it matches none of them.
           const name = typeof previous.name === 'string' ? previous.name.trim() : '';
           const subject = name ? `Opportunity ${name}` : 'Opportunity';
+          const zhSubject = name ? `商机「${name}」` : '该商机';
           throw refuse(
             `${subject} is closed (${prevStage}); only ${[...NARRATIVE_FIELDS].join(', ')} may be edited. Attempted: ${violating.join(', ')}.`,
             'RECORD_LOCKED',
             409,
+            `${zhSubject}已关闭（${prevStage}），只能修改 ${[...NARRATIVE_FIELDS].join('、')} 这几个字段；本次尝试修改：${violating.join('、')}`,
           );
         }
       }

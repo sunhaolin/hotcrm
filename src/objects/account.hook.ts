@@ -46,11 +46,21 @@ const accountHook: Hook = {
     if (event === 'beforeInsert' || event === 'beforeUpdate') {
       if (typeof input.website === 'string' && input.website.length > 0) {
         if (!/^https?:\/\//i.test(input.website)) {
-          throw refuse('Website must start with http:// or https://', 'VALIDATION_FAILED', 400);
+          throw refuse(
+            'Website must start with http:// or https://',
+            'VALIDATION_FAILED',
+            400,
+            '网址必须以 http:// 或 https:// 开头',
+          );
         }
       }
       if (typeof input.annual_revenue === 'number' && input.annual_revenue < 0) {
-        throw refuse('Annual Revenue must be greater than or equal to 0', 'VALIDATION_FAILED', 400);
+        throw refuse(
+          'Annual Revenue must be greater than or equal to 0',
+          'VALIDATION_FAILED',
+          400,
+          '年营收不能为负数',
+        );
       }
 
       // ─── Territory (#621 storage location, #639 classification) ────────
@@ -214,12 +224,19 @@ const accountHook: Hook = {
         // first." Agreement runs across three words here — noun, verb and
         // pronoun — and the two readable sentences are cheaper to keep correct
         // (and to grep for) than three interlocking conditionals.
+        //
+        // The Chinese sentence needs no such split: 个 counts both cases and no
+        // verb or pronoun agrees with the number, so one template is correct
+        // for 1 and for n. ⛔ Do not mirror the English branch here to make the
+        // two look alike — that would be a second sentence to keep in step for
+        // a distinction the language does not draw.
         throw refuse(
           openOpps === 1
             ? 'Cannot delete customer account: 1 open opportunity still references it. Close or reassign it first.'
             : `Cannot delete customer account: ${openOpps} open opportunities still reference it. Close or reassign them first.`,
           'DELETE_RESTRICTED',
           409,
+          `该客户下还有 ${openOpps} 个进行中的商机，无法删除；请先关闭这些商机或改挂到其他客户`,
         );
       }
     }

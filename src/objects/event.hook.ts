@@ -280,12 +280,15 @@ const eventDoNotCallGuard: Hook = {
     const leadId = effective('related_to_lead');
     const contactId = effective('related_to_contact');
 
-    const targets: Array<{ object: string; id: string; label: string }> = [];
+    // `zhLabel` is the object's own zh-CN pack label (`线索` / `联系人`), carried
+    // beside the English one because the refusal speaks both: `message` is the
+    // diagnostic, `userMessage` is what the rep reads.
+    const targets: Array<{ object: string; id: string; label: string; zhLabel: string }> = [];
     if (typeof leadId === 'string' && leadId) {
-      targets.push({ object: 'crm_lead', id: leadId, label: 'lead' });
+      targets.push({ object: 'crm_lead', id: leadId, label: 'lead', zhLabel: '线索' });
     }
     if (typeof contactId === 'string' && contactId) {
-      targets.push({ object: 'crm_contact', id: contactId, label: 'contact' });
+      targets.push({ object: 'crm_contact', id: contactId, label: 'contact', zhLabel: '联系人' });
     }
 
     for (const t of targets) {
@@ -306,6 +309,8 @@ const eventDoNotCallGuard: Hook = {
             'or clear Do Not Call on the record first.',
           'FORBIDDEN',
           403,
+          `该${t.zhLabel}已标记「禁止致电」，不能安排电话；如通话已经发生，请改为记录通话，` +
+            `或改约会议，也可以先在记录上取消「禁止致电」`,
         );
       }
     }

@@ -179,10 +179,12 @@ const quoteValidation: Hook = {
           const name = typeof previous.name === 'string' ? previous.name.trim() : '';
           const label = [quoteNumber, name].filter(Boolean).join(' - ');
           const subject = label ? `Quote ${label}` : 'Quote';
+          const zhSubject = label ? `报价「${label}」` : '该报价';
           throw refuse(
             `${subject} is ${previous.status as string}; only internal_notes may be edited. Attempted: ${violating.join(', ')}.`,
             'RECORD_LOCKED',
             409,
+            `${zhSubject}当前状态为 ${previous.status as string}，只能修改 internal_notes；本次尝试修改：${violating.join('、')}`,
           );
         }
       }

@@ -87,6 +87,7 @@ const contractValidation: Hook = {
           `Contract term (${term} months) does not match date range (${calc} months from ${startDate} to ${endDate}).`,
           'VALIDATION_FAILED',
           400,
+          `合同期限（${term} 个月）与起止日期不符（${startDate} 至 ${endDate} 为 ${calc} 个月），请调整期限或起止日期`,
         );
       }
     }
@@ -101,6 +102,7 @@ const contractValidation: Hook = {
           `Cannot shrink end_date (${previous.end_date as string} → ${input.end_date}) after activation. Use a termination/amendment workflow instead.`,
           'RECORD_LOCKED',
           409,
+          `合同生效后不能提前结束日期（${previous.end_date as string} → ${input.end_date}）；请走终止或变更流程`,
         );
       }
     }
