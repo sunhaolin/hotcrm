@@ -68,17 +68,21 @@ Confirm the port frees (~1 s):
 sleep 2; lsof -nP -iTCP:4001 -sTCP:LISTEN || echo "4001 released"
 ```
 
-Still held? `lsof -ti tcp:4001` names the PID. Kill it only if it is this
-repo's own orphaned `objectstack`/`pnpm dev` child (`ps -p <pid> -o command=`
-to check); if it is anything else, ⛔ report the PID to the user and let them
-decide — do not accept port 4002 instead, `.mcp.json` hard-codes 4001.
+Still held? `lsof -ti tcp:4001 -sTCP:LISTEN` names the PID. ⛔ Keep the
+`-sTCP:LISTEN` — without it `lsof` also matches **client** sockets, and the
+Claude app's own network process shows up there because the preview tab is
+connected to 4001. Kill the PID only if it is this repo's own orphaned
+`objectstack`/`pnpm dev` child (`ps -p <pid> -o command=` to check); if it is
+anything else, ⛔ report the PID to the user and let them decide — do not
+accept port 4002 instead, `.mcp.json` hard-codes 4001.
 
 ## Step 3 — start it
 
 `preview_start {name: "crm-app"}`. Check two fields in the result:
 `reused: false` (proof a new process started) and `port: 4001` (`autoPort: true`
-would silently move it). `lsof -ti tcp:4001` should now report a **different
-PID** than the one you noted in step 1.
+would silently move it). `lsof -ti tcp:4001 -sTCP:LISTEN` should now report a
+**different PID** than the one you noted in step 1 — again with the
+`-sTCP:LISTEN`, or you get the listener plus whoever is connected to it.
 
 ## Step 4 — verify, with both gates
 
