@@ -16,14 +16,18 @@ import { DemoBootstrapFlow } from '../src/flows/demo-bootstrap.flow';
 import { SystemAdminProfile } from '../src/profiles/system-admin.profile';
 import { TenantAdminProfile } from '../src/profiles/tenant-admin.profile';
 import { DemoOrgStaffing } from '../src/sharing/demo-staffing';
+import { SystemAdminPosition, TenantAdminPosition } from '../src/sharing/positions';
 
 /**
  * The SaaS / multi-org composition (#1361).
  *
  * `HOTCRM_COMPOSITION=saas` assembles the shape a multi-org operator deploys on
  * the enterprise runtime under a walled tenancy posture. Three registrations
- * differ from the community app and nothing else does; these tests pin BOTH
- * directions, because the two failure modes are opposite and equally bad:
+ * differ from the community app and nothing else does — `data`, `flows`, and
+ * the admin persona, which is ONE change spanning `permissions` and
+ * `positions` because a set and its same-named position are how this app binds
+ * the two. These tests pin BOTH directions, because the two failure modes are
+ * opposite and equally bad:
  *
  *  - the SaaS shape quietly keeping something (a tenant receives another
  *    company's pipeline, or a demo sweep that crosses the wall), and
@@ -124,6 +128,17 @@ describe('the default composition is the community app, untouched', () => {
     expect(setNames).toContain(SystemAdminProfile.name);
     expect(setNames).not.toContain(TenantAdminProfile.name);
   });
+
+  it('ships the POSITION that reaches that set, and only that one', () => {
+    // The set and the position are one registration, not two: this app binds a
+    // permission set to a position by declaring a position of the same name
+    // (`src/sharing/positions.ts`), so a shape registering one without the
+    // other ships an admin persona nobody can hold.
+    const positionNames = nameOf((defaultStack as AnyRec).positions as AnyRec[]);
+    expect(positionNames).toContain(SystemAdminPosition.name);
+    expect(positionNames).not.toContain(TenantAdminPosition.name);
+    expect(SystemAdminPosition.name).toBe(SystemAdminProfile.name);
+  });
 });
 
 // ───────────────────────────────────────────── the SaaS composition ──
@@ -189,6 +204,41 @@ describe('HOTCRM_COMPOSITION=saas', () => {
     expect(setNames).toEqual(
       [...communityNames.filter((n) => n !== 'system_admin'), 'tenant_admin'].sort(),
     );
+  });
+
+  it('swaps the admin POSITION with it, so neither half is left stranded', () => {
+    const positionNames = nameOf(saas.positions as AnyRec[]);
+    expect(positionNames).not.toContain('system_admin');
+    expect(positionNames).toContain('tenant_admin');
+    // The swap is in place: same roster, one row different. Both failure modes
+    // are #488 — a `system_admin` position no set names grants nothing, and a
+    // `tenant_admin` set no position names reaches nobody.
+    const communityNames = nameOf((defaultStack as AnyRec).positions as AnyRec[]);
+    expect(positionNames).toEqual(
+      [...communityNames.filter((n) => n !== 'system_admin'), 'tenant_admin'].sort(),
+    );
+    expect(positionNames.length).toBe(communityNames.length);
+    // Every business rung is untouched — the swap is the admin row alone.
+    expect(positionNames.filter((n) => n !== 'tenant_admin')).toEqual(
+      communityNames.filter((n) => n !== 'system_admin'),
+    );
+  });
+
+  it('keeps every position referenced, in this shape too', () => {
+    // `test/authorization-coverage.test.ts` pins #488 for the community app
+    // against the default stack only. The SaaS shape swaps rows on BOTH sides
+    // of that invariant, so it is restated here rather than assumed.
+    const referenced = new Set<string>();
+    for (const rule of (saas.sharingRules ?? []) as AnyRec[]) {
+      if (rule.sharedWith?.type === 'position') referenced.add(String(rule.sharedWith.value));
+      if (rule.ownedBy?.type === 'position') referenced.add(String(rule.ownedBy.value));
+    }
+    const setNames = new Set(nameOf(saas.permissions as AnyRec[]));
+    for (const position of nameOf(saas.positions as AnyRec[])) {
+      if (setNames.has(position)) referenced.add(position);
+    }
+    const orphans = nameOf(saas.positions as AnyRec[]).filter((p) => !referenced.has(p));
+    expect(orphans, `positions nothing in the SaaS shape references: ${orphans.join(', ')}`).toEqual([]);
   });
 
   it('keeps the demo staffing table out of the stack here too (#640)', () => {

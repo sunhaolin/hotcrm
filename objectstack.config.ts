@@ -24,7 +24,7 @@ import {
   OpportunitySalesSharingRule, OpportunityExecutiveSharingRule,
   CaseEscalationSharingRule, CaseDirectorSharingRule, CaseUnassignedTriageSharingRule,
   CampaignLeadershipSharingRules,
-  CrmPositions,
+  CrmPositions, SystemAdminPosition, TenantAdminPosition,
 } from './src/sharing/index.js';
 
 import { allHooks } from './src/hooks/index.js';
@@ -69,6 +69,12 @@ import { allHooks } from './src/hooks/index.js';
 //     org-scoped `manage_org_users` instead of platform-scope `manage_users`.
 //     Read `src/profiles/tenant-admin.profile.ts` for the full audit, including
 //     what `view_all_data` / `modify_all_data` mean under the wall.
+//     `positions` makes the SAME swap, and is part of this one change rather
+//     than a fourth: a pure-metadata app binds a set to a position only by
+//     declaring a position of the same name, so registering `tenant_admin` as a
+//     set while registering `system_admin` as a position would leave the set
+//     unreachable and the position empty — both halves of #488 at once. See
+//     `src/sharing/positions.ts`.
 const composition = resolveComposition();
 const isSaas = composition === 'saas';
 
@@ -86,6 +92,18 @@ const compositionFlows = isSaas ? allFlows.filter((flow) => flow !== DemoBootstr
 const compositionPermissions = isSaas
   ? [...Object.values(profiles).filter((set) => set !== SystemAdminProfile), TenantAdminProfile]
   : Object.values(profiles);
+
+/**
+ * Positions this composition registers — the admin position tracks the admin
+ * set above, by identity for the same reason.
+ *
+ * A `map` rather than a filter-and-append: the swap is in place, so the roster
+ * keeps its order and its length in both shapes, and a reader comparing the two
+ * builds sees one row differ rather than one row move.
+ */
+const compositionPositions = isSaas
+  ? CrmPositions.map((position) => (position === SystemAdminPosition ? TenantAdminPosition : position))
+  : CrmPositions;
 
 export default defineStack({
   manifest: {
@@ -222,5 +240,5 @@ export default defineStack({
   // ADR-0090 D3: positions are flat capability-distribution groups — the v1
   // role hierarchy's parent links are gone (hierarchy belongs to the
   // business-unit tree, which this app does not model).
-  positions: CrmPositions,
+  positions: compositionPositions,
 });

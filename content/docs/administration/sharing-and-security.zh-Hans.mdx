@@ -76,9 +76,10 @@ OWD 是每个对象的 *最严格* 设置，其他一切都在此之上放宽。
 
 ## 第 2 层 —— 岗位
 
-**岗位（position）** 是用于分发访问权限的扁平群体。HotCRM 内置十二个：
+**岗位（position）** 是用于分发访问权限的扁平群体。HotCRM 内置十三个：
 
 ```
+system_admin
 executive
 sales_director      sales_manager      sales_rep
 service_director    service_manager    service_agent
@@ -87,6 +88,8 @@ na_sales_team       eu_sales_team          （区域分组）
 ```
 
 岗位 **在设计上是扁平的** —— 没有层级，**什么都不会上卷**。销售总监不会继承销售经理的访问权限；每个需要某条记录的层级都由它自己的共享规则点名。这就是下面若干规则成对出现的原因。
+
+`system_admin` 是唯一没有任何共享规则点名的岗位，它靠 **同名权限集** 生效：同名的岗位与权限集互相绑定，管理员档案（包括它的导出权限）正是这样落到具体的人身上。分配时请与这句话一样克制。（在 `HOTCRM_COMPOSITION=saas` 下这一行是 `tenant_admin`，与该构建注册的权限集对应。）
 
 在 **设置 → 用户** 中分配岗位；一个用户可以持有多个。
 

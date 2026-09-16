@@ -11,4 +11,4 @@ export {
   CaseUnassignedTriageSharingRule,
 } from './case.sharing';
 export { OpportunityExecutiveSharingRule, OpportunitySalesSharingRule } from './opportunity.sharing';
-export { CrmPositions } from './positions';
+export { CrmPositions, SystemAdminPosition, TenantAdminPosition } from './positions';

@@ -68,7 +68,7 @@ HotCRM is a complete, opinionated CRM built as the **first official application*
 | | | | | `crm_rate_card` |
 | | | | | `crm_legal_entity` |
 
-Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **7 dashboards**, **39 flows**, **47 actions**, **11 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **12 positions**, and **9 sharing rules**.
+Plus **6 AI skills** (a skills-only surface — HotCRM defines no agents of its own; the skills attach to the platform `ask` assistant), **7 dashboards**, **39 flows**, **47 actions**, **11 datasets**, **4 language bundles** (en, zh-CN, es-ES, ja-JP), **6 permission profiles**, **13 positions**, and **9 sharing rules**.
 
 > **Business reader?** The ObjectStack docs tour every one of these capabilities in plain business language — [What Can It Do?](https://objectstack.ai/docs/capabilities) — with HotCRM as the running example on every page.
 

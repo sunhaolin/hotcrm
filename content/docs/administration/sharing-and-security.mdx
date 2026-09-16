@@ -76,9 +76,10 @@ Because access is derived, ownership of the child row is irrelevant — a quote 
 
 ## Layer 2 — Positions
 
-A **position** is a flat group used to distribute access. HotCRM ships twelve:
+A **position** is a flat group used to distribute access. HotCRM ships thirteen:
 
 ```
+system_admin
 executive
 sales_director      sales_manager      sales_rep
 service_director    service_manager    service_agent
@@ -87,6 +88,8 @@ na_sales_team       eu_sales_team          (territory groupings)
 ```
 
 Positions are **flat by design** — there is no hierarchy and **nothing rolls up**. A sales director does not inherit a sales manager's access; each rung that needs a record is named by its own sharing rule. That is why several rules below come in pairs.
+
+`system_admin` is the one position no sharing rule names. It carries the **permission set** of the same name instead: a position and a permission set sharing a name are bound to each other, which is how the administrator profile — including its export rights — reaches an actual person. Assign it exactly as sparingly as that implies. (Under `HOTCRM_COMPOSITION=saas` this row reads `tenant_admin`, matching the set that build registers in its place.)
 
 Assign positions in **Setup → Users**; a user may hold more than one.
 

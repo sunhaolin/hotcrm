@@ -75,7 +75,7 @@ describe('product docs state the metadata counts the stack registers (#729)', ()
     actions: (registered.actions ?? []).length,
     // #1014: `getting-started/introduction` sold "a 10-role hierarchy" on the
     // page a new reader opens first. Both halves were wrong — `CrmPositions`
-    // holds 12, and ADR-0090 D3 removed the hierarchy itself (positions are
+    // holds 13, and ADR-0090 D3 removed the hierarchy itself (positions are
     // flat capability-distribution groups; the parent links went with the
     // business-unit tree this app does not model). The wording is prose and
     // this rule cannot judge it, but the number is a count like any other.
