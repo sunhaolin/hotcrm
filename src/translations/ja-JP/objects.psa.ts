@@ -220,7 +220,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       },
       approved_date: { label: '承認日時' },
       baseline_total: { help: 'Bizcase 予算の取込時に書き込まれる管理ベースライン。以後変更できません。', label: '凍結ベースライン' },
-      compare_plan: { help: '承認申請した時点で執行中のバージョン。空欄の場合はプロジェクト初回のバージョンで、以下の差異がそのまま増加額になります。', label: '比較対象の現行バージョン' },
+      compare_plan: { help: '承認申請した時点で「現行バージョン」と設定されていた計画。この記録自体が現行バージョンの場合は自分自身を指すため、差異はすべて 0 になります。空欄の場合はその時点で現行バージョンが無く、以下の差異がそのまま増加額になります。', label: '比較対象の現行バージョン' },
       crm_budget_adjustment: { label: 'このバージョンを起こした予算調整' },
       crm_delivery_project: { help: 'デリバリーフェーズの計画はデリバリープロジェクトに紐づけます。プリセールスプロジェクトとはどちらか一方のみ。', label: 'デリバリープロジェクト' },
       crm_presales_project: { help: 'Bizcase フェーズの計画はプリセールスプロジェクトに紐づけます。デリバリープロジェクトとはどちらか一方のみ。', label: 'プリセールスプロジェクト' },
@@ -234,8 +234,8 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
       delta_baseline_total: { label: '凍結ベースライン差異' },
       delta_expense_total: { label: 'プロジェクト経費合計差異' },
       delta_labor_total: { label: '人的サービス合計差異' },
-      delta_planned_pct: { help: '差異 ÷ 現行バージョンの計画総額 × 100。現行バージョンの総額が 0 の間は 0 と表示されます。', label: '計画総額差異率 %' },
-      delta_planned_total: { help: '今回承認する計画総額から現行バージョンの計画総額を差し引いた額。正数は増額、負数は減額です。', label: '計画総額差異' },
+      delta_planned_pct: { help: '差異 ÷ 申請時点の現行バージョンの計画総額 × 100。現行バージョンの総額が 0 の間は 0 と表示されます。', label: '計画総額差異率 %' },
+      delta_planned_total: { help: '今回承認する計画総額から申請時点の現行バージョンの計画総額を差し引いた額。正数は増額、負数は減額で、この記録自体が現行バージョンの場合は 0 です。', label: '計画総額差異' },
       delta_procurement_total: { label: 'ハード・ソフト購買合計差異' },
       delta_service_total: { label: '第三者サービス合計差異' },
       delta_travel_total: { label: 'うち出張差異' },
@@ -264,7 +264,7 @@ export const psa: Record<string, Partial<ObjectTranslationData>> = {
     _sections: {
       approval: { label: '承認' },
       basic: { label: '計画情報' },
-      comparison: { label: '現行バージョンとの比較' },
+      comparison: { label: '現行バージョンとの比較', description: '「承認申請した時点」で現行バージョンだったコスト計画と項目ごとに比較します。申請時に取得し、承認後も記録として保持します。この記録自体が現行バージョンの場合は自分自身と比較するため、差異は 0 です。' },
       totals: { label: '計画金額' },
     },
     _views: {

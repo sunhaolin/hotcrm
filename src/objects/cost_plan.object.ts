@@ -20,8 +20,12 @@ import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-pickli
  * approval flips the next version to current and the old one to 已作废.
  *
  * The `comparison` group is what the approver decides on: `cost_plan_compare`
- * snapshots the in-force version's amounts onto the `current_*` columns at
- * submit time, and every `delta_*` is a formula over that pair.
+ * snapshots the amounts of the version marked 当前版本 onto the `current_*`
+ * columns at submit time, and every `delta_*` is a formula over that pair. The
+ * snapshot is taken as declared, itself included — a plan that already IS the
+ * current version compares with itself and reads 0 — and the group keeps
+ * showing after the decision, as the record of what was put in front of the
+ * approver.
  */
 const monthSum = (label: string, filter?: Record<string, unknown>) => Field.summary({
   label,
@@ -43,7 +47,7 @@ export const CostPlan = ObjectSchema.create({
   fieldGroups: [
     { key: 'basic',    label: '计划信息', icon: 'info' },
     { key: 'totals',   label: '计划金额', icon: 'calculator' },
-    { key: 'comparison', label: '与当前版本对比', icon: 'git-compare' },
+    { key: 'comparison', label: '与当前版本对比', icon: 'git-compare', description: '与「提交审批时」标记为当前版本的成本计划逐项对比，提交时取数、审批后保留为留痕。本记录本身就是当前版本时与自己对比，差异为 0。' },
     { key: 'approval', label: '审批',     icon: 'check-circle' },
   ],
   fields: {
@@ -73,7 +77,13 @@ export const CostPlan = ObjectSchema.create({
     // other version's numbers have to be carried on this row to be subtracted
     // — and each `delta_*` is a formula over the two columns, so the
     // difference can never disagree with the pair it is drawn from.
-    compare_plan: Field.lookup('crm_cost_plan', { label: '对比的当前版本', group: 'comparison', readonly: true, description: '提交审批时正在执行的那个版本；为空表示本次是项目的首个版本，下面的差异即全额新增。' }),
+    //
+    // 当前版本 is taken as the data declares it, with no exception for this row:
+    // a plan that is already 当前版本 snapshots itself and reads 0 everywhere,
+    // because that is what the group's own title claims. The first cut excluded
+    // the row itself, which showed an approved current version a 1,566,320
+    // increase over a version that did not exist.
+    compare_plan: Field.lookup('crm_cost_plan', { label: '对比的当前版本', group: 'comparison', readonly: true, description: '提交审批时标记为当前版本的那个计划；本记录本身是当前版本时指向自己，差异全为 0。为空表示项目当时没有当前版本，下面的差异即全额新增。' }),
     current_baseline_total: Field.currency({ label: '当前版本冻结基线', scale: 2, group: 'comparison', readonly: true }),
     delta_baseline_total: Field.formula({
       label: '冻结基线差异',
@@ -84,14 +94,14 @@ export const CostPlan = ObjectSchema.create({
     current_planned_total: Field.currency({ label: '当前版本计划总额', scale: 2, group: 'comparison', readonly: true }),
     delta_planned_total: Field.formula({
       label: '计划总额差异',
-      description: '本次审批的计划总额减去当前执行版本的计划总额；正数为增加，负数为核减。',
+      description: '本次审批的计划总额减去提交时当前版本的计划总额；正数为增加，负数为核减；本记录即当前版本时为 0。',
       group: 'comparison',
       expression: F`coalesce(record.planned_total, 0) - coalesce(record.current_planned_total, 0)`,
       scale: 2,
     }),
     delta_planned_pct: Field.formula({
       label: '计划总额差异率 %',
-      description: '差异 ÷ 当前执行版本的计划总额 × 100。当前版本总额为 0 时读作 0。',
+      description: '差异 ÷ 提交时当前版本的计划总额 × 100。当前版本总额为 0 时读作 0。',
       group: 'comparison',
       expression: F`coalesce(record.current_planned_total, 0) > 0 ? ((coalesce(record.planned_total, 0) - record.current_planned_total) * 100.0) / record.current_planned_total : 0.0`,
       scale: 2,

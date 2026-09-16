@@ -218,11 +218,23 @@ describe('cost_plan_compare', () => {
     });
   });
 
-  it('leaves the comparison empty and the snapshot at zero for a project\'s first version', async () => {
-    // The plan being submitted IS the only current version — it must not compare with itself.
-    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: true, planned_total: 800_000 }] });
+  it('compares a plan that is ITSELF the version in force with itself, so every difference reads 0', async () => {
+    // 当前版本 = 自己：the approver asked for the difference against the plan
+    // marked 当前版本, and on a project's first version that IS this row. So the
+    // snapshot is the row's own amounts and the comparison reads 0 — not a
+    // full-amount increase against an absent version.
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: true, planned_total: 800_000, travel_total: 30_000 }] });
     const input: Rec = { approval_status: 'submitted' };
     await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v1', crm_presales_project: 'pre_1', approval_status: 'draft' }, user: USER, api: h.api }));
+    expect(input.compare_plan).toBe('v1');
+    expect(input.current_planned_total).toBe(800_000);
+    expect(input.current_travel_total).toBe(30_000);
+  });
+
+  it('leaves the comparison empty when the project has no version in force', async () => {
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: false, approval_status: 'superseded', planned_total: 800_000 }] });
+    const input: Rec = { approval_status: 'submitted' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v2', crm_presales_project: 'pre_1', approval_status: 'draft' }, user: USER, api: h.api }));
     expect(input.compare_plan).toBeNull();
     expect(input.current_planned_total).toBe(0);
     expect(input.current_travel_total).toBe(0);
@@ -279,7 +291,23 @@ describe('the comparison a leader approves on', () => {
     expect(evalFormula('delta_planned_pct', row)).toBe(15);
   });
 
-  it('reads a reduction as a negative difference, and a first version as zero-based', () => {
+  it('当前版本为自己时，每一项差异都是 0', async () => {
+    const hook = hookNamed(costPlanHooks, 'cost_plan_compare');
+    const inForce = {
+      id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'draft',
+      baseline_total: 1_054_320, planned_total: 1_566_320, labor_total: 1_168_000, service_total: 250_000, procurement_total: 100_000, expense_total: 48_320, travel_total: 28_320,
+    };
+    const h = makeHarness({ crm_cost_plan: [inForce] });
+    const input: Rec = { approval_status: 'submitted' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: inForce, user: USER, api: h.api }));
+
+    const row: Rec = { ...inForce, ...input };
+    for (const field of ['delta_baseline_total', 'delta_planned_total', 'delta_labor_total', 'delta_service_total', 'delta_procurement_total', 'delta_expense_total', 'delta_travel_total', 'delta_planned_pct']) {
+      expect(evalFormula(field, row), field).toBe(0);
+    }
+  });
+
+  it('reads a reduction as a negative difference, and a plan with no version in force as zero-based', () => {
     expect(evalFormula('delta_planned_total', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-100_000);
     expect(evalFormula('delta_planned_pct', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-10);
     // No version in force: the whole amount IS the increase, and the rate reads 0 rather than dividing by zero.
