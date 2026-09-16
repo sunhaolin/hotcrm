@@ -443,7 +443,7 @@ function section(num, kicker, t, sub, active) {
 
 // 22 · step 27 import + step 32 versions
 {
-  const s = slide('预算变动做成「新版本 + 审批」，基线永远冻结', '步骤 27 · 32');
+  const s = slide('预算变动做成「新版本 + 审批」，基线始终冻结', '步骤 27 · 32');
   bullets(s, [
     '步骤 27：交付项目页头「导入 Bizcase 预算」→ 以已审批的 Bizcase 克隆出交付成本计划 v1，基线冻结；已有计划的项目会拒绝第二次导入',
     '步骤 32：已审批的计划不能改——在成本计划上「新建计划版本」得到 v2 草稿，在 v2 上增减明细行（华信一期：追加高级工程师 1 人 × 2 个月、两次现场差旅，共 270,160）',
@@ -642,7 +642,7 @@ function section(num, kicker, t, sub, active) {
 
 // 35 · closing
 {
-  const s = pres.addSlide(); dark(s); n += 1; s.__title = '完成';
+  const s = pres.addSlide(); dark(s); n += 1; s.__title = '结束语';
   s.addText('贵司 40 步流程里，客户、线索、商机、审批中心、附件、跟进、赢丢单是现成的 CRM 能力；售前立项、交付立项、成本计划、工时与差旅、财务与报表这 26 步，是在同一个平台、同一套数据里长出来的。', { x: 0.8, y: 1.5, w: 11.7, h: 2.4, fontFace: F, fontSize: 22, color: C.white, isTextBox: true, margin: 0, valign: 'top' });
   s.addText('成本计划按贵司要求做成了带版本、四类明细、按月分解的形态——这也是它能成为软件行业项目型销售标准模板的原因。', { x: 0.8, y: 4.0, w: 11.7, h: 0.9, fontFace: F, fontSize: 18, color: C.sand, isTextBox: true, margin: 0 });
   s.addText('下一步：确认五个口径 → 划定试点范围 → 给出排期', { x: 0.8, y: 5.6, w: 11.7, h: 0.5, fontFace: F, fontSize: 14, color: C.steel, isTextBox: true, margin: 0 });
