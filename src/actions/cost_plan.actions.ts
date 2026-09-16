@@ -13,12 +13,15 @@ import { P } from '@objectstack/spec';
 const LINE_OBJECTS = ['crm_labor_cost_line', 'crm_service_cost_line', 'crm_procurement_cost_line', 'crm_expense_cost_line'];
 
 // Copies a plan's four line families onto `targetPlanId`. Month rows regenerate
-// from each inserted line (cost_line_decompose); the source's 手工调整 months
-// are then re-applied onto the regenerated rows so a tuned split survives.
+// from each inserted line (cost_line_decompose); with `carryManualMonths` the
+// source's 手工调整 months are then re-applied onto the regenerated rows so a
+// tuned split survives. A Bizcase → delivery import must NOT carry them: a
+// Bizcase line is one whole-range row, and a hand-set whole amount landing on
+// the first month of the delivery split would count the line twice.
 const CLONE_LINES_SRC = `
   const LINES = ${JSON.stringify(LINE_OBJECTS)};
   const SKIP = ['id', 'crm_cost_plan', 'planned_amount', 'created_at', 'updated_at', 'created_by', 'updated_by', 'owner_id', 'organization_id'];
-  async function cloneLines(sourcePlanId, targetPlanId) {
+  async function cloneLines(sourcePlanId, targetPlanId, carryManualMonths) {
     for (const object of LINES) {
       const lines = await ctx.api.object(object).find({ where: { crm_cost_plan: sourcePlanId } });
       for (const line of lines) {
@@ -26,6 +29,7 @@ const CLONE_LINES_SRC = `
         for (const key of Object.keys(line)) if (!SKIP.includes(key) && line[key] !== null && line[key] !== undefined) copy[key] = line[key];
         copy.crm_cost_plan = targetPlanId;
         const created = await ctx.api.object(object).insert(copy);
+        if (!carryManualMonths) continue;
         const manual = await ctx.api.object('crm_cost_plan_month').find({ where: { [object]: line.id, is_manual: true } });
         for (const m of manual) {
           const twin = await ctx.api.object('crm_cost_plan_month').findOne({ where: { [object]: created.id, period_month: m.period_month } });
@@ -36,7 +40,11 @@ const CLONE_LINES_SRC = `
   }
 `;
 
-/** Step 27 — 导入 Bizcase 预算: the approved presales Bizcase plan becomes delivery plan v1 and the frozen baseline. */
+/**
+ * Step 27 — 导入 Bizcase 预算: the approved presales Bizcase plan becomes delivery
+ * plan v1 and the frozen baseline. The Bizcase carries one whole-range row per
+ * line; the delivery copy is split month by month as its lines are inserted.
+ */
 export const ImportBizcaseBudgetAction: Action = {
   name: 'import_bizcase_budget',
   label: '导入 Bizcase 预算',
@@ -57,17 +65,17 @@ export const ImportBizcaseBudgetAction: Action = {
       const presales = await ctx.api.object('crm_presales_project').findOne({ where: { id: project.crm_presales_project } });
       if (!presales || presales.approval_status !== 'approved') throw new Error('售前项目尚未审批通过，只有已审批的 Bizcase 才能作为考核基线。');
       const bizcase = await ctx.api.object('crm_cost_plan').findOne({ where: { crm_presales_project: presales.id, is_current: true } });
-      if (!bizcase) throw new Error('售前项目「' + presales.name + '」没有当前 Bizcase 成本计划，请先在售前项目下编制并置为当前版本。');
+      if (!bizcase) throw new Error('售前项目「' + presales.name + '」没有当前 Bizcase 成本计划，请先在售前项目下编制并审批通过（审批通过即成为当前版本）。');
       const total = Number(bizcase.planned_total) || 0;
       if (total <= 0) throw new Error('Bizcase 成本计划总额为 0，没有可导入的预算。');
       const plan = await ctx.api.object('crm_cost_plan').insert({
         name: project.name + ' · 交付成本计划 v1',
         crm_delivery_project: id, phase: 'delivery', version_no: 1, is_current: true,
         baseline_total: total, source_plan: bizcase.id, approval_status: 'draft',
-        notes: '自售前 Bizcase 计划「' + bizcase.name + '」导入（步骤 27）；按月拆分与调整见步骤 28–31。',
+        notes: '自售前 Bizcase 计划「' + bizcase.name + '」导入（步骤 27）；Bizcase 不分月，导入后按月拆分与调整见步骤 28–31。',
       });
       ${CLONE_LINES_SRC}
-      await cloneLines(bizcase.id, plan.id);
+      await cloneLines(bizcase.id, plan.id, false);
       await ctx.api.object('crm_delivery_project').update({ id: id, budget_baseline: total }, { where: { id: id } });
       return { id: plan.id, baseline_total: total };
     `,
@@ -103,7 +111,7 @@ export const CreatePlanVersionAction: Action = {
         baseline_total: source.baseline_total, source_plan: source.id, approval_status: 'draft',
       });
       ${CLONE_LINES_SRC}
-      await cloneLines(source.id, plan.id);
+      await cloneLines(source.id, plan.id, true);
       return { id: plan.id, version_no: version };
     `,
     capabilities: ['api.read', 'api.write'],

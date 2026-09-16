@@ -84,7 +84,8 @@ export const PresalesProject = ObjectSchema.create({
     // project's current 成本计划 (phase bizcase) — never typed in. Each is a
     // summary over a plan total that is itself a summary of the month ledger;
     // the engine recomputes a parent through a real update, so the cascade
-    // reaches here.
+    // reaches here. A Bizcase becomes current when its approval lands
+    // (`cost_plan_defaults`), so the figures appear on approval.
     labor_cost: bizcaseTotal('Labor Service Cost', 'labor_total'),
     third_party_service_cost: bizcaseTotal('Third-party Service Cost', 'service_total'),
     procurement_cost: bizcaseTotal('Hardware/Software Procurement Cost', 'procurement_total'),

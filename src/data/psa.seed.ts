@@ -287,9 +287,10 @@ const month2 = celDaysAgo(15);
 
 // Cost plans (steps 27–31): the 华信 Bizcase (phase bizcase, on the presales
 // project) and the delivery plan v1 it was imported as. Lines are seeded; the
-// month ledger is generated from them by `cost_line_decompose`, and every
-// total on the plan and both projects is a rollup of that ledger. Months are
-// calendar months on purpose: a plan is authored for specific months.
+// month ledger is generated from them by `cost_line_decompose` — one row per
+// month on the delivery plan, one whole-range row per line on the Bizcase —
+// and every total on the plan and both projects is a rollup of that ledger.
+// Months are calendar months on purpose: a plan is authored for specific months.
 const PLAN_HX_BIZCASE = '华信核心系统升级 · Bizcase 成本计划 v1';
 const PLAN_HX_DELIVERY = '华信一期交付 · 成本计划 v1';
 
@@ -297,7 +298,7 @@ export const costPlans = defineSeed(CostPlan, {
   mode: 'upsert',
   externalId: 'name',
   records: [
-    { name: PLAN_HX_BIZCASE, crm_presales_project: PSP, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved', notes: '步骤 18 的成本测算：四类明细行按月分解，售前项目的四项成本读此版本。' },
+    { name: PLAN_HX_BIZCASE, crm_presales_project: PSP, phase: 'bizcase', version_no: 1, is_current: true, approval_status: 'approved', notes: '步骤 18 的成本测算：四类明细行整段估算、不按月拆分，售前项目的四项成本读此版本。' },
     { name: PLAN_HX_DELIVERY, crm_delivery_project: DLV_A, phase: 'delivery', version_no: 1, is_current: true, baseline_total: 1054320, approval_status: 'approved', notes: '步骤 27 导入 Bizcase 预算的结果：冻结基线 1,054,320，明细行自 Bizcase 克隆。' },
   ],
 });

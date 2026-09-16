@@ -13,6 +13,12 @@ import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-pickli
  * children; every total here is a platform rollup over that ledger, so a
  * plan's figures are never typed in.
  *
+ * A Bizcase is a whole-range estimate (2026-09-16): its lines are NOT split by
+ * month — each lands in the ledger as one row (`cost_line_decompose`) — and
+ * approving it makes it the current version (`cost_plan_defaults`), which is
+ * the moment the presales project's four figures show it. Splitting by month
+ * is the delivery plan's job, once the Bizcase is imported.
+ *
  * `is_current` marks the version the project reads: `crm_delivery_project`
  * and `crm_presales_project` roll up the current version only. Step 27's
  * 导入 Bizcase 预算 creates v1 with `baseline_total` frozen to the Bizcase
@@ -52,9 +58,9 @@ export const CostPlan = ObjectSchema.create({
     owner_id: Field.lookup('sys_user', { label: '成本管理员', group: 'basic', system: true, readonly: false }),
     crm_presales_project: Field.lookup('crm_presales_project', { label: '售前项目', group: 'basic', description: 'Bizcase 阶段的计划挂在售前项目上；与交付项目二选一。' }),
     crm_delivery_project: Field.lookup('crm_delivery_project', { label: '交付项目', group: 'basic', description: '交付阶段的计划挂在交付项目上；与售前项目二选一。' }),
-    phase: Field.select({ label: '阶段', group: 'basic', options: [...COST_PLAN_PHASE_OPTIONS], description: '保存时按所挂项目自动写入。' }),
+    phase: Field.select({ label: '阶段', group: 'basic', options: [...COST_PLAN_PHASE_OPTIONS], description: '保存时按所挂项目自动写入。Bizcase（售前）阶段的明细行不按月拆分，整段落为一行；交付阶段按月分解。' }),
     version_no: Field.number({ label: '版本号', group: 'basic', description: '同一项目下顺序递增；留空时保存自动编号。' }),
-    is_current: Field.boolean({ label: '当前版本', group: 'basic', defaultValue: false, description: '项目只读当前版本的金额；置为当前时其余版本自动作废。' }),
+    is_current: Field.boolean({ label: '当前版本', group: 'basic', defaultValue: false, description: '项目只读当前版本的金额；置为当前时其余版本自动作废。Bizcase 计划审批通过即自动成为当前版本。' }),
     source_plan: Field.lookup('crm_cost_plan', { label: '克隆来源', group: 'basic' }),
     crm_budget_adjustment: Field.lookup('crm_budget_adjustment', { label: '触发本版本的预算调整', group: 'basic' }),
     baseline_total: Field.currency({ label: '冻结基线', scale: 2, group: 'totals', description: '导入 Bizcase 预算时写入的考核基线，之后不可更改。' }),

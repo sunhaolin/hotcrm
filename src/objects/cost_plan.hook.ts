@@ -15,16 +15,23 @@ const LINE_OBJECTS = ['crm_labor_cost_line', 'crm_service_cost_line', 'crm_procu
 
 /**
  * A plan's phase follows the project it hangs off; a version number is handed
- * out when none is given; a frozen baseline stays frozen; and when a version
- * becomes current the project's other versions stop being so (an approved one
- * is stamped 已作废).
+ * out when none is given; a frozen baseline stays frozen; an approved Bizcase
+ * is the Bizcase in force; and when a version becomes current the project's
+ * other versions stop being so (an approved one is stamped 已作废).
+ *
+ * The Bizcase rule (2026-09-16): a presales project has no step-32 budget
+ * adjustment to put a version in force — the approval IS the decision — so
+ * the `approved` stamp the approval flow writes makes a Bizcase current here,
+ * and the presales project's four figures (rollups over `is_current`) carry
+ * it from that moment. A delivery plan is unchanged: the adjustment that
+ * names it puts it in force (`budget_adjustment_version_flip`).
  */
 const costPlanDefaults: Hook = {
   name: 'cost_plan_defaults',
   object: 'crm_cost_plan',
   events: ['beforeInsert', 'beforeUpdate'],
   priority: 100,
-  description: 'Phase from the project; version number when none is given; baseline frozen after import; one current version per project.',
+  description: 'Phase from the project; version number when none is given; baseline frozen after import; an approved Bizcase becomes current; one current version per project.',
   handler: async (ctx: HookContext) => {
     function refuse(
       message: string,
@@ -60,6 +67,11 @@ const costPlanDefaults: Hook = {
         409,
         `成本计划「${name}」的冻结基线来自 Bizcase 导入，不能修改；预算变动请走预算调整`,
       );
+    }
+    // An approved Bizcase is the version the presales project reads; the
+    // block below then retires the Bizcase it replaces.
+    if (presales && !delivery && input.approval_status === 'approved' && previous?.approval_status !== 'approved' && input.is_current === undefined && previous?.is_current !== true) {
+      input.is_current = true;
     }
     if (!api || !projectId) return;
     if (ctx.event === 'beforeInsert' && num(input.version_no) <= 0) {
@@ -240,6 +252,13 @@ const costPlanMonthFill: Hook = {
  * month is 单价 × 人数; a 人天 / 包干 service, a procurement and an expense total
  * are spread evenly, the last month taking the rounding remainder. Rows a
  * person marked 手工调整 are kept; rows that fell out of the range are removed.
+ *
+ * A Bizcase (售前) plan is NOT split by month (2026-09-16): the estimate the
+ * executive approves is a whole-range figure, so its line lands as ONE ledger
+ * row, dated the line's 起始月份 and priced exactly as the split would have
+ * priced it — a labor line still resolves the rate month by month and sums.
+ * The ledger stays the one source every total reads; the month split happens
+ * on the delivery plan the Bizcase is imported into.
  */
 const costLineDecompose: Hook = {
   name: 'cost_line_decompose',
@@ -284,6 +303,10 @@ const costLineDecompose: Hook = {
     if (end < start) end = start;
     const months: string[] = [];
     for (let ym = start; ym <= end && months.length < 120; ym = addMonths(ym, 1)) months.push(ym);
+    // Bizcase (售前): one whole-range row instead of a month split. A plan whose
+    // phase is not written yet is read off the project it hangs on.
+    const plan = await api.object('crm_cost_plan').findOne({ where: { id: planId }, fields: ['phase', 'crm_presales_project'] });
+    const whole = plan?.phase === 'bizcase' || (!plan?.phase && !!id(plan?.crm_presales_project));
     const headcount = num(line.headcount) || 1;
     let total = 0;
     let rates: Array<Record<string, unknown>> = [];
@@ -305,24 +328,21 @@ const costLineDecompose: Hook = {
       total = num(line.budget_amount);
     }
     const lineField = object;
-    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['id', 'period_month', 'is_manual'] });
-    const byMonth = new Map<string, Record<string, unknown>>();
-    for (const row of existing) byMonth.set(monthOf(row.period_month), row);
-    const kept = new Set<string>();
+    // Every month is priced first; the split and the whole-range row are the
+    // same figures, kept apart or folded together.
+    const perMonth = category === 'labor' || (category === 'third_party_service' && line.pricing_basis === 'per_month');
+    const priced: Array<Record<string, unknown>> = [];
     const share = round2(total / months.length);
     let spread = 0;
     for (let i = 0; i < months.length; i += 1) {
       const ym = months[i]!;
-      const found = byMonth.get(ym);
-      kept.add(ym);
-      if (found?.is_manual === true) continue;
-      const row: Record<string, unknown> = { crm_cost_plan: planId, category, [lineField]: lineId, period_month: ym, is_manual: false, headcount, description: String(line.description ?? '') + ' · ' + ym.slice(0, 7) };
+      const row: Record<string, unknown> = { period_month: ym, headcount };
       if (category === 'labor') {
         const live = rates.find((r) => !r.fallback && r.is_active !== false && covers(r, ym)) ?? rates.find((r) => r.fallback);
         row.quantity = num(line.hours_per_month);
         row.unit_price = num(live?.hourly_rate);
         row.amount = round2(headcount * num(line.hours_per_month) * num(live?.hourly_rate));
-      } else if (category === 'third_party_service' && line.pricing_basis === 'per_month') {
+      } else if (perMonth) {
         row.quantity = 1;
         row.unit_price = num(line.unit_price);
         row.amount = round2(num(line.unit_price) * headcount);
@@ -330,10 +350,32 @@ const costLineDecompose: Hook = {
         const amount = i === months.length - 1 ? round2(total - spread) : share;
         spread = round2(spread + amount);
         row.quantity = category === 'procurement' ? num(line.quantity) : num(line.trips) || 1;
-        row.unit_price = category === 'procurement' ? num(line.unit_price) : undefined;
+        if (category === 'procurement') row.unit_price = num(line.unit_price);
         row.amount = amount;
-        if (category === 'expense') row.expense_type = line.expense_type;
       }
+      priced.push(row);
+    }
+    let buckets = priced;
+    if (whole) {
+      // The whole-range row: the months summed, a per-month quantity (hours or
+      // person-months) multiplied out, the first month's unit price kept as
+      // the snapshot, and the range spelled out in the description.
+      const first = priced[0]!;
+      const sum = round2(priced.reduce((acc, r) => acc + num(r.amount), 0));
+      buckets = [{ ...first, quantity: perMonth ? round2(num(first.quantity) * months.length) : first.quantity, amount: sum }];
+    }
+    const span = whole && end !== start ? start.slice(0, 7) + ' 至 ' + end.slice(0, 7) : '';
+    const existing = await api.object('crm_cost_plan_month').find({ where: { [lineField]: lineId }, fields: ['id', 'period_month', 'is_manual'] });
+    const byMonth = new Map<string, Record<string, unknown>>();
+    for (const row of existing) byMonth.set(monthOf(row.period_month), row);
+    const kept = new Set<string>();
+    for (const bucket of buckets) {
+      const ym = String(bucket.period_month);
+      const found = byMonth.get(ym);
+      kept.add(ym);
+      if (found?.is_manual === true) continue;
+      const row: Record<string, unknown> = { ...bucket, crm_cost_plan: planId, category, [lineField]: lineId, is_manual: false, description: String(line.description ?? '') + ' · ' + (span || ym.slice(0, 7)) };
+      if (category === 'expense') row.expense_type = line.expense_type;
       if (row.unit_price === undefined) delete row.unit_price;
       if (found) {
         const foundId = id(found.id);
