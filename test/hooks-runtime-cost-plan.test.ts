@@ -7,7 +7,9 @@
  * amount read off two plan versions. Business facts only (AGENTS.md scope 3).
  */
 import { describe, it, expect } from 'vitest';
+import { ExpressionEngine } from '@objectstack/formula';
 import costPlanHooks from '../src/objects/cost_plan.hook';
+import { CostPlan } from '../src/objects/cost_plan.object';
 import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
 
 const USER = { id: 'user_1' };
@@ -185,5 +187,103 @@ describe('budget_adjustment_version_flip', () => {
     expect(h.rows('crm_cost_plan')[0]).toMatchObject({ is_current: false, approval_status: 'draft' });
     await hook.handler(makeCtx({ event: 'afterUpdate', input: { approval_status: 'approved' }, previous: { crm_cost_plan: 'v2', approval_status: 'pending' }, session: { isSystem: true }, api: h.api }));
     expect(h.rows('crm_cost_plan')[0]).toMatchObject({ is_current: true, approval_status: 'approved' });
+  });
+});
+
+describe('cost_plan_compare', () => {
+  const hook = hookNamed(costPlanHooks, 'cost_plan_compare');
+
+  /** Two versions of one delivery project's plan: v1 in force, v2 the draft under review. */
+  const versions = () => ({ crm_cost_plan: [
+    { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'approved',
+      baseline_total: 1_000_000, planned_total: 1_000_000, labor_total: 700_000, service_total: 150_000, procurement_total: 100_000, expense_total: 50_000, travel_total: 30_000 },
+    { id: 'v2', crm_delivery_project: 'dlv_1', is_current: false, approval_status: 'draft',
+      baseline_total: 1_000_000, planned_total: 1_150_000, labor_total: 780_000, service_total: 180_000, procurement_total: 130_000, expense_total: 60_000, travel_total: 42_000 },
+  ] });
+
+  it('snapshots every amount of the version in force when the plan is submitted', async () => {
+    const h = makeHarness(versions());
+    const input: Rec = { approval_status: 'submitted' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v2', crm_delivery_project: 'dlv_1', approval_status: 'draft' }, user: USER, api: h.api }));
+    expect(input).toEqual({
+      approval_status: 'submitted',
+      compare_plan: 'v1',
+      current_baseline_total: 1_000_000,
+      current_planned_total: 1_000_000,
+      current_labor_total: 700_000,
+      current_service_total: 150_000,
+      current_procurement_total: 100_000,
+      current_expense_total: 50_000,
+      current_travel_total: 30_000,
+    });
+  });
+
+  it('leaves the comparison empty and the snapshot at zero for a project\'s first version', async () => {
+    // The plan being submitted IS the only current version — it must not compare with itself.
+    const h = makeHarness({ crm_cost_plan: [{ id: 'v1', crm_presales_project: 'pre_1', is_current: true, planned_total: 800_000 }] });
+    const input: Rec = { approval_status: 'submitted' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v1', crm_presales_project: 'pre_1', approval_status: 'draft' }, user: USER, api: h.api }));
+    expect(input.compare_plan).toBeNull();
+    expect(input.current_planned_total).toBe(0);
+    expect(input.current_travel_total).toBe(0);
+  });
+
+  it('writes nothing on a status that is not the submit transition', async () => {
+    const h = makeHarness(versions());
+    for (const [status, previousStatus] of [['approved', 'pending'], ['rejected', 'pending'], ['submitted', 'submitted']] as const) {
+      const input: Rec = { approval_status: status };
+      await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: { id: 'v2', crm_delivery_project: 'dlv_1', approval_status: previousStatus }, user: USER, api: h.api }));
+      expect(input).toEqual({ approval_status: status });
+    }
+  });
+});
+
+/**
+ * The approver reads a DIFFERENCE, and the difference is a formula over the
+ * pair beside it — the version's own amount and the snapshot
+ * `cost_plan_compare` took of the version in force. Asserting the hook's
+ * snapshot alone would leave the half the approver actually decides on
+ * unmeasured, so the formulas are evaluated over the row the hook produced.
+ */
+describe('the comparison a leader approves on', () => {
+  const evalFormula = (field: string, record: Rec): number => {
+    const expression = (CostPlan as Rec).fields?.[field]?.expression;
+    const source = String((expression as Rec)?.source ?? expression);
+    const result = ExpressionEngine.evaluate({ dialect: 'cel', source }, { record }) as { ok?: boolean; value?: unknown };
+    expect(result?.ok, `${field} did not evaluate: ${JSON.stringify(result)}`).toBe(true);
+    return Number(result?.value);
+  };
+
+  it('每一项金额的差异 = 本次审批数据 − 当前执行的成本计划', async () => {
+    const hook = hookNamed(costPlanHooks, 'cost_plan_compare');
+    const submitted = {
+      id: 'v2', crm_delivery_project: 'dlv_1', approval_status: 'draft',
+      baseline_total: 1_000_000, planned_total: 1_150_000, labor_total: 780_000, service_total: 180_000, procurement_total: 130_000, expense_total: 60_000, travel_total: 42_000,
+    };
+    const h = makeHarness({ crm_cost_plan: [
+      { id: 'v1', crm_delivery_project: 'dlv_1', is_current: true, approval_status: 'approved',
+        baseline_total: 1_000_000, planned_total: 1_000_000, labor_total: 700_000, service_total: 150_000, procurement_total: 100_000, expense_total: 50_000, travel_total: 30_000 },
+      submitted,
+    ] });
+    const input: Rec = { approval_status: 'submitted' };
+    await hook.handler(makeCtx({ event: 'beforeUpdate', input, previous: submitted, user: USER, api: h.api }));
+
+    const row: Rec = { ...submitted, ...input };
+    expect(evalFormula('delta_baseline_total', row)).toBe(0);
+    expect(evalFormula('delta_planned_total', row)).toBe(150_000);
+    expect(evalFormula('delta_labor_total', row)).toBe(80_000);
+    expect(evalFormula('delta_service_total', row)).toBe(30_000);
+    expect(evalFormula('delta_procurement_total', row)).toBe(30_000);
+    expect(evalFormula('delta_expense_total', row)).toBe(10_000);
+    expect(evalFormula('delta_travel_total', row)).toBe(12_000);
+    expect(evalFormula('delta_planned_pct', row)).toBe(15);
+  });
+
+  it('reads a reduction as a negative difference, and a first version as zero-based', () => {
+    expect(evalFormula('delta_planned_total', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-100_000);
+    expect(evalFormula('delta_planned_pct', { planned_total: 900_000, current_planned_total: 1_000_000 })).toBe(-10);
+    // No version in force: the whole amount IS the increase, and the rate reads 0 rather than dividing by zero.
+    expect(evalFormula('delta_planned_total', { planned_total: 800_000, current_planned_total: 0 })).toBe(800_000);
+    expect(evalFormula('delta_planned_pct', { planned_total: 800_000, current_planned_total: 0 })).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 ---
 title: Cost Plans
-description: The versioned cost plan behind a Bizcase and a delivery project — four typed line families, the month-by-month ledger the system derives from them, the frozen baseline, and how a budget adjustment becomes a new version.
+description: The versioned cost plan behind a Bizcase and a delivery project — four typed line families, the month-by-month ledger the system derives from them, the frozen baseline, the comparison an approver decides on, and how a budget adjustment becomes a new version.
 ---
 
 # Cost Plans
@@ -13,6 +13,7 @@ A **cost plan** (成本计划, `crm_cost_plan`) is one version of what a project
 | --- | --- |
 | **Plan Information** | Plan Number, Name, Cost Manager, the Presales Project *or* the Delivery Project it belongs to, Phase (*Bizcase / Delivery*), Version Number, Current Version, the plan it was cloned from, the budget adjustment that produced it |
 | **Plan Amounts** | Frozen Baseline, Planned Total, and the four category totals — Labor Service, Third-party Service, Hardware/Software Procurement, Project Expense — plus *of which Travel* |
+| **Comparison with the Current Version** | The version in force when the plan was submitted, its amounts, and the difference against each of this version's — see [What the approver sees](#what-the-approver-sees) |
 | **Approval** | Approval Status *(read-only)*, Approved Date |
 
 A plan belongs to exactly one project: a Bizcase hangs off a presales project, a delivery plan off a delivery project, and the phase is set from whichever you picked. Every amount on the plan is a **rollup of the month ledger** described below; none is typed in.
@@ -48,6 +49,16 @@ Every total on the plan, the presales project's four Bizcase figures and the del
 **Editing (steps 28–31).** A plan's lines and months can be edited while the plan is a draft (or was sent back). Submit it with **Submit for Approval**; the finance lead approves it through the **成本计划审批** flow, and from then on its lines and months are frozen.
 
 **Adjusting (step 32).** To change an approved plan, **New Plan Version** clones it into the next draft version. Adjust the lines there, then raise a [budget adjustment](/docs/projects/delivery-projects#budget-adjustments) that names the new version: its amount is read off the two versions (new total minus the version in force), and when the adjustment is approved the new version becomes the **current version** and the old one is marked *Superseded*. The project's Planned Total follows the current version only; a draft changes nothing until it is in force.
+
+## What the approver sees
+
+Approving a cost plan is a decision about a **difference**, not about a number in isolation: what matters is how this version compares with the version the project is executing on today. So submitting a plan records the version currently in force for the same project, copies its amounts onto the submitted plan, and shows each pair with the gap between them — the frozen baseline, the planned total and all four category totals including travel, each as *this version*, *the version in force* and *the difference*. The planned total also carries the gap as a percentage. A positive difference is an increase, a negative one a reduction; the differences are computed from the pair, so they can never disagree with the figures above them.
+
+The snapshot is taken at the moment of submission — the same moment the plan's lines and months freeze — so the two sides of the comparison are exactly the two versions the approver is deciding between, and the record keeps them as the audit trail of what was put in front of them.
+
+A project's **first** plan has nothing to compare against: the compared version is left empty and every amount reads as new spend, which is what a first version is.
+
+**Cost Plans Awaiting Approval** is the same comparison as a queue — one row per plan in flight, every category's difference on the row — so an approver can rank a stack of them before opening any.
 
 ## Sharing
 

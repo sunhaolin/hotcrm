@@ -1,7 +1,7 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { ObjectSchema, Field } from '@objectstack/spec/data';
-import { P } from '@objectstack/spec';
+import { F, P } from '@objectstack/spec';
 import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-picklists';
 
 /**
@@ -18,6 +18,10 @@ import { COST_PLAN_STATUS_OPTIONS, COST_PLAN_PHASE_OPTIONS } from './_psa-pickli
  * 导入 Bizcase 预算 creates v1 with `baseline_total` frozen to the Bizcase
  * total (`cost_plan_defaults` refuses a later change); step 32's adjustment
  * approval flips the next version to current and the old one to 已作废.
+ *
+ * The `comparison` group is what the approver decides on: `cost_plan_compare`
+ * snapshots the in-force version's amounts onto the `current_*` columns at
+ * submit time, and every `delta_*` is a formula over that pair.
  */
 const monthSum = (label: string, filter?: Record<string, unknown>) => Field.summary({
   label,
@@ -39,6 +43,7 @@ export const CostPlan = ObjectSchema.create({
   fieldGroups: [
     { key: 'basic',    label: '计划信息', icon: 'info' },
     { key: 'totals',   label: '计划金额', icon: 'calculator' },
+    { key: 'comparison', label: '与当前版本对比', icon: 'git-compare' },
     { key: 'approval', label: '审批',     icon: 'check-circle' },
   ],
   fields: {
@@ -59,6 +64,73 @@ export const CostPlan = ObjectSchema.create({
     procurement_total: monthSum('软硬件采购合计', { category: 'procurement' }),
     expense_total: monthSum('项目费用合计', { category: 'expense' }),
     travel_total: monthSum('其中差旅', { expense_type: 'travel' }),
+
+    // 审批对比 (2026-09-16): the approver decides on ONE version, so every
+    // amount it carries is shown against the version actually in force.
+    // `cost_plan_compare` snapshots the in-force version's figures onto the
+    // `current_*` columns when the plan is submitted — the platform has no
+    // cross-record formula (ADR-0055: a field path is a single column), so the
+    // other version's numbers have to be carried on this row to be subtracted
+    // — and each `delta_*` is a formula over the two columns, so the
+    // difference can never disagree with the pair it is drawn from.
+    compare_plan: Field.lookup('crm_cost_plan', { label: '对比的当前版本', group: 'comparison', readonly: true, description: '提交审批时正在执行的那个版本；为空表示本次是项目的首个版本，下面的差异即全额新增。' }),
+    current_baseline_total: Field.currency({ label: '当前版本冻结基线', scale: 2, group: 'comparison', readonly: true }),
+    delta_baseline_total: Field.formula({
+      label: '冻结基线差异',
+      group: 'comparison',
+      expression: F`coalesce(record.baseline_total, 0) - coalesce(record.current_baseline_total, 0)`,
+      scale: 2,
+    }),
+    current_planned_total: Field.currency({ label: '当前版本计划总额', scale: 2, group: 'comparison', readonly: true }),
+    delta_planned_total: Field.formula({
+      label: '计划总额差异',
+      description: '本次审批的计划总额减去当前执行版本的计划总额；正数为增加，负数为核减。',
+      group: 'comparison',
+      expression: F`coalesce(record.planned_total, 0) - coalesce(record.current_planned_total, 0)`,
+      scale: 2,
+    }),
+    delta_planned_pct: Field.formula({
+      label: '计划总额差异率 %',
+      description: '差异 ÷ 当前执行版本的计划总额 × 100。当前版本总额为 0 时读作 0。',
+      group: 'comparison',
+      expression: F`coalesce(record.current_planned_total, 0) > 0 ? ((coalesce(record.planned_total, 0) - record.current_planned_total) * 100.0) / record.current_planned_total : 0.0`,
+      scale: 2,
+    }),
+    current_labor_total: Field.currency({ label: '当前版本人工服务合计', scale: 2, group: 'comparison', readonly: true }),
+    delta_labor_total: Field.formula({
+      label: '人工服务合计差异',
+      group: 'comparison',
+      expression: F`coalesce(record.labor_total, 0) - coalesce(record.current_labor_total, 0)`,
+      scale: 2,
+    }),
+    current_service_total: Field.currency({ label: '当前版本第三方服务合计', scale: 2, group: 'comparison', readonly: true }),
+    delta_service_total: Field.formula({
+      label: '第三方服务合计差异',
+      group: 'comparison',
+      expression: F`coalesce(record.service_total, 0) - coalesce(record.current_service_total, 0)`,
+      scale: 2,
+    }),
+    current_procurement_total: Field.currency({ label: '当前版本软硬件采购合计', scale: 2, group: 'comparison', readonly: true }),
+    delta_procurement_total: Field.formula({
+      label: '软硬件采购合计差异',
+      group: 'comparison',
+      expression: F`coalesce(record.procurement_total, 0) - coalesce(record.current_procurement_total, 0)`,
+      scale: 2,
+    }),
+    current_expense_total: Field.currency({ label: '当前版本项目费用合计', scale: 2, group: 'comparison', readonly: true }),
+    delta_expense_total: Field.formula({
+      label: '项目费用合计差异',
+      group: 'comparison',
+      expression: F`coalesce(record.expense_total, 0) - coalesce(record.current_expense_total, 0)`,
+      scale: 2,
+    }),
+    current_travel_total: Field.currency({ label: '当前版本其中差旅', scale: 2, group: 'comparison', readonly: true }),
+    delta_travel_total: Field.formula({
+      label: '其中差旅差异',
+      group: 'comparison',
+      expression: F`coalesce(record.travel_total, 0) - coalesce(record.current_travel_total, 0)`,
+      scale: 2,
+    }),
     approval_status: Field.select({ label: '审批状态', group: 'approval', defaultValue: 'draft', readonly: true, trackHistory: true, options: [...COST_PLAN_STATUS_OPTIONS] }),
     approved_date: Field.datetime({ label: '审批通过时间', group: 'approval', readonly: true }),
     notes: Field.textarea({ label: '备注', group: 'basic' }),
@@ -76,6 +148,7 @@ export const CostPlan = ObjectSchema.create({
     { fields: ['crm_delivery_project'] },
     { fields: ['crm_presales_project'] },
     { fields: ['is_current'] },
+    { fields: ['compare_plan'] },
     { fields: ['owner_id'] },
   ],
   enable: {

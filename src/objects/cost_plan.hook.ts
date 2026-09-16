@@ -78,6 +78,48 @@ const costPlanDefaults: Hook = {
 };
 
 /**
+ * 审批对比 — what the approver decides on. Submitting a plan snapshots the
+ * amounts of the version CURRENTLY IN FORCE for the same project onto this
+ * row, so the approver reads this version's figures against the ones the
+ * project is executing on, and the `delta_*` formulas subtract the pair.
+ *
+ * Written at the submit transition and nowhere else: the plan's lines and
+ * months freeze on that same transition (`cost_plan_lock`), so the two sides
+ * of the comparison are the two the approver will decide between, and the row
+ * stays the audit record of what was put in front of them. No in-force
+ * version (the project's first plan) leaves `compare_plan` empty and the
+ * snapshot at zero — the whole amount IS the increase.
+ */
+const costPlanCompare: Hook = {
+  name: 'cost_plan_compare',
+  object: 'crm_cost_plan',
+  events: ['beforeInsert', 'beforeUpdate'],
+  priority: 110,
+  description: "Snapshot the in-force version's amounts onto a plan as it is submitted for approval.",
+  handler: async (ctx: HookContext) => {
+    const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : 0);
+    const id = (v: unknown): string => (typeof v === 'string' && v !== '' ? v : '');
+    const api = ctx.api as HookApi | undefined;
+    const { input, previous } = ctx;
+    if (!input || !api) return;
+    if (input.approval_status !== 'submitted' || previous?.approval_status === 'submitted') return;
+    const delivery = id(input.crm_delivery_project !== undefined ? input.crm_delivery_project : previous?.crm_delivery_project);
+    const presales = id(input.crm_presales_project !== undefined ? input.crm_presales_project : previous?.crm_presales_project);
+    const projectId = delivery || presales;
+    if (!projectId) return;
+    const amounts = ['baseline_total', 'planned_total', 'labor_total', 'service_total', 'procurement_total', 'expense_total', 'travel_total'];
+    const inForce = await api.object('crm_cost_plan').find({
+      where: { [delivery ? 'crm_delivery_project' : 'crm_presales_project']: projectId, is_current: true },
+      fields: ['id', ...amounts],
+    });
+    const selfId = id(previous?.id) || id(input.id);
+    const current = inForce.find((plan) => id(plan.id) !== selfId);
+    input.compare_plan = current ? id(current.id) : null;
+    for (const field of amounts) input['current_' + field] = current ? num(current[field]) : 0;
+  },
+};
+
+/**
  * Lines and month rows are editable while their plan is a draft (or was sent
  * back); once it is submitted, approved or superseded they are frozen. A
  * system write (seed replay, the approval flow, a nested hook write under one)
@@ -355,4 +397,4 @@ const budgetAdjustmentVersionFlip: Hook = {
   },
 };
 
-export default [costPlanDefaults, costPlanLock, costLineRateFill, costPlanMonthFill, costLineDecompose, budgetAdjustmentAmount, budgetAdjustmentVersionFlip];
+export default [costPlanDefaults, costPlanCompare, costPlanLock, costLineRateFill, costPlanMonthFill, costLineDecompose, budgetAdjustmentAmount, budgetAdjustmentVersionFlip];
