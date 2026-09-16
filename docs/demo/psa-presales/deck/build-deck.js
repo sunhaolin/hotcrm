@@ -5,6 +5,12 @@
 // (客户汇报-讲稿.md) from the same speaker notes.
 //
 //   NODE_PATH=<dir with pptxgenjs> node build-deck.js [out.pptx]
+//
+// NOTE: the committed 客户汇报-华信案例.pptx was hand-edited after generation
+// (the presenter's v3: slide order, the notes on slides 1–6, the 简化/路线
+// slides dropped, a plain closing slide). Re-running this script rebuilds the
+// generated base and OVERWRITES those edits; 客户汇报-讲稿.md carries the notes
+// in force and is extracted from the .pptx, not written by this script.
 const pptxgen = require('pptxgenjs');
 const path = require('path');
 const fs = require('fs');
