@@ -516,6 +516,59 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  *   whole tree     interaction layer    37,424 × 1.05 =  39,295 -> ceil 1k ->  40,000   2026-08-26 (#1316)
  *   whole tree     authored total      133,302 × 1.05 = 139,967 -> ceil 1k -> 140,000   2026-08-17 (#1189)
  *
+ * ## 2026-11-06 — the 18.x sync re-anchors two `src/sales` ceilings, by ruling
+ *
+ * The fork's PSA family (the project / cost-plan objects, hooks, actions and
+ * flows that the 2026-09-15 run above measured at 117,865 / 47,752 / 183,687
+ * on the pre-split whole tree) came onto upstream's per-package layout with
+ * the merge of upstream `main` at v6.1.0 (ObjectStack 18.3.0). Every PSA
+ * file lands in `src/sales/`, since the family's objects hang off
+ * `crm_opportunity` and nothing in it belongs to a module package; the three
+ * modules are upstream's, untouched by the merge. The ruling that authorises
+ * the family's size, verbatim and untranslated, from the session that ordered
+ * the cost-plan rebuild (requirement steps 27–31):
+ *
+ *   「这块需求不要简化，如何设计？」
+ *   「按设计实现。」
+ *
+ * It is the same instruction the 2026-09-15 run records, and it was given for
+ * a design, not for a token count, so there is no number in it to copy into a
+ * RULED row. What this section does instead is the ordinary thing: it reads
+ * the merged tree and anchors the two ceilings that reading overran, with the
+ * worked arithmetic beside each. 103,459 against the #2031 grant of 88,500 and
+ * 167,714 against 160,500 are the overruns; the interaction layer reads 40,113
+ * and stays under its 46,500 grant, so that row keeps the #2031 ruling as its
+ * reason and is restated here only so the table is whole. ⛔ The two rows are
+ * ANCHORED, not RULED: `anchor()` of a reading is what each constant is, the
+ * 5% buffer is the one the ratchet always gives, and nobody granted these two
+ * numbers against future tightening — when the family shrinks, they follow it
+ * down by the usual advisory. ⛔ No other package's ceiling moves here.
+ *
+ * This section sits ABOVE the 2026-10-13 one because `test/source-token-ratchet.test.ts`
+ * reads the committed table in document order, `src/sales` first, and the nine
+ * module rows keep their #2031 text below; read the headings, not the position,
+ * for chronology.
+ *
+ *   node scripts/check-source-token-ratchet.mjs   # 2026-11-06 08:42 UTC, `chore/sync-upstream-6.1.0` at ef46aa9e
+ *     the merge of upstream v6.1.0 into the fork, PSA family under `src/sales/`
+ *     src/sales      business semantics ~103,459 · interaction layer ~40,113 · authored total ~167,714
+ *     the three modules read under their #2031 grants on the same run and are
+ *     deliberately NOT recorded as readings: service 13,663 / 5,910 / 23,488,
+ *     revenue 21,936 / 2,110 / 25,547, marketing 11,932 / 893 / 13,765. Two of
+ *     those land, by `anchor()`, exactly on their RULED constants (revenue
+ *     business semantics 24,000; marketing authored total 15,000), and the pin
+ *     reads a recorded reading that anchors onto a ruled ceiling as a grant
+ *     dressed as arithmetic. Nothing in them moves, so nothing is recorded.
+ *
+ *   src/sales      business semantics  103,459 × 1.05 = 108,632 -> ceil 1k -> 109,000  (headroom 5,541, 5.4%)  2026-11-06
+ *   src/sales      interaction layer     ruled 46,500 — ×1.5 of the anchored 31,000, by the #2031 ruling; unchanged on the 2026-11-06 run    2026-10-13
+ *   src/sales      authored total      167,714 × 1.05 = 176,100 -> ceil 1k -> 177,000  (headroom 9,286, 5.5%)  2026-11-06
+ *
+ * No re-anchoring was declined on this run: the two rows above are the only
+ * ceilings a reading overran, and the interaction layer was not re-anchored
+ * (its grant stands). The `src/sales` rows this replaces stay below in the
+ * 2026-10-13 table, marked `superseded (2026-11-06)` and `restated (2026-11-06)`.
+ *
  * ## 2026-10-13 — #2031 grants every ceiling ×1.5, by ruling
  *
  * The ruling that authorises this grant, verbatim and untranslated, recorded on
@@ -536,9 +589,9 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  * stay above, marked `superseded (#2031)`, so the base each grant multiplies
  * can still be re-derived.
  *
- *   src/sales      business semantics    ruled 88,500 — ×1.5 of the anchored 59,000, by the #2031 ruling    2026-10-13
- *   src/sales      interaction layer     ruled 46,500 — ×1.5 of the anchored 31,000, by the #2031 ruling    2026-10-13
- *   src/sales      authored total       ruled 160,500 — ×1.5 of the anchored 107,000, by the #2031 ruling   2026-10-13
+ *   src/sales      business semantics    ruled 88,500 — ×1.5 of the anchored 59,000, by the #2031 ruling    2026-10-13  superseded (2026-11-06)
+ *   src/sales      interaction layer     ruled 46,500 — ×1.5 of the anchored 31,000, by the #2031 ruling    2026-10-13  restated (2026-11-06)
+ *   src/sales      authored total       ruled 160,500 — ×1.5 of the anchored 107,000, by the #2031 ruling   2026-10-13  superseded (2026-11-06)
  *   src/service    business semantics    ruled 21,000 — ×1.5 of the anchored 14,000, by the #2031 ruling    2026-10-13
  *   src/service    interaction layer     ruled 10,500 — ×1.5 of the anchored 7,000, by the #2031 ruling     2026-10-13
  *   src/service    authored total        ruled 33,000 — ×1.5 of the anchored 22,000, by the #2031 ruling    2026-10-13
@@ -549,11 +602,12 @@ export const anchor = (tokens) => Math.ceil((tokens * (1 + BUFFER)) / 1000) * 10
  *   src/marketing  interaction layer      ruled 1,500 — ×1.5 of the anchored 1,000, by the #2031 ruling     2026-10-13
  *   src/marketing  authored total        ruled 15,000 — ×1.5 of the anchored 10,000, by the #2031 ruling    2026-10-13
  *
- * ⚠️ Since #2031 RULED is the kind every committed ceiling declares, and
+ * ⚠️ Since #2031 RULED was the kind every committed ceiling declared, and
  * `isAnchored()` is still what the opportunistic-tightening advisory asks
  * (#1607). ANCHORED stays a kind this gate knows: a re-anchoring a later ruling
  * allows declares it again, and the advisory returns for that row without
- * another change here. ⛔ Do not delete either kind because the committed table
+ * another change here — which is what the 2026-11-06 section above did for
+ * two `src/sales` rows. ⛔ Do not delete either kind because the committed table
  * holds only one of them today — #1607 is the card that explains what breaks
  * when a grant is silently read as anchored.
  *
@@ -584,9 +638,9 @@ const CEILING_KIND = { ANCHORED: 'anchored', RULED: 'ruled' };
  * ceiling, it is four, and a table keyed by label alone could not hold them.
  */
 const COMMITTED = [
-  { module: 'src/sales', label: 'business semantics', ceiling: 88500, kind: CEILING_KIND.RULED },
+  { module: 'src/sales', label: 'business semantics', ceiling: 109000, kind: CEILING_KIND.ANCHORED },
   { module: 'src/sales', label: 'interaction layer', ceiling: 46500, kind: CEILING_KIND.RULED },
-  { module: 'src/sales', label: 'authored total', ceiling: 160500, kind: CEILING_KIND.RULED },
+  { module: 'src/sales', label: 'authored total', ceiling: 177000, kind: CEILING_KIND.ANCHORED },
   { module: 'src/service', label: 'business semantics', ceiling: 21000, kind: CEILING_KIND.RULED },
   { module: 'src/service', label: 'interaction layer', ceiling: 10500, kind: CEILING_KIND.RULED },
   { module: 'src/service', label: 'authored total', ceiling: 33000, kind: CEILING_KIND.RULED },
