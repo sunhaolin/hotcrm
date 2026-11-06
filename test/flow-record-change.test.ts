@@ -773,9 +773,6 @@ describe('record-change flows under a user-less trigger (#684)', () => {
     }
   };
 
-  const nodeStatus = (summary: Rec | undefined, id: string) =>
-    (summary?.nodes ?? []).find((n: Rec) => n.nodeId === id)?.status;
-
   it('case_escalation escalates a case written with no session', async () => {
     // A queued case the agent owns, raised to critical by a system write.
     const kase = await verify.hooks.run('crm_case', 'insert', {

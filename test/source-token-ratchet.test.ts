@@ -149,7 +149,6 @@ const flow = (file: string) => `${SCOPE}/${BUSINESS_DIRS[1]}/${file}`;
 const action = (file: string) => `${SCOPE}/${BUSINESS_DIRS[2]}/${file}`;
 const ux = (file: string) => `${SCOPE}/${INTERACTION_DIRS[0]}/${file}`;
 const residual = (file: string) => `${SCOPE}/reports/${file}`;
-const excluded = (i: number, file: string) => `${EXCLUDED_DIRS[i]}/${file}`;
 
 interface Scope {
   label: string;

@@ -4,7 +4,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { bootStack, type VerifyStack } from '@objectstack/verify';
 import { signUpPerson, guestInsert, type Person } from './helpers/verify-stack';
 import artifact from '../objectstack.config';
-import stack from './helpers/composed-stack';
 
 /**
  * The two leftovers #1133 left in the `crm_case` guest branch, pinned on

@@ -2,7 +2,6 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { bootStack, type VerifyStack } from '@objectstack/verify';
-import artifact from '../objectstack.config';
 import { bootOptions, buildArtifactAgain, hotcrmStack, signUpPerson, type Person } from './helpers/verify-stack';
 
 type Rec = Record<string, any>;
