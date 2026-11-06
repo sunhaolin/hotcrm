@@ -1,0 +1,90 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+/**
+ * System Administrator Profile
+ *
+ * The admin set must cover EVERY business object this app ships. Permission
+ * sets are explicit-allow only (see `guest-portal.profile.ts`), so an object
+ * missing from this map is permission-denied for admins too: the object-level
+ * CRUD gate rejects the call before OWD, sharing or `view_all_data` is ever
+ * consulted. `test/authorization-coverage.test.ts` pins that coverage so a new
+ * object cannot ship without landing here.
+ */
+export const SystemAdminProfile = {
+  name: 'system_admin',
+  label: 'System Administrator',
+  description:
+    'The operator of a single-organization install: full control of every business record, plus user, security model and setup administration.',
+  objects: {
+    // Demo PSA objects (epic #2)
+    crm_presales_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_delivery_project: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // Cost plan (steps 27–32): the versioned plan, its four line objects, the month ledger and travel standards.
+    crm_cost_plan: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_labor_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_service_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_procurement_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_expense_cost_line: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_cost_plan_month: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_travel_standard: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_timesheet: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_travel_cost: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // Round 2 (Chinese-only): master data, budget adjustments, finance, trips and leave — same grant as the travel cost row.
+    crm_rate_card: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_legal_entity: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_budget_adjustment: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_invoice: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_collection: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_purchase_contract: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_sales_order: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_business_trip: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_leave_request: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // `allowTransfer` on every object — canonical note in `src/sales/profiles/index.ts`.
+    // The admin is the persona that reassigns ownership when someone leaves.
+    // `allowExport` on the five objects with an export surface — see the
+    // canonical note in `src/sales/profiles/index.ts`. It is authored even here:
+    // 17.0 gates export on the explicit bit, and `modifyAllRecords` does not
+    // stand in for it, so without these an admin cannot export either.
+    crm_lead:        { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true, allowExport: true },
+    crm_account:     { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true, allowExport: true },
+    crm_contact:     { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true, allowExport: true },
+    crm_opportunity: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true, allowExport: true },
+    crm_quote:       { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_contract:    { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_product:     { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_price_book:  { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_campaign:    { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_case:        { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true, allowExport: true },
+    crm_task:        { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_event:       { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_event_attendee: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // The objects below shipped with navigation, views, hooks and seed data
+    // but no grant in ANY permission set (#488): "Knowledge" and "Forecasts"
+    // were permission-denied nav items for every user, admins included.
+    crm_forecast:              { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_article_feedback:      { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_knowledge_article:     { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // Detail rows. Their RECORD-level access derives from the master
+    // (ADR-0055 `controlled_by_parent`), but object-level CRUD is a separate
+    // gate that is never derived — it has to be granted explicitly here.
+    crm_opportunity_line_item: { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_quote_line_item:       { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_campaign_member:       { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    crm_price_book_entry:      { allowCreate: true, allowRead: true, allowEdit: true, allowDelete: true, viewAllRecords: true, modifyAllRecords: true, allowTransfer: true },
+    // The record Attachments panel: canonical note on `enable.files` in
+    // `src/sales/objects/index.ts` (#2029, #2038). Which attachments it lists,
+    // and where an upload or a delete is taken, derives from the parent record.
+    sys_attachment: { allowCreate: true,  allowRead: true, allowEdit: false, allowDelete: true,  viewAllRecords: false, modifyAllRecords: false },
+    // The record Discussion panel, comments and activity: canonical note on
+    // `enable.feeds` in `src/sales/objects/index.ts` (#2029, #2038). Which
+    // threads it reaches, and whose comments a delete takes, derives from the
+    // parent record.
+    sys_comment:  { allowCreate: true,  allowRead: true, allowEdit: true,  allowDelete: true,  viewAllRecords: false, modifyAllRecords: false },
+    sys_activity: { allowCreate: false, allowRead: true, allowEdit: false, allowDelete: false, viewAllRecords: false, modifyAllRecords: false },
+  },
+  systemPermissions: [
+    'view_setup', 'manage_users', 'customize_application',
+    'view_all_data', 'modify_all_data', 'manage_profiles',
+    'manage_roles', 'manage_sharing',
+  ],
+};

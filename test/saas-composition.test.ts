@@ -1,50 +1,46 @@
 // Copyright (c) 2026 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { PLATFORM_CAPABILITIES } from '@objectstack/spec/security';
-import { applySystemFields } from '@objectstack/objectql';
-import { ObjectQL } from '@objectstack/objectql';
-import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
-import defaultStack from '../objectstack.config';
+import defaultStack from './helpers/composed-stack';
 import {
-  CrmSeedData,
-  SaasTenantSeedData,
-  COMPOSITION_ENV_VAR,
-  resolveComposition,
-} from '../src/data/index';
-import { DemoBootstrapFlow } from '../src/flows/demo-bootstrap.flow';
-import { SystemAdminProfile } from '../src/profiles/system-admin.profile';
-import { TenantAdminProfile } from '../src/profiles/tenant-admin.profile';
-import { DemoOrgStaffing } from '../src/sharing/demo-staffing';
-import { SystemAdminPosition, TenantAdminPosition } from '../src/sharing/positions';
+  CrmSeedData, SaasTenantSeedData, ServiceSeedData, RevenueSeedData, MarketingSeedData, AppSeedData,
+  serviceStack, revenueStack, marketingStack, appStack,
+} from '../objectstack.composition';
+import { COMPOSITION_ENV_VAR, resolveComposition } from '../src/sales/data/index';
+import { SystemAdminProfile } from '../src/sales/profiles/system-admin.profile';
+import { TenantAdminProfile } from '../src/sales/profiles/tenant-admin.profile';
+import { DemoOrgStaffing } from '../src/sales/sharing/demo-staffing';
+import { SystemAdminPosition, TenantAdminPosition } from '../src/sales/sharing/positions';
 
 /**
  * The SaaS / multi-org composition (#1361).
  *
  * `HOTCRM_COMPOSITION=saas` assembles the shape a multi-org operator deploys on
  * the enterprise runtime under a walled tenancy posture. Three registrations
- * differ from the community app and nothing else does — `data`, `flows`, and
- * the admin persona, which is ONE change spanning `permissions` and
- * `positions` because a set and its same-named position are how this app binds
- * the two. These tests pin BOTH directions, because the two failure modes are
- * opposite and equally bad:
+ * differ from the community app — the seed families, the admin permission set,
+ * and the Admin Manual's audience, which follows that set (#2327) — and
+ * nothing else does; these tests pin BOTH
+ * directions, because the two failure modes are opposite and equally bad:
  *
  *  - the SaaS shape quietly keeping something (a tenant receives another
- *    company's pipeline, or a demo sweep that crosses the wall), and
+ *    company's pipeline), and
  *  - the community shape quietly losing something (this card's one hard
  *    boundary is that the default composition is behaviourally unchanged).
  *
- * The last block is not an assertion about the app at all — it MEASURES, on a
- * real engine under a walled posture, why `demo_bootstrap` is excluded. A
- * comment claiming "this would cross the wall" is a story; a failing engine is
- * evidence, and if the platform ever stops behaving that way this block goes
- * red and the exclusion can be revisited on measurement rather than on memory.
+ * The flows used to be a third difference: the SaaS shape dropped the
+ * `demo_bootstrap` ownership sweep, which crossed the organization wall. The
+ * sweep is retired from the app (#1892), so both shapes register the same
+ * flows, and that is pinned below too.
  */
 
 type AnyRec = Record<string, any>;
 
 /**
- * Load `objectstack.config` afresh under a given composition value.
+ * Load the app's stack afresh under a given composition value — the composed
+ * view of `test/helpers/composed-stack.ts`, which re-imports
+ * `objectstack.composition.ts`, where the knob is resolved and the two package
+ * stacks are built.
  *
  * `value` is a plain `string`: every caller names a composition, so an
  * "unset it instead" branch here would be code no test can reach. The RESTORE
@@ -53,11 +49,16 @@ type AnyRec = Record<string, any>;
  * `= undefined` are not the same thing to `process.env`.
  */
 async function loadStack(value: string): Promise<AnyRec> {
+  return ((await loadUnder(value, './helpers/composed-stack')) as AnyRec).default as AnyRec;
+}
+
+/** A module imported fresh under one value of the composition knob. */
+async function loadUnder(value: string, specifier: string): Promise<AnyRec> {
   const previous = process.env[COMPOSITION_ENV_VAR];
   process.env[COMPOSITION_ENV_VAR] = value;
   vi.resetModules();
   try {
-    return ((await import('../objectstack.config')) as AnyRec).default as AnyRec;
+    return (await import(/* @vite-ignore */ specifier)) as AnyRec;
   } finally {
     if (previous === undefined) delete process.env[COMPOSITION_ENV_VAR];
     else process.env[COMPOSITION_ENV_VAR] = previous;
@@ -98,12 +99,37 @@ describe('the default composition is the community app, untouched', () => {
     // Compared by CONTENT, not by reference: `defineStack` parses its input
     // through the spec schemas, so what lands on the stack is a fresh value —
     // reference identity holds only upstream of that call, which is exactly
-    // where `objectstack.config.ts` does its filtering.
-    const registered = ((defaultStack as AnyRec).data as AnyRec[]).map((d) => String(d.object));
-    expect(registered).toEqual(CrmSeedData.map((d) => String((d as AnyRec).object)));
+    // where `objectstack.composition.ts` does its filtering.
+    //
+    // As a SET of families, not a sequence: each family is registered by the
+    // package that owns its object (the next test), so the composed view lists
+    // the service package's families first and the app package's after them.
+    const objectsOf = (list: AnyRec[]) => list.map((d) => String(d.object));
+    const registered = objectsOf((defaultStack as AnyRec).data as AnyRec[]);
+    expect([...registered].sort()).toEqual(objectsOf(CrmSeedData as AnyRec[]).sort());
     const rows = (list: AnyRec[]) =>
       list.reduce((n, d) => n + (Array.isArray(d.records) ? d.records.length : 0), 0);
     expect(rows((defaultStack as AnyRec).data as AnyRec[])).toBe(rows(CrmSeedData as AnyRec[]));
+  });
+
+  it('registers each family with the package that owns its object, in replay order', () => {
+    // `defineStack` refuses `data` naming an object the stack does not define
+    // and was not told the artifact defines, so the split is not a choice —
+    // and the four parts together are exactly the union, each in the order
+    // `CrmSeedData` gives its families.
+    const objectsOf = (list: readonly unknown[] = []) => (list as AnyRec[]).map((d) => String(d.object));
+    expect(objectsOf(serviceStack.data)).toEqual(objectsOf(ServiceSeedData));
+    expect(objectsOf(serviceStack.data)).toEqual(['crm_case', 'crm_knowledge_article']);
+    expect(objectsOf(revenueStack.data)).toEqual(objectsOf(RevenueSeedData));
+    expect(objectsOf(revenueStack.data)).toEqual([
+      'crm_product', 'crm_price_book', 'crm_price_book_entry', 'crm_opportunity_line_item', 'crm_quote', 'crm_quote_line_item',
+    ]);
+    expect(objectsOf(marketingStack.data)).toEqual(objectsOf(MarketingSeedData));
+    expect(objectsOf(marketingStack.data)).toEqual(['crm_campaign', 'crm_campaign_member', 'crm_campaign_member']);
+    expect(objectsOf(appStack.data)).toEqual(objectsOf(AppSeedData));
+    expect(
+      [serviceStack, revenueStack, marketingStack, appStack].flatMap((stack) => objectsOf(stack.data)).sort(),
+    ).toEqual(objectsOf(CrmSeedData).sort());
   });
 
   it('still ships every seed family, storytelling included', () => {
@@ -113,14 +139,10 @@ describe('the default composition is the community app, untouched', () => {
       'crm_account',      // sales
       'crm_case',         // service
       'crm_campaign',     // marketing
-      'crm_contract',     // revenue
+      'crm_contract',     // contracts — the app package's since plan item 11
     ]) {
       expect(objects.has(object), `the default composition dropped ${object} seeds`).toBe(true);
     }
-  });
-
-  it('still ships demo_bootstrap', () => {
-    expect(nameOf((defaultStack as AnyRec).flows as AnyRec[])).toContain(DemoBootstrapFlow.name);
   });
 
   it('still ships system_admin, and does NOT ship tenant_admin', () => {
@@ -150,12 +172,24 @@ describe('HOTCRM_COMPOSITION=saas', () => {
     saas = await loadStack('saas');
   }, 60_000);
 
-  it('replays the CATALOGUE family and nothing else', () => {
+  it('replays the CATALOGUE family, its standard price book (#2318), and nothing else', () => {
     const objects = ((saas.data ?? []) as AnyRec[]).map((d) => String(d.object));
-    expect(objects).toEqual(['crm_product']);
+    expect(objects).toEqual(['crm_product', 'crm_price_book', 'crm_price_book_entry']);
     // Same length as the module's own declaration — so a family added to
     // `SaasTenantSeedData` has to be added deliberately, and lands here.
     expect((saas.data as AnyRec[]).length).toBe(SaasTenantSeedData.length);
+  });
+
+  it('the catalogue registers with the revenue package, and no other package registers any rows', async () => {
+    // A seed family registers with the package that owns its object, under
+    // either shape; `crm_product` and the standard price book are revenue's,
+    // so under `saas` revenue is the one package with rows.
+    const built = await loadUnder('saas', '../objectstack.composition');
+    const objectsOf = (stack: AnyRec) => ((stack.data ?? []) as AnyRec[]).map((d) => String(d.object));
+    expect(objectsOf(built.revenueStack)).toEqual(['crm_product', 'crm_price_book', 'crm_price_book_entry']);
+    expect(objectsOf(built.serviceStack)).toEqual([]);
+    expect(objectsOf(built.marketingStack)).toEqual([]);
+    expect(objectsOf(built.appStack)).toEqual([]);
   });
 
   it('excludes every storytelling family by name', () => {
@@ -173,27 +207,27 @@ describe('HOTCRM_COMPOSITION=saas', () => {
   });
 
   it('the catalogue seeds carry no cross-object reference to strand', () => {
-    // Why the shrink is safe: `crm_product` resolves nothing against another
-    // object, so no lookup is left pointing at a family that no longer ships.
-    // Every other family does reference one, which is why they cannot be
-    // cherry-picked back in individually.
+    // Why the shrink is safe: the catalogue and its standard price book
+    // resolve nothing outside themselves — `crm_product` names no other
+    // object, and a standard entry names its book and its product, both
+    // shipped beside it (#2318) — so no lookup is left pointing at a family
+    // that no longer ships. Every other family references one, which is why
+    // they cannot be cherry-picked back in individually.
+    const shipped = new Set(((saas.data ?? []) as AnyRec[]).map((d) => String(d.object)));
     const referenceValues = ((saas.data ?? []) as AnyRec[])
       .flatMap((d) => (Array.isArray(d.records) ? (d.records as AnyRec[]) : []))
       .flatMap((r) => Object.keys(r))
       .filter((key) => key.startsWith('crm_'));
-    expect(referenceValues).toEqual([]);
+    expect([...new Set(referenceValues)].sort()).toEqual(['crm_price_book', 'crm_product']);
+    for (const target of referenceValues) expect(shipped.has(target), `${target} is not shipped beside it`).toBe(true);
   });
 
-  it('drops demo_bootstrap — and drops exactly it', () => {
+  it('registers exactly the flows the community app does', () => {
+    // Flows are no longer a difference between the shapes (#1892), so any
+    // divergence here is a registration nobody decided on.
     const flowNames = nameOf(saas.flows as AnyRec[]);
-    expect(flowNames).not.toContain('demo_bootstrap');
-    // The other direction, which is the one a broken filter fails: every OTHER
-    // flow the community app ships is still registered. A filter that matched
-    // nothing would pass the line above only if the flow were already gone.
-    const communityNames = nameOf((defaultStack as AnyRec).flows as AnyRec[]);
-    expect(flowNames).toEqual(communityNames.filter((n) => n !== 'demo_bootstrap'));
-    expect(communityNames).toContain('demo_bootstrap');
-    expect(flowNames.length).toBe(communityNames.length - 1);
+    expect(flowNames, 'the SaaS composition registered no flows at all').not.toEqual([]);
+    expect(flowNames).toEqual(nameOf((defaultStack as AnyRec).flows as AnyRec[]));
   });
 
   it('replaces system_admin with tenant_admin, leaving the other personas alone', () => {
@@ -241,6 +275,18 @@ describe('HOTCRM_COMPOSITION=saas', () => {
     expect(orphans, `positions nothing in the SaaS shape references: ${orphans.join(', ')}`).toEqual([]);
   });
 
+  it('gates the Admin Manual on tenant_admin, the admin set this shape registers (#2327)', () => {
+    // A book gated on a set the install does not register is readable by
+    // nobody, the administrator included (measured on 18.2.0), so the audience
+    // must move with the set — in both directions.
+    const audienceOf = (books: AnyRec[] = []) => books.find((b) => b.name === 'crm_admin_manual')?.audience;
+    expect(audienceOf(saas.books as AnyRec[])).toEqual({ permissionSet: 'tenant_admin' });
+    expect(audienceOf((defaultStack as AnyRec).books as AnyRec[])).toEqual({ permissionSet: 'system_admin' });
+    // The other books are the community app's, unchanged.
+    const others = (books: AnyRec[] = []) => books.filter((b) => b.name !== 'crm_admin_manual');
+    expect(others(saas.books as AnyRec[])).toEqual(others((defaultStack as AnyRec).books as AnyRec[]));
+  });
+
   it('keeps the demo staffing table out of the stack here too (#640)', () => {
     // `test/demo-staffing.test.ts` pins this for the community app. Restated
     // for the SaaS shape because that is where synthetic users would be worst:
@@ -265,6 +311,25 @@ describe('tenant_admin is an ORG admin, judged by the platform capability regist
       scopeOf.get('manage_org_users'),
       'manage_org_users is not org-scoped on the installed platform line — the substitution this profile exists for no longer holds',
     ).toBe('org');
+  });
+
+  it('holds no presentation-authoring grant: 18.0.0-next.0 retired the org-scoped one (#1369)', () => {
+    // #1369 granted `manage_org_presentation`, the org-bounded subset of
+    // metadata authoring. 18.0.0-next.0 retires it with the per-organization
+    // overlay axis (ADR-0131 D6; the spec's `manage-org-presentation-retired`
+    // entry): it leaves the registry, nothing consults it, and the remedy is to
+    // delete it from every set. Read off the installed registry, so the day the
+    // platform declares an org-scoped authoring capability again this goes red
+    // and #1369 is re-measured rather than forgotten.
+    expect(
+      scopeOf.has('manage_org_presentation'),
+      'the installed platform declares manage_org_presentation again — re-measure #1369 before granting it',
+    ).toBe(false);
+    expect(TenantAdminProfile.systemPermissions).not.toContain('manage_org_presentation');
+    // The one key that still admits those writes lands them environment-wide,
+    // so a tenant profile may not hold it.
+    expect(scopeOf.get('manage_metadata')).toBe('platform');
+    expect(TenantAdminProfile.systemPermissions).not.toContain('manage_metadata');
   });
 
   it('grants NO platform-scoped capability', () => {
@@ -318,130 +383,5 @@ describe('tenant_admin is an ORG admin, judged by the platform capability regist
     // would put one mutable map in two published permission sets.
     expect(TenantAdminProfile.objects).not.toBe(SystemAdminProfile.objects);
     expect(TenantAdminProfile.objects).toEqual(SystemAdminProfile.objects);
-  });
-});
-
-// ──────────────────────── WHY demo_bootstrap is excluded — measured, not ──
-// ──────────────────────── asserted: a system context has no organization ──
-
-describe("the demo_bootstrap sweep crosses the wall — the engine's own answer", () => {
-  /**
-   * The flow's two moves, taken from the SHIPPED flow definition rather than
-   * transcribed, so this cannot drift into measuring something the flow no
-   * longer does:
-   *
-   *   1. select rows whose ownership column is null   (`get_record` + filter)
-   *   2. stamp the first user's id onto each one      (`update_record` + fields)
-   *
-   * …performed through the engine surface `runAs: 'system'` gives the flow: a
-   * system execution context. That context is the one the driver's organization
-   * predicate does not constrain, which is the whole finding — the sweep is not
-   * "unnecessary" under the wall, it is an identity crossing it.
-   *
-   * `OS_TENANCY_POSTURE=isolated` is set because a walled deployment sets it,
-   * not because the result depends on it: the predicate is the DRIVER's,
-   * compiled from the execution context's tenant id, and a system context
-   * carries none. The knob makes the engine's registry organization-scoped; it
-   * is not what makes the sweep unwalled. Saying so keeps this block a
-   * measurement of the real mechanism rather than of an environment variable.
-   */
-  const claimed = (() => {
-    const out: Array<{ objectName: string; column: string }> = [];
-    for (const node of (DemoBootstrapFlow.nodes ?? []) as AnyRec[]) {
-      if (node.type !== 'get_record') continue;
-      const config = (node.config ?? {}) as AnyRec;
-      const filter = (config.filter ?? {}) as AnyRec;
-      const [column, value] = Object.entries(filter)[0] ?? [];
-      if (typeof config.objectName !== 'string' || !column || value !== null) continue;
-      out.push({ objectName: config.objectName, column });
-    }
-    return out;
-  })();
-
-  const probe = claimed.find((c) => c.objectName === 'crm_account');
-
-  let driver: SqliteWasmDriver;
-  let ql: AnyRec;
-  let previousPosture: string | undefined;
-
-  beforeAll(async () => {
-    previousPosture = process.env.OS_TENANCY_POSTURE;
-    process.env.OS_TENANCY_POSTURE = 'isolated';
-
-    const objects: AnyRec[] = (defaultStack as AnyRec).objects ?? [];
-    const account = objects.find((o) => o.name === 'crm_account')!;
-    const objectMap: Record<string, AnyRec> = { crm_account: account };
-
-    driver = new SqliteWasmDriver({ filename: ':memory:' });
-    ql = (await ObjectQL.create({
-      datasources: { default: driver as never },
-      objects: objectMap as never,
-    } as never)) as AnyRec;
-
-    const scoped = applySystemFields(account as never, { multiTenant: true } as never) as AnyRec;
-    await driver.initObjects([
-      { name: 'crm_account', fields: scoped.fields, indexes: scoped.indexes } as never,
-    ]);
-  }, 60_000);
-
-  afterAll(async () => {
-    await ql?.close?.();
-    if (previousPosture === undefined) delete process.env.OS_TENANCY_POSTURE;
-    else process.env.OS_TENANCY_POSTURE = previousPosture;
-  });
-
-  it('reads the sweep out of the shipped flow rather than assuming it', () => {
-    // If the flow stops selecting ownerless rows, this file must stop claiming
-    // to have measured what it does.
-    expect(claimed.length).toBeGreaterThan(0);
-    expect(probe, 'demo_bootstrap no longer sweeps crm_account by a null ownership column').toBeTruthy();
-    expect(probe!.column).toBe('owner_id');
-  });
-
-  it('SENTINEL — an ordinary tenant session cannot see the other tenant at all', () => {
-    // The wall must be ON before the next test's silence means anything.
-    return (async () => {
-      const a = ql.createContext({ userId: 'usr_a', tenantId: 'org_a' });
-      const b = ql.createContext({ userId: 'usr_b', tenantId: 'org_b' });
-      await a.object('crm_account').insert({ name: 'Tenant A Co', type: 'customer', owner_id: 'usr_a' });
-      await b.object('crm_account').insert({ name: 'Tenant B Co', type: 'customer', owner_id: 'usr_b' });
-      const seenByA = (await a.object('crm_account').find({})) as AnyRec[];
-      expect(seenByA.map((r) => String(r.name))).toEqual(['Tenant A Co']);
-      expect(seenByA.every((r) => r.organization_id === 'org_a')).toBe(true);
-    })();
-  });
-
-  it("a runAs:'system' sweep selects rows in EVERY organization", async () => {
-    const sys = ql.createContext({ isSystem: true });
-    await driver
-      .getKnex()
-      .raw(
-        `insert into crm_account (id, name, type, organization_id, owner_id) values ` +
-          `('sweep_a','Ownerless A','customer','org_a',null), ` +
-          `('sweep_b','Ownerless B','customer','org_b',null)`,
-      );
-    const selected = (await sys
-      .object(probe!.objectName)
-      .find({ where: { [probe!.column]: null } })) as AnyRec[];
-    const orgs = new Set(selected.map((r) => String(r.organization_id)));
-    expect(
-      orgs.has('org_a') && orgs.has('org_b'),
-      `the sweep saw only ${[...orgs].join(', ')} — a system context is expected to be unwalled`,
-    ).toBe(true);
-  });
-
-  it('and stamps ONE organization’s user onto ANOTHER organization’s row', async () => {
-    // The defect in one line: `{firstUser.id}` is whoever `sys_user`'s first row
-    // happens to be — one identity, written across every partition.
-    const sys = ql.createContext({ isSystem: true });
-    await sys.object('crm_account').update({ id: 'sweep_b', owner_id: 'usr_a' });
-    const [row] = (await driver
-      .getKnex()
-      .raw(`select organization_id, owner_id from crm_account where id = 'sweep_b'`)) as AnyRec[];
-    expect(row.organization_id).toBe('org_b');
-    expect(
-      row.owner_id,
-      'the wall refused the cross-organization owner — re-evaluate whether demo_bootstrap still needs excluding',
-    ).toBe('usr_a');
   });
 });

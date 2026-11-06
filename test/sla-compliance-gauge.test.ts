@@ -2,12 +2,18 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL, applySystemFields } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
 import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AnalyticsService } from '@objectstack/service-analytics';
-import stack from '../objectstack.config';
-import { CrmSeedData } from '../src/data/index';
-import { CaseDataset } from '../src/datasets/case.dataset';
+import stack from './helpers/composed-stack';
+import { CrmSeedData } from '../objectstack.composition';
+import { CaseDataset } from '../src/service/datasets/case.dataset';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * The SLA gauge plots COMPLIANCE (#1213).
@@ -26,7 +32,7 @@ import { CaseDataset } from '../src/datasets/case.dataset';
  *
  * The numbers below are not read off the metadata. They come from running the
  * SHIPPED dataset measures and the SHIPPED widget binding through the REAL
- * analytics executor, on BOTH drivers this app runs on, over controlled rows
+ * analytics executor, on a real SQLite database, over controlled rows
  * and then over the actual seeded case records — because the failure being
  * guarded produced no error at all, just a plausible wrong percentage.
  */
@@ -64,18 +70,15 @@ describe('the SLA gauge is bound to a compliance measure (#1213)', () => {
   });
 
   /**
-   * PM assumption 3, checked rather than assumed: the ladder and the target
-   * line were authored for compliance. They needed no inversion — it was the
-   * plotted value that disagreed with them.
+   * PM assumption 3, checked rather than assumed: the target line was
+   * authored for compliance. It needed no inversion — it was the plotted value
+   * that disagreed with it. (The green/amber/red `options.thresholds` ladder
+   * this test also pinned was deleted in 17.6.0's strict cleanup: no dashboard
+   * renderer reads widget `thresholds`, so it never coloured anything.)
    */
-  it('keeps the compliance-shaped ladder and target line unchanged', () => {
+  it('keeps the compliance-shaped target line unchanged', () => {
     const w = gauge();
     expect(w.colorVariant).toBe('success');
-    expect(w.options.thresholds).toEqual([
-      { value: 0.95, color: 'success' },
-      { value: 0.85, color: 'warning' },
-      { value: 0, color: 'danger' },
-    ]);
     const target = (w.chartConfig?.annotations ?? []).find((a: AnyRec) => a.label === 'Target');
     expect(target, 'the 0.95 target line is gone').toBeTruthy();
     expect(target.value).toBe(0.95);
@@ -144,191 +147,190 @@ const makeAnalytics = (ql: AnyRec) =>
   });
 
 /**
- * Both drivers, because they disagree about what "absent" means: the memory
- * driver omits unwritten columns, SQLite stores NULL. A boolean the app never
- * wrote is exactly the axis a filtered count gets wrong, and a single-driver
- * green would not be evidence either way.
+ * On real SQLite, which stores NULL for a column the app never wrote. A boolean
+ * the app never wrote is exactly the axis a filtered count gets wrong. (Through
+ * #2031 this suite also ran on `driver-memory`; the maintainer's ruling on #2092
+ * moved every test onto SQL.)
  */
-for (const driverName of ['memory', 'sqlite'] as const) {
-  describe(`the compliance measure over ${driverName}`, () => {
-    let ql: AnyRec;
-    let analytics: AnalyticsService;
+describe('the compliance measure over sqlite', () => {
+  let ql: AnyRec;
+  let analytics: AnalyticsService;
 
-    beforeAll(async () => {
-      if (driverName === 'sqlite') {
-        const driver = new SqliteWasmDriver({ filename: ':memory:' });
-        await driver.connect();
-        const materialized = applySystemFields(kase as never, { multiTenant: false }) as AnyRec;
-        await driver.initObjects([{
-          name: kase.name,
-          fields: materialized.fields as Record<string, unknown>,
-          indexes: materialized.indexes,
-        } as never]);
-        ql = (await ObjectQL.create({
-          datasources: { default: driver },
-          objects: { crm_case: kase } as never,
-        })) as never;
-      } else {
-        ql = (await ObjectQL.create({
-          datasources: { default: new InMemoryDriver({ persistence: false }) },
-          objects: { crm_case: kase } as never,
-        })) as never;
-      }
-      analytics = makeAnalytics(ql);
-    }, 60_000);
+  beforeAll(async () => {
+    const driver = new SqliteWasmDriver({ filename: ':memory:' });
+    await driver.connect();
+    const materialized = applySystemFields(kase as never, { multiTenant: false }) as AnyRec;
+    await driver.initObjects([{
+      name: kase.name,
+      fields: materialized.fields as Record<string, unknown>,
+      indexes: materialized.indexes,
+    } as never]);
+    ql = (await ObjectQL.create({
+      datasources: { default: driver },
+      objects: { crm_case: kase } as never,
+    })) as never;
+    analytics = makeAnalytics(ql);
+  }, 60_000);
 
-    afterAll(async () => {
-      await ql?.close();
-    });
-
-    const api = () => ql.createContext({ isSystem: true });
-
-    const addCase = async (rec: AnyRec) => {
-      const row: AnyRec = {};
-      for (const c of CASE_COLUMNS) if (rec[c] !== undefined) row[c] = rec[c];
-      return api().object('crm_case').insert(row);
-    };
-
-    /** Run a binding through the real dataset executor. */
-    const run = async (w: AnyRec): Promise<AnyRec[]> => {
-      const res = await analytics.queryDataset(
-        CaseDataset as never,
-        {
-          ...(w.dimensions ? { dimensions: w.dimensions } : {}),
-          measures: w.values,
-          ...(w.filter ? { runtimeFilter: w.filter as never } : {}),
-        } as never,
-        { isSystem: true } as never,
-      );
-      return (res.rows ?? []) as AnyRec[];
-    };
-
-    const compliance = async (): Promise<AnyRec> => (await run({
-      values: ['closed_count', 'sla_met_count', 'sla_compliance_rate'],
-    }))[0] ?? {};
-
-    /**
-     * The breached share of CLOSED cases, from the two counts rather than from
-     * `avg_sla_violated`. MEASURED: an `avg` over a boolean column returns a
-     * number on SQLite (0.25 here) but `null` on the in-memory driver, so the
-     * dataset's own violation-rate measure is not a driver-stable yardstick to
-     * check compliance against. The counts are exact on both.
-     */
-    const breachedShare = (row: AnyRec): number =>
-      ((row.closed_count as number) - (row.sla_met_count as number)) / (row.closed_count as number);
-
-    it('reads the complement of the violation rate, not the violation rate', async () => {
-      // 4 closed: 3 within SLA, 1 breached. Plus an OPEN breached case, to
-      // prove `is_closed` scopes both halves.
-      await addCase(caseRow({ subject: 'c1', is_closed: true, status: 'closed', is_sla_violated: false }));
-      await addCase(caseRow({ subject: 'c2', is_closed: true, status: 'closed', is_sla_violated: false }));
-      await addCase(caseRow({ subject: 'c3', is_closed: true, status: 'closed', is_sla_violated: false }));
-      await addCase(caseRow({ subject: 'c4', is_closed: true, status: 'closed', is_sla_violated: true }));
-      await addCase(caseRow({ subject: 'c5', is_closed: false, is_sla_violated: true }));
-
-      const row = await compliance();
-      expect(row.closed_count).toBe(4);
-      expect(row.sla_met_count).toBe(3);
-      expect(row.sla_compliance_rate as number).toBeCloseTo(0.75, 5);
-
-      // The two quantities are complements, and the gauge shows the compliance
-      // one. This is the assertion the old binding could not have passed: it
-      // plotted the 0.25 under a title that says 达成率.
-      expect(breachedShare(row)).toBeCloseTo(0.25, 5);
-      expect((row.sla_compliance_rate as number) + breachedShare(row)).toBeCloseTo(1, 5);
-    });
-
-    it('rises when a case closes within SLA', async () => {
-      const before = (await compliance()).sla_compliance_rate as number;
-      await addCase(caseRow({ subject: 'c6', is_closed: true, status: 'closed', is_sla_violated: false }));
-      const after = await compliance();
-      expect(after.sla_compliance_rate as number).toBeGreaterThan(before);
-      expect(after.sla_compliance_rate as number).toBeCloseTo(0.8, 5);
-    });
-
-    it('falls when a case closes having breached SLA', async () => {
-      const before = (await compliance()).sla_compliance_rate as number;
-      await addCase(caseRow({ subject: 'c7', is_closed: true, status: 'closed', is_sla_violated: true }));
-      expect((await compliance()).sla_compliance_rate as number).toBeLessThan(before);
-    });
-
-    it('does not move for an open case, breached or not', async () => {
-      const before = await compliance();
-      await addCase(caseRow({ subject: 'c8', is_closed: false, is_sla_violated: true }));
-      await addCase(caseRow({ subject: 'c9', is_closed: false, is_sla_violated: false }));
-      const after = await compliance();
-      expect(after.closed_count).toBe(before.closed_count);
-      expect(after.sla_met_count).toBe(before.sla_met_count);
-    });
-
-    /**
-     * The NULL hole this spelling could have had, closed by measurement rather
-     * than by argument: `is_sla_violated` declares `defaultValue: false`, so a
-     * closed case inserted without the column still lands in the numerator on
-     * both drivers. If it did not, `sla_met_count + breached` would stop
-     * summing to `closed_count` and compliance would silently under-report.
-     */
-    it('counts a closed case whose SLA flag was never written', async () => {
-      const before = await compliance();
-      await addCase(caseRow({ subject: 'c10', is_closed: true, status: 'closed' }));
-      const after = await compliance();
-      expect(after.closed_count).toBe((before.closed_count as number) + 1);
-      expect(after.sla_met_count).toBe((before.sla_met_count as number) + 1);
-    });
-
-    /**
-     * Numerator and denominator stay in step — the #614 failure mode is a half
-     * that scopes differently from the other half, and it returns a plausible
-     * number rather than an error.
-     */
-    /**
-     * The ratio is met ÷ closed, in that order, and the executor really
-     * evaluates it rather than passing the numerator through. A swapped ratio
-     * raises nothing — it returns a number above 1, which a `0%` format prints
-     * as a plausible-looking 133%.
-     */
-    it('computes met over closed, in that order', async () => {
-      const row = await compliance();
-      expect(row.sla_compliance_rate as number).toBeCloseTo(
-        (row.sla_met_count as number) / (row.closed_count as number), 10,
-      );
-      expect(row.sla_compliance_rate as number).toBeLessThanOrEqual(1);
-      expect(row.sla_compliance_rate as number).not.toBe(row.sla_met_count as number);
-    });
+  afterAll(async () => {
+    await ql?.close();
   });
-}
+
+  const api = () => ql.createContext({ isSystem: true, tenantId: ORG });
+
+  const addCase = async (rec: AnyRec) => {
+    const row: AnyRec = {};
+    for (const c of CASE_COLUMNS) if (rec[c] !== undefined) row[c] = rec[c];
+    return api().object('crm_case').insert(row);
+  };
+
+  /** Run a binding through the real dataset executor. */
+  const run = async (w: AnyRec): Promise<AnyRec[]> => {
+    const res = await analytics.queryDataset(
+      CaseDataset as never,
+      {
+        ...(w.dimensions ? { dimensions: w.dimensions } : {}),
+        measures: w.values,
+        ...(w.filter ? { runtimeFilter: w.filter as never } : {}),
+      } as never,
+      { isSystem: true, tenantId: ORG } as never,
+    );
+    return (res.rows ?? []) as AnyRec[];
+  };
+
+  const compliance = async (): Promise<AnyRec> => (await run({
+    values: ['closed_count', 'sla_met_count', 'sla_compliance_rate'],
+  }))[0] ?? {};
+
+  /**
+   * The breached share of CLOSED cases, from the two counts rather than from
+   * `avg_sla_violated`. MEASURED: an `avg` over a boolean column returns a
+   * number on SQLite (0.25 here) but `null` on the in-memory driver, so the
+   * dataset's own violation-rate measure is not a driver-stable yardstick to
+   * check compliance against. The counts are exact on both.
+   */
+  const breachedShare = (row: AnyRec): number =>
+    ((row.closed_count as number) - (row.sla_met_count as number)) / (row.closed_count as number);
+
+  it('reads the complement of the violation rate, not the violation rate', async () => {
+    // 4 closed: 3 within SLA, 1 breached. Plus an OPEN breached case, to
+    // prove `is_closed` scopes both halves.
+    await addCase(caseRow({ subject: 'c1', is_closed: true, status: 'closed', is_sla_violated: false }));
+    await addCase(caseRow({ subject: 'c2', is_closed: true, status: 'closed', is_sla_violated: false }));
+    await addCase(caseRow({ subject: 'c3', is_closed: true, status: 'closed', is_sla_violated: false }));
+    await addCase(caseRow({ subject: 'c4', is_closed: true, status: 'closed', is_sla_violated: true }));
+    await addCase(caseRow({ subject: 'c5', is_closed: false, is_sla_violated: true }));
+
+    const row = await compliance();
+    expect(row.closed_count).toBe(4);
+    expect(row.sla_met_count).toBe(3);
+    expect(row.sla_compliance_rate as number).toBeCloseTo(0.75, 5);
+
+    // The two quantities are complements, and the gauge shows the compliance
+    // one. This is the assertion the old binding could not have passed: it
+    // plotted the 0.25 under a title that says 达成率.
+    expect(breachedShare(row)).toBeCloseTo(0.25, 5);
+    expect((row.sla_compliance_rate as number) + breachedShare(row)).toBeCloseTo(1, 5);
+  });
+
+  it('rises when a case closes within SLA', async () => {
+    const before = (await compliance()).sla_compliance_rate as number;
+    await addCase(caseRow({ subject: 'c6', is_closed: true, status: 'closed', is_sla_violated: false }));
+    const after = await compliance();
+    expect(after.sla_compliance_rate as number).toBeGreaterThan(before);
+    expect(after.sla_compliance_rate as number).toBeCloseTo(0.8, 5);
+  });
+
+  it('falls when a case closes having breached SLA', async () => {
+    const before = (await compliance()).sla_compliance_rate as number;
+    await addCase(caseRow({ subject: 'c7', is_closed: true, status: 'closed', is_sla_violated: true }));
+    expect((await compliance()).sla_compliance_rate as number).toBeLessThan(before);
+  });
+
+  it('does not move for an open case, breached or not', async () => {
+    const before = await compliance();
+    await addCase(caseRow({ subject: 'c8', is_closed: false, is_sla_violated: true }));
+    await addCase(caseRow({ subject: 'c9', is_closed: false, is_sla_violated: false }));
+    const after = await compliance();
+    expect(after.closed_count).toBe(before.closed_count);
+    expect(after.sla_met_count).toBe(before.sla_met_count);
+  });
+
+  /**
+   * The NULL hole this spelling could have had, closed by measurement rather
+   * than by argument: `is_sla_violated` declares `defaultValue: false`, so a
+   * closed case inserted without the column still lands in the numerator on
+   * both drivers. If it did not, `sla_met_count + breached` would stop
+   * summing to `closed_count` and compliance would silently under-report.
+   */
+  it('counts a closed case whose SLA flag was never written', async () => {
+    const before = await compliance();
+    await addCase(caseRow({ subject: 'c10', is_closed: true, status: 'closed' }));
+    const after = await compliance();
+    expect(after.closed_count).toBe((before.closed_count as number) + 1);
+    expect(after.sla_met_count).toBe((before.sla_met_count as number) + 1);
+  });
+
+  /**
+   * Numerator and denominator stay in step — the #614 failure mode is a half
+   * that scopes differently from the other half, and it returns a plausible
+   * number rather than an error.
+   */
+  /**
+   * The ratio is met ÷ closed, in that order, and the executor really
+   * evaluates it rather than passing the numerator through. A swapped ratio
+   * raises nothing — it returns a number above 1, which a `0%` format prints
+   * as a plausible-looking 133%.
+   */
+  it('computes met over closed, in that order', async () => {
+    const row = await compliance();
+    expect(row.sla_compliance_rate as number).toBeCloseTo(
+      (row.sla_met_count as number) / (row.closed_count as number), 10,
+    );
+    expect(row.sla_compliance_rate as number).toBeLessThanOrEqual(1);
+    expect(row.sla_compliance_rate as number).not.toBe(row.sla_met_count as number);
+  });
+});
 
 // ───────────────────────── 3. the seeded org, end to end through the widget ──
 
 /**
- * The number in the card. The seeded demo org has 8 closed cases and none of
- * them breached SLA — the generator only ever flags OPEN cases
- * (`slaViolated = !settled && …`) — so the gauge must read 100%. It read 0.0%.
+ * The number in the card. The seeded demo org has 8 closed cases. Under #1213
+ * the gauge read 0.0% where it should have read compliance; and the 100% it
+ * then read was itself wrong (#2070): every settled seed row was authored
+ * `is_sla_violated: false`, though 6 of the 8 closed cases finished days after
+ * their own due dates. The settled rows' flags are now DERIVED from those dates
+ * (`seededSettledBreach`, pinned row by row in `test/seed-consistency.test.ts`),
+ * and since #2288 those dates finish every closed case inside its window, to
+ * the hour — so the derived flags say all 8 met, and the gauge must read 100%.
+ * The difference from the #2070 defect is the dates: then the flags denied
+ * them, now they agree with them.
  *
  * The rows come from the SHIPPED seed rather than hand-typed stand-ins, and
  * the binding comes from the SHIPPED widget, so re-pointing the widget or
  * re-seeding the org moves this test instead of leaving it agreeing with
  * itself.
  */
-describe('the gauge reads 100% on the seeded demo org', () => {
+describe('the gauge reads met ÷ closed on the seeded demo org', () => {
   type Dataset = { object: string; records: AnyRec[] };
   const seededCases = (CrmSeedData as unknown as Dataset[])
     .filter((d) => d.object === 'crm_case')
     .flatMap((d) => d.records);
   const closedSeeds = seededCases.filter((c) => c.is_closed === true);
 
-  it('seeds 8 closed cases, none of them SLA-breached', () => {
+  it('seeds 8 closed cases, none of them finished after its due date', () => {
     expect(closedSeeds.length).toBe(8);
-    expect(closedSeeds.filter((c) => c.is_sla_violated === true)).toEqual([]);
+    expect(closedSeeds.filter((c) => c.is_sla_violated !== false)).toHaveLength(0);
   });
 
   it('renders 100% through the shipped widget binding', async () => {
     const ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: { crm_case: kase } as never,
     })) as AnyRec;
+    await ql.syncSchemas();
     try {
-      const api = () => (ql as AnyRec).createContext({ isSystem: true });
+      const api = () => (ql as AnyRec).createContext({ isSystem: true, tenantId: ORG });
       for (const rec of seededCases) {
         const row: AnyRec = {};
         for (const c of CASE_COLUMNS) if (rec[c] !== undefined) row[c] = rec[c];
@@ -340,28 +342,13 @@ describe('the gauge reads 100% on the seeded demo org', () => {
       const res = await makeAnalytics(ql).queryDataset(
         CaseDataset as never,
         { measures: [...(w.values as string[]), 'closed_count'], runtimeFilter: w.filter as never } as never,
-        { isSystem: true } as never,
+        { isSystem: true, tenantId: ORG } as never,
       );
       const row = (res.rows ?? [])[0] as AnyRec;
       expect(row.closed_count).toBe(8);
-      expect(row.sla_compliance_rate as number).toBeCloseTo(1, 5);
+      expect(row.sla_compliance_rate as number).toBeCloseTo(8 / 8, 5);
     } finally {
       await (ql as AnyRec)?.close();
     }
-  });
-
-  /**
-   * What the reader sees, at that value. 1.0 clears the 0.95 target and lands
-   * in the success band — while the number the widget used to plot (a 0.0
-   * violation rate) would have landed in `danger` under the very same ladder.
-   * That mismatch, not the ladder, was the defect.
-   */
-  it('lands in the success band at 100%, where the old value landed in danger', () => {
-    const bandFor = (v: number): string =>
-      (gauge().options.thresholds as AnyRec[])
-        .filter((t) => v >= (t.value as number))
-        .sort((a, b) => (b.value as number) - (a.value as number))[0].color as string;
-    expect(bandFor(1)).toBe('success');
-    expect(bandFor(0)).toBe('danger');
   });
 });

@@ -1,17 +1,13 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { extractHookBody } from '@objectstack/cli/hook-body';
+import type { VerifyStack } from '@objectstack/verify';
 import { ErrorCode } from '@objectstack/spec/api';
-import { allHooks } from '../src/hooks';
-import { REFUSAL_CODES, REFUSE_HELPER } from '../src/objects/_refusal';
-import { hookNamed, makeCtx, makeHarness } from './helpers/hook-harness';
-import { extractSandboxBody, makeSandboxEngine, runHookBody } from './helpers/action-sandbox';
-import accountHooks from '../src/objects/account.hook';
-import contactHooks from '../src/objects/contact.hook';
-import opportunityHooks from '../src/objects/opportunity.hook';
-import productHooks from '../src/objects/product.hook';
-import taskHooks from '../src/objects/task.hook';
-import eventHooks from '../src/objects/event.hook';
+import { allHooks } from '../objectstack.composition';
+import { REFUSAL_CODES, REFUSE_HELPER } from '../src/sales/objects/_refusal';
+import { hookNamed } from './helpers/composed-stack';
+import { hotcrmStack, signUpPerson, systemUpdate, runShippedHook, today, type Person } from './helpers/verify-stack';
 
 /**
  * The refusal envelope, pinned where it actually ships (#1075 + #1167).
@@ -68,7 +64,7 @@ const flat = (s: string): string => s.replace(/\s+/g, ' ').trim();
 /** The lowered body of every registered hook, by name. */
 const LOWERED: Array<{ name: string; source: string }> = (allHooks as AnyRec[]).map((h) => ({
   name: h.name as string,
-  source: extractSandboxBody(h.handler, `hook '${h.name}'`).source,
+  source: extractHookBody(h.handler, `hook '${h.name}'`).source,
 }));
 
 /** `refuse(…, "CODE", NNN)` — the shape the printer emits, single- and multi-line alike. */
@@ -135,15 +131,33 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
   );
 
   it('found every swept call site', () => {
-    // 21 since the PSA demo (epic #2): timesheet_budget_gate, travel_cost_trip_fill
-    // and the two opportunity_account_classification_gate refusals. 22 since
-    // timesheet_budget_gate grew its second refusal — the sheet under write
-    // costs more than the project's remaining budget, as opposed to a project
-    // that was already over it.
-    // +2 (#cost-plan): `cost_plan_defaults` refuses a change to a frozen
-    // baseline and `cost_plan_lock` refuses a line / month write on a plan that
-    // is not a draft — one registration over five objects, so one site.
-    expect(sites).toHaveLength(24);
+    // 18 until REQ-0003 added the account capability gate in
+    // `opportunity.hook.ts`; 19 until #549 added the activated-contract
+    // refusal to `account_protection`; 20 until REQ-0006 added the
+    // status-change gate to `opportunity_lifecycle`; 21 until REQ-0006 step 11
+    // added the 立项 (qualification) gate beside it; 22 until #2014 added the
+    // refusal of an acceptance the deal's approval holds to `quote_workflow`;
+    // 23 until #2060 added the settled-quote line freeze to `quote_workflow`;
+    // 24 until #2077 added the closed-deal line freeze; 25 until #2191 added
+    // the approval-locked deal's line hold beside it; 26 until #2313 added the
+    // standard price book's three refusals and the one-entry-per-product one;
+    // 30 until #2285 added the conversion-marker refusal to
+    // `account_protection`; 31 until #2334 added the large-deal close-won
+    // refusal to `opportunity_lifecycle`; 32 until #2344 added
+    // `campaign_member_enrollment_gate`'s three (a closed campaign, an
+    // opted-out lead, an opted-out contact); 35 until #2366 added
+    // `quote_workflow`'s refusal of a quote created at a settled status; 36
+    // until #2318 added the price book's five: a quote line whose book has no
+    // price for its product (one call in the shared price fill, swept once
+    // per line object, so two), `quote_price_book`'s inactive-book and
+    // book-change refusals, and `price_book_standard`'s refusal to delete a
+    // book quotes price from.
+    // The number is hand-maintained on purpose: a new refusal has to be a
+    // deliberate edit here, so a guard that quietly stopped being swept cannot
+    // hide behind a count that follows it.
+    // +7 for the PSA demo (epic #2): `timesheet_budget_gate`'s two, `travel_cost_trip_fill`,
+    // `opportunity_account_classification_gate`'s two, `cost_plan_defaults` and `cost_plan_lock`.
+    expect(sites).toHaveLength(48);
   });
 
   it('uses only members of the platform ErrorCode enum', () => {
@@ -164,80 +178,91 @@ describe('every refusal names a code the platform will echo (#1075)', () => {
     }
   });
 
-  /**
-   * The sentence the user reads is Chinese, at EVERY site.
-   *
-   * `message` (argument 1) is the English diagnostic — a log line, and what the
-   * tests in this repo assert on. `userMessage` (argument 4) is what the console
-   * actually renders: measured on the shipped bundle, it prefers `userMessage`
-   * whenever that is a non-empty string and falls back to the wrapped English
-   * `message` otherwise. So a guard that omits argument 4 does not fail, it
-   * shows English in a Chinese UI — which is how the converted-lead lock came
-   * to answer a rep with `Cannot edit converted lead … Make changes on the
-   * converted records instead.`
-   *
-   * This reads the LOWERED bodies, so it sees what ships rather than what the
-   * source looks like, and it is the assertion a NEW guard trips: adding a
-   * refusal without its Chinese half is red here, not a bug report from a demo.
-   *
-   * ⛔ Deliberately a presence-and-script check, not a wording check. What the
-   * sentence SAYS is pinned per class further down; free prose is not something
-   * a guard can assert (#1646), and one that tried would be a gate on style.
-   */
-  it('carries a Chinese sentence on the channel the user reads', () => {
-    const CJK = /[\u4e00-\u9fff]/;
-    const missing: string[] = [];
-    for (const h of LOWERED) {
-      for (const m of h.source.matchAll(CALL)) {
-        // `CALL` stops on the character after the status: `)` closes the call
-        // (three arguments — no user sentence at all), `,` opens the fourth.
-        if (m[0].endsWith(')')) {
-          missing.push(`${h.name}: ${m[1]}/${m[2]} passes no userMessage`);
-          continue;
-        }
-        let depth = 1;
-        let i = m.index! + m[0].length;
-        const start = i;
-        while (depth > 0 && i < h.source.length) {
-          const c = h.source[i]!;
-          if (c === '(') depth += 1;
-          else if (c === ')') depth -= 1;
-          i += 1;
-        }
-        const userArg = h.source.slice(start, i - 1);
-        if (!CJK.test(userArg)) {
-          missing.push(`${h.name}: ${m[1]}/${m[2]} userMessage carries no Chinese`);
-        }
-      }
-    }
-    expect(
-      missing,
-      `these refusals would show English to a Chinese user:\n  ${missing.join('\n  ')}`,
-    ).toEqual([]);
-  });
-
-  it('leaves exactly one throw bare — the cascade fault, which IS a 500', () => {
+  it('leaves exactly the three cascade faults bare — each IS a 500', () => {
     const bare = LOWERED.filter((h) => /throw new Error\(/.test(h.source)).map((h) => h.name);
-    // `quote_on_accepted` fires from an afterUpdate cascade when close-won
-    // bookkeeping failed for reasons the user neither caused nor can act on.
-    // `resolveThrownHttpError` maps a bare Error to 500 / INTERNAL_ERROR, which
-    // is the correct answer — an envelope would file a broken cascade as user
-    // error.
-    expect(bare).toEqual(['quote_on_accepted']);
+    // The two accepted-quote hooks (one hook until #2014 split the elevated
+    // contract draft out) fire from an afterUpdate cascade when the contract
+    // draft or the close-won failed for reasons the user neither caused nor
+    // can act on. `resolveThrownHttpError` maps a bare Error to 500 /
+    // INTERNAL_ERROR, which is the correct answer — an envelope would file a
+    // broken cascade as user error. `product_title_mirror` (#2086) is the same
+    // class: an async afterUpdate cascade whose throw, naming the lines that
+    // kept a stale title, reaches only the `onError: 'log'` record, never the
+    // person who renamed the product.
+    expect(bare).toEqual(['product_title_mirror', 'quote_accepted_contract_draft', 'quote_on_accepted']);
   });
 });
 
 // ───────────────────────────── the shipped path, one case per class (#1167) ──
 
-const accountGuard = hookNamed(accountHooks, 'account_protection');
-const contactGuard = hookNamed(contactHooks, 'contact_integrity');
-const oppGuard = hookNamed(opportunityHooks, 'opportunity_lifecycle');
-const productGuard = hookNamed(productHooks, 'product_catalog');
-const taskGuard = hookNamed(taskHooks, 'task_do_not_call_guard');
+const accountGuard = hookNamed('account_protection');
+const contactGuard = hookNamed('contact_integrity');
+const oppGuard = hookNamed('opportunity_lifecycle');
+const productGuard = hookNamed('product_catalog');
+const taskGuard = hookNamed('task_do_not_call_guard');
+const leadGuard = hookNamed('lead_automation');
+const lineGuard = hookNamed('opportunity_line_item_freeze');
+const quoteGuard = hookNamed('quote_workflow');
 
-/** Run a lowered body and return the error it threw, or null if it did not. */
+/**
+ * The real app — booted through `@objectstack/verify`'s handle — and the rows
+ * both paths below refuse against: a contact holding an email, a product a
+ * deal's line already references, a lead flagged Do Not Call.
+ */
+let verify: VerifyStack;
+let rep: Person;
+let admin: string;
+const row: Record<string, string> = {};
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  admin = await verify.signIn();
+  rep = await signUpPerson(verify, 'rep@refusal-envelope.test', {
+    name: 'Envelope Rep', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+  });
+  const create = async (object: string, doc: AnyRec) =>
+    String((await verify.hooks.run(object, 'insert', doc, { as: rep.token })).id);
+  row.account = await create('crm_account', { name: 'Envelope Co' });
+  row.contact = await create('crm_contact', {
+    first_name: 'Ena', last_name: 'Velope', email: 'dup@acme.example.com', crm_account: row.account,
+  });
+  row.opportunity = await create('crm_opportunity', {
+    name: 'Big Deal', crm_account: row.account, stage: 'proposal', amount: 100, close_date: today(),
+  });
+  const [product] = await verify.seed('crm_product', [{ name: 'Widget', list_price: 10, is_active: true }]);
+  row.product = String(product.id);
+  await create('crm_opportunity_line_item', {
+    crm_opportunity: row.opportunity, crm_product: row.product, quantity: 1, unit_price: 10,
+  });
+  row.lead = await create('crm_lead', {
+    first_name: 'Dee', last_name: 'Nc', company: 'Envelope Co', email: 'dee@acme.example.com', do_not_call: true,
+  });
+  // A deal that closed, for the line-item freeze (#2338 item 15), and a lead
+  // the conversion flow would have left behind, for the converted-lead lock
+  // (item 14) — the lead written as the system, the way that flow writes it.
+  row.closedDeal = await create('crm_opportunity', {
+    name: 'Won Deal', crm_account: row.account, stage: 'proposal', amount: 100, close_date: today(),
+  });
+  await verify.hooks.run('crm_opportunity', 'update', { id: row.closedDeal, stage: 'closed_won', win_reason: 'better_price' }, { as: rep.token });
+  const [converted] = await verify.seed('crm_lead', [{
+    first_name: 'Ada', last_name: 'Lovelace', company: 'Acme', email: 'ada@acme.example.com', owner_id: rep.id,
+    is_converted: true, status: 'converted', converted_date: '2026-01-01',
+    converted_account: row.account, converted_contact: row.contact, converted_opportunity: row.opportunity,
+  }]);
+  row.convertedLead = String(converted!.id);
+  // A quote that expired, for its line freeze (#2338 item 16) — settled the
+  // way the expiry sweep settles one, as the system.
+  const [quote] = await verify.seed('crm_quote', [{
+    name: 'Envelope Quote', crm_account: row.account, crm_contact: row.contact, owner_id: rep.id,
+    status: 'draft', quote_date: '2026-01-01', expiration_date: '2030-12-31', discount: 0, tax: 0, shipping_handling: 0,
+  }]);
+  row.expiredQuote = String(quote!.id);
+  await systemUpdate(verify, 'crm_quote', { id: row.expiredQuote, status: 'expired' });
+}, 180_000);
+
+/** Run a hook's SHIPPED body and return the error it threw, or null if it did not. */
 const refusalFrom = async (hook: AnyRec, opts: AnyRec): Promise<AnyRec | null> =>
-  runHookBody(hook, opts as never).then(
+  runShippedHook(verify, hook, opts as never).then(
     () => null,
     (e: AnyRec) => e,
   );
@@ -255,105 +280,146 @@ const refusalFrom = async (hook: AnyRec, opts: AnyRec): Promise<AnyRec | null> =
  * against `innerMessage` — the shipped path rewrites `message` to
  * `hook 'NAME' threw: Error: ORIGINAL` and keeps the original there — and the
  * rewrite itself is pinned, since it is what a REST consumer reading `message`
- * would see.
- *
- * ⚠️ `userMessage` is pinned to a DIFFERENT sentence from `innerMessage`, and
- * that divergence is the contract, not a leak. The two channels carry two
- * languages: `innerMessage` is the English diagnostic a developer reads in a
- * log, `userMessage` the Chinese sentence the console renders to a rep (it
- * prefers `userMessage` whenever it is a non-empty string). Pinning them EQUAL
- * is what this helper did until every site was localised, and an equal pin
- * would now go green on exactly the bug it is here to catch — a guard that
- * forgot its Chinese sentence and shows English in a Chinese UI. Both halves
- * are asserted, so neither language can drift on its own.
+ * would see. `userMessage` is pinned EQUAL to `innerMessage`: since #1869
+ * `refuse()` marks the sentence, and that mark is the half a consumer can read
+ * without the wrapper. `innerMessage` is not a wire field, so asserting only it
+ * would leave the user-facing outcome unpinned. A site that passes its own
+ * `userMessage` (the diagnostic keeps API names, the user sentence uses labels,
+ * #2338 item 12) names that sentence as `userWording`, and the pin becomes:
+ * the marked channel carries THAT sentence, not the diagnostic.
  */
 const expectEnvelope = (
   err: AnyRec | null,
   cls: keyof typeof REFUSAL_CODES,
   hookName: string,
   wording: RegExp,
-  userWording: RegExp,
+  userWording?: RegExp,
 ): void => {
   expect(err, `expected ${hookName} to refuse`).toBeTruthy();
   expect(err!.name, 'the shipped path re-throws as SandboxError').toBe('SandboxError');
   expect([err!.code, err!.status]).toEqual([REFUSAL_CODES[cls].code, REFUSAL_CODES[cls].status]);
   expect(String(err!.innerMessage)).toMatch(wording);
   expect(String(err!.message)).toBe(`hook '${hookName}' threw: Error: ${err!.innerMessage}`);
-  expect(
-    String(err!.userMessage),
-    'the marked channel carries the sentence the user reads, unwrapped',
-  ).toMatch(userWording);
-  // A blank override is dropped at the sandbox boundary, which would silently
-  // return the reader to the English wrapper — so emptiness is its own failure.
-  expect(String(err!.userMessage).trim().length).toBeGreaterThan(0);
+  if (userWording) {
+    expect(String(err!.userMessage), 'the marked channel carries the user sentence').toMatch(userWording);
+    expect(err!.userMessage).not.toBe(String(err!.innerMessage));
+    return;
+  }
+  expect(err!.userMessage, 'the marked channel carries the sentence, unwrapped').toBe(
+    String(err!.innerMessage),
+  );
 };
 
 describe('every refusal class survives the QuickJS boundary (#1167)', () => {
+  // The shipped path: each guard's lowered body, in the runtime's QuickJS
+  // sandbox, reading the real engine of the booted app (`runShippedHook` —
+  // the handle runs hooks in-process and has no door for this one).
   it('invalid_value — account_protection rejects a malformed website', async () => {
     const err = await refusalFrom(accountGuard, {
       event: 'beforeInsert',
       input: { name: 'Acme', website: 'ftp://nope.example.com' },
     });
-    expectEnvelope(err, 'invalid_value', 'account_protection', /must start with http/, /必须以 http/);
+    expectEnvelope(err, 'invalid_value', 'account_protection', /must start with http/);
   });
 
   it('duplicate — contact_integrity rejects a repeated email in one organization', async () => {
     const err = await refusalFrom(contactGuard, {
       event: 'beforeInsert',
-      input: { email: 'dup@acme.example.com', organization_id: 'org_1' },
-      user: { id: 'usr_1', organizationId: 'org_1' },
-      engine: makeSandboxEngine({
-        crm_contact: [{ id: 'con_existing', organization_id: 'org_1', email: 'dup@acme.example.com' }],
-      }),
+      input: { email: 'dup@acme.example.com' },
+      as: rep.token,
     });
-    expectEnvelope(err, 'duplicate', 'contact_integrity', /already exists/, /已被另一个联系人占用/);
+    expectEnvelope(err, 'duplicate', 'contact_integrity', /already exists/);
   });
 
   it('locked — opportunity_lifecycle freezes a closed deal', async () => {
     const err = await refusalFrom(oppGuard, {
       event: 'beforeUpdate',
-      input: { id: 'opp_1', amount: 999 },
-      previous: { id: 'opp_1', name: 'Big Deal', stage: 'closed_won', amount: 100 },
-      user: { id: 'usr_1' },
+      input: { id: row.opportunity, amount: 999 },
+      previous: { id: row.opportunity, name: 'Big Deal', stage: 'closed_won', amount: 100 },
+      as: rep.token,
     });
-    expectEnvelope(err, 'locked', 'opportunity_lifecycle', /is closed \(closed_won\)/, /已关闭（closed_won）/);
+    expectEnvelope(err, 'locked', 'opportunity_lifecycle', /is closed \(closed_won\)/, /is closed \(Closed Won\); only its Description and Next Steps can still be edited\.$/);
+  });
+
+  it('locked — opportunity_lifecycle refuses a large close-won its approval has not granted (#2350)', async () => {
+    const err = await refusalFrom(oppGuard, {
+      event: 'beforeUpdate',
+      input: { id: row.opportunity, stage: 'closed_won', amount: 150000 },
+      previous: { id: row.opportunity, name: 'Big Deal', stage: 'proposal', amount: 100, approval_status: 'not_required' },
+      as: rep.token,
+    });
+    expectEnvelope(
+      err, 'locked', 'opportunity_lifecycle',
+      /moves to closed_won only once approval_status is approved; amount is 150000, approval_status is not_required\.$/,
+      /^A deal of 100,000 or more needs Large Deal Approval before it can be Closed Won, and its Approval Status is Not Required\. Save the deal without closing it to send it for approval;/,
+    );
+  });
+
+  it('locked — lead_automation freezes a converted lead', async () => {
+    const err = await refusalFrom(leadGuard, {
+      event: 'beforeUpdate',
+      input: { id: row.convertedLead, company: 'Globex' },
+      previous: { id: row.convertedLead, first_name: 'Ada', last_name: 'Lovelace', company: 'Acme', is_converted: true },
+      as: rep.token,
+    });
+    expectEnvelope(err, 'locked', 'lead_automation', /\(attempted: company\)/, /^Cannot change Company on converted lead LovelaceAda - Acme;/);
+  });
+
+  it('locked — opportunity_line_item_freeze freezes the lines of a closed deal', async () => {
+    const err = await refusalFrom(lineGuard, {
+      event: 'beforeInsert',
+      input: { crm_opportunity: row.closedDeal, crm_product: row.product, quantity: 1, unit_price: 10 },
+      as: rep.token,
+    });
+    expectEnvelope(err, 'locked', 'opportunity_line_item_freeze', /is closed \(closed_won\)/, /is closed \(Closed Won\), so its line items/);
+  });
+
+  it('locked — quote_workflow freezes the lines of a settled quote', async () => {
+    const err = await refusalFrom(quoteGuard, {
+      event: 'beforeInsert',
+      object: 'crm_quote_line_item',
+      input: { crm_quote: row.expiredQuote, crm_product: row.product, quantity: 1, unit_price: 10 },
+      as: rep.token,
+    });
+    expectEnvelope(err, 'locked', 'quote_workflow', /Quote Envelope Quote is expired, so its line items/, /Quote Envelope Quote is Expired, so its line items/);
   });
 
   it('delete_restricted — product_catalog holds a referenced product', async () => {
     const err = await refusalFrom(productGuard, {
       event: 'beforeDelete',
       input: {},
-      previous: { id: 'prod_1', name: 'Widget' },
-      engine: makeSandboxEngine({
-        crm_opportunity_line_item: [{ id: 'oli_1', crm_product: 'prod_1' }],
-      }),
+      previous: { id: row.product, name: 'Widget' },
+      // The catalog is an administrator's to curate.
+      as: admin,
     });
-    expectEnvelope(err, 'delete_restricted', 'product_catalog', /Cannot delete product/, /该产品已被 .*引用，无法删除/);
+    expectEnvelope(err, 'delete_restricted', 'product_catalog', /Cannot delete product/);
   });
 
   it('prohibited — task_do_not_call_guard refuses a call on a flagged lead', async () => {
     const err = await refusalFrom(taskGuard, {
       event: 'beforeInsert',
-      input: { type: 'call', status: 'not_started', related_to_lead: 'lead_dnc' },
-      engine: makeSandboxEngine({
-        crm_lead: [{ id: 'lead_dnc', do_not_call: true }],
-      }),
+      input: { type: 'call', status: 'not_started', related_to_lead: row.lead },
+      // The rep scheduling the call: the body reads the lead as its caller.
+      as: rep.token,
     });
-    expectEnvelope(err, 'prohibited', 'task_do_not_call_guard', /flagged Do Not Call/, /已标记「禁止致电」/);
+    expectEnvelope(err, 'prohibited', 'task_do_not_call_guard', /flagged Do Not Call/);
   });
 });
 
 // ─────────────────────────────────────── the in-process path, same envelope ──
 
 /**
- * The SAME five classes through the handler closure rather than the sandbox.
+ * The SAME classes on the in-process path — a real write through the engine's
+ * write door, as the person making it.
  *
  * Not redundant with the block above, for two reasons that pull in opposite
  * directions. The shipped path is what users get, so it is where the envelope
  * has to be true — but it runs inside QuickJS, where the source is a string and
  * v8 coverage cannot see it, so a guard tested only there reads as dead code.
  * The in-process path is the one #1075's original observation was taken on, and
- * it is the path every other runtime test in this repo drives.
+ * it is the path every other runtime test in this repo drives — through
+ * `@objectstack/verify`'s `hooks.run`, which rethrows the engine's error
+ * unchanged.
  *
  * The two differ in ways worth pinning side by side: in-process the error is a
  * plain `Error` with the message unrewritten, so `innerMessage` does not exist
@@ -365,7 +431,7 @@ const expectInProcess = (
   err: unknown,
   cls: keyof typeof REFUSAL_CODES,
   wording: RegExp,
-  userWording: RegExp,
+  userWording?: RegExp,
 ): void => {
   expect(err, `expected a refusal matching ${wording}`).toBeInstanceOf(Error);
   const e = err as AnyRec;
@@ -373,17 +439,22 @@ const expectInProcess = (
   expect(e.message).toMatch(wording);
   expect(e.innerMessage, 'only the sandbox adds innerMessage').toBeUndefined();
   expect([e.code, e.status]).toEqual([REFUSAL_CODES[cls].code, REFUSAL_CODES[cls].status]);
-  // The sentence is written by `refuse()`, so the SAME pair of languages
-  // arrives on both paths — here `message` is unrewritten, so the English half
-  // is `message` itself rather than `innerMessage`.
-  expect(String(e.userMessage), 'refuse() carries the user sentence on both paths').toMatch(
-    userWording,
-  );
-  expect(String(e.userMessage)).not.toBe(e.message);
+  // The mark is written by `refuse()`, so it is identical on both paths — here
+  // `message` is unrewritten, so the two are the same string, unless the site
+  // passed its own user sentence (see `expectEnvelope`).
+  if (userWording) {
+    expect(String(e.userMessage)).toMatch(userWording);
+    expect(e.userMessage).not.toBe(e.message);
+    return;
+  }
+  expect(e.userMessage, 'refuse() marks the sentence on both paths').toBe(e.message);
 };
 
-const inProcess = async (hook: AnyRec, opts: AnyRec): Promise<unknown> =>
-  hook.handler(makeCtx(opts as never)).then(
+/** A real write as `as`; returns what the engine refused it with, or null. */
+const inProcess = async (
+  object: string, op: 'insert' | 'update' | 'delete', doc: AnyRec, as: string = rep.token,
+): Promise<unknown> =>
+  verify.hooks.run(object, op, doc, { as }).then(
     () => null,
     (e: unknown) => e,
   );
@@ -391,84 +462,107 @@ const inProcess = async (hook: AnyRec, opts: AnyRec): Promise<unknown> =>
 describe('the same envelope on the in-process path (#1075)', () => {
   it('invalid_value — account_protection', async () => {
     expectInProcess(
-      await inProcess(accountGuard, {
-        event: 'beforeInsert',
-        input: { name: 'Acme', website: 'ftp://nope.example.com' },
-      }),
+      await inProcess('crm_account', 'insert', { name: 'Acme', website: 'ftp://nope.example.com' }),
       'invalid_value',
       /must start with http/,
-      /必须以 http/,
     );
   });
 
   it('duplicate — contact_integrity', async () => {
     expectInProcess(
-      await inProcess(contactGuard, {
-        event: 'beforeInsert',
-        input: { email: 'dup@acme.example.com', organization_id: 'org_1' },
-        user: { id: 'usr_1', organizationId: 'org_1' },
-        api: makeHarness({
-          crm_contact: [{ id: 'con_existing', organization_id: 'org_1', email: 'dup@acme.example.com' }],
-        }).api,
+      await inProcess('crm_contact', 'insert', {
+        first_name: 'Dup', last_name: 'Licate', email: 'dup@acme.example.com', crm_account: row.account,
       }),
       'duplicate',
       /already exists/,
-      /已被另一个联系人占用/,
     );
   });
 
   it('locked — opportunity_lifecycle', async () => {
+    const opp = await verify.hooks.run('crm_opportunity', 'insert', {
+      name: `Closed Deal ${++k}`, crm_account: row.account, stage: 'proposal', amount: 100, close_date: today(),
+    }, { as: rep.token });
+    await verify.hooks.run('crm_opportunity', 'update', { id: opp.id, stage: 'closed_won', win_reason: 'better_price' }, { as: rep.token });
     expectInProcess(
-      await inProcess(oppGuard, {
-        event: 'beforeUpdate',
-        input: { id: 'opp_1', amount: 999 },
-        previous: { id: 'opp_1', name: 'Big Deal', stage: 'closed_won', amount: 100 },
-        user: { id: 'usr_1' },
+      await inProcess('crm_opportunity', 'update', { id: opp.id, amount: 999 }),
+      'locked',
+      /is closed \(closed_won\)/,
+      /is closed \(Closed Won\); only its Description and Next Steps can still be edited\.$/,
+    );
+  });
+
+  it('locked — the large-deal close-won in opportunity_lifecycle (#2350)', async () => {
+    // Seeded over the line: a seed write fires no record flow, so the deal
+    // stands at `not_required` with no request — a recall's or an import's state.
+    const [opp] = await verify.seed('crm_opportunity', [{
+      name: `Large Deal ${++k}`, crm_account: row.account, stage: 'proposal', amount: 150000, close_date: today(), owner_id: rep.id,
+    }]);
+    expectInProcess(
+      await inProcess('crm_opportunity', 'update', { id: opp!.id, stage: 'closed_won', win_reason: 'better_price' }),
+      'locked',
+      /approval_status is not_required\.$/,
+      /and its Approval Status is Not Required\. Save the deal without closing it to send it for approval;/,
+    );
+  });
+
+  it('locked — the converted-lead lock in lead_automation', async () => {
+    expectInProcess(
+      await inProcess('crm_lead', 'update', { id: row.convertedLead, company: 'Globex' }),
+      'locked',
+      /\(attempted: company\)/,
+      /^Cannot change Company on converted lead LovelaceAda - Acme;/,
+    );
+  });
+
+  it('locked — opportunity_line_item_freeze', async () => {
+    expectInProcess(
+      await inProcess('crm_opportunity_line_item', 'insert', {
+        crm_opportunity: row.closedDeal, crm_product: row.product, quantity: 1, unit_price: 10,
       }),
       'locked',
       /is closed \(closed_won\)/,
-      /已关闭（closed_won）/,
+      /is closed \(Closed Won\), so its line items/,
+    );
+  });
+
+  it('locked — the settled-quote line freeze in quote_workflow', async () => {
+    expectInProcess(
+      await inProcess('crm_quote_line_item', 'insert', {
+        crm_quote: row.expiredQuote, crm_product: row.product, quantity: 1, unit_price: 10,
+      }),
+      'locked',
+      /Quote Envelope Quote is expired, so its line items/,
+      /Quote Envelope Quote is Expired, so its line items/,
     );
   });
 
   it('delete_restricted — product_catalog', async () => {
+    // The catalog is an administrator's to curate.
     expectInProcess(
-      await inProcess(productGuard, {
-        event: 'beforeDelete',
-        previous: { id: 'prod_1', name: 'Widget' },
-        api: makeHarness({
-          crm_opportunity_line_item: [{ id: 'oli_1', crm_product: 'prod_1' }],
-        }).api,
-      }),
+      await inProcess('crm_product', 'delete', { id: row.product }, admin),
       'delete_restricted',
       /Cannot delete product/,
-      /该产品已被 .*引用，无法删除/,
     );
   });
 
   it('prohibited — task_do_not_call_guard', async () => {
     expectInProcess(
-      await inProcess(taskGuard, {
-        event: 'beforeInsert',
-        input: { type: 'call', status: 'not_started', related_to_lead: 'lead_dnc' },
-        api: makeHarness({ crm_lead: [{ id: 'lead_dnc', do_not_call: true }] }).api,
+      await inProcess('crm_task', 'insert', {
+        subject: 'Call Dee', type: 'call', status: 'not_started', related_to_lead: row.lead,
       }),
       'prohibited',
       /flagged Do Not Call/,
-      /已标记「禁止致电」/,
     );
   });
 
   it('prohibited — event_do_not_call_guard, the twin guard on the other object', async () => {
     expectInProcess(
-      await inProcess(hookNamed(eventHooks, 'event_do_not_call_guard'), {
-        event: 'beforeInsert',
-        input: { type: 'call', status: 'planned', related_to_lead: 'lead_dnc' },
-        api: makeHarness({ crm_lead: [{ id: 'lead_dnc', do_not_call: true }] }).api,
+      await inProcess('crm_event', 'insert', {
+        subject: 'Call Dee', type: 'call', status: 'planned', related_to_lead: row.lead,
+        start_datetime: '2030-03-01T09:00:00.000Z',
       }),
       'prohibited',
       /flagged Do Not Call/,
-      /已标记「禁止致电」/,
     );
   });
 });

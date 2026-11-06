@@ -3,9 +3,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 import { REPO_ROOT } from './helpers/repo-root';
-import { HIGH_VALUE_DEAL_AMOUNT, LARGE_DEAL_AMOUNT } from '../src/objects/_thresholds';
+import { HIGH_VALUE_DEAL_AMOUNT, LARGE_DEAL_AMOUNT } from '../src/sales/objects/_thresholds';
 
 /**
  * ═══ HOUSE RULE: there is exactly ONE definition of a "large deal" ═════════
@@ -17,7 +17,7 @@ import { HIGH_VALUE_DEAL_AMOUNT, LARGE_DEAL_AMOUNT } from '../src/objects/_thres
  * deployment that raised the bar in one place shipped a product where a deal is
  * large enough for the director to SEE and not large enough to APPROVE.
  *
- * `src/objects/_thresholds.ts` is now the only place the numbers are written,
+ * `src/sales/objects/_thresholds.ts` is now the only place the numbers are written,
  * and every consumer interpolates it. That is a claim about the repo, not about
  * a function, and it is exactly the kind of claim that decays quietly: each
  * consumer keeps working when it falls out of step, it just stops answering the
@@ -182,9 +182,9 @@ describe('one definition of "large deal"', () => {
     // interpolation both spellings compile to the same CEL, so the compiled
     // form cannot tell a constant from a literal.
     const files = [
-      'src/flows/opportunity-approval.flow.ts',
-      'src/flows/opportunity-won-alert.flow.ts',
-      'src/sharing/opportunity.sharing.ts',
+      'src/sales/flows/opportunity-approval.flow.ts',
+      'src/sales/flows/opportunity-won-alert.flow.ts',
+      'src/sales/sharing/opportunity.sharing.ts',
     ];
     const offenders: string[] = [];
     for (const rel of files) {
@@ -354,16 +354,35 @@ describe('nothing else in the app re-states a large-deal amount', () => {
    */
   const ALLOWED = new Set([
     // The one authoring site.
-    'src/objects/_thresholds.ts',
+    'src/sales/objects/_thresholds.ts',
     // Seeded forecast quotas and closed-period actuals: money, not thresholds.
     // A rep's $500,000 quarterly quota has nothing to do with when a deal needs
     // a director's signature; converging them would be a false merge.
-    'src/data/revenue.seed.ts',
+    // `crm_forecast` is a sales object, so these rows moved with it out of the
+    // old `src/data/revenue.seed.ts` under the ADR-0130 layout.
+    'src/sales/data/forecast.seed.ts',
     // The Chinese PSA demo: a Bizcase procurement line, a budget adjustment
     // and a licence price. Money in CNY on project records, not a deal gate.
-    'src/data/psa.seed.ts',
-    'src/data/psa-industry.seed.ts',
+    'src/sales/data/psa.seed.ts',
+    'src/sales/data/psa-industry.seed.ts',
+    'src/revenue/data/psa-industry.seed.ts',
   ]);
+
+  /**
+   * Hook bodies that DO mean the large-deal line and cannot import it (#2334).
+   * A hook handler is lowered to a body that runs in QuickJS with no module
+   * scope, so the constant cannot reach it; each of these declares one local
+   * copy, and the case below holds that copy to the constant and to the
+   * inclusive cut. Exempt from the sweep only because they are pinned here.
+   */
+  const HOOK_COPIES: Record<string, string> = {
+    // `opportunity_lifecycle`: at or over the line, no close-won unless the
+    // Large Deal Approval is approved (#2334, #2350).
+    'src/sales/objects/opportunity.hook.ts': 'the close-won refusal',
+    // `quote_workflow`: refuses the acceptance that close-won would follow,
+    // in the same states.
+    'src/revenue/objects/quote.hook.ts': 'the acceptance mirror of that refusal',
+  };
 
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -376,7 +395,7 @@ describe('nothing else in the app re-states a large-deal amount', () => {
     const hits: string[] = [];
     for (const file of walk(join(REPO_ROOT, 'src'))) {
       const rel = relative(REPO_ROOT, file);
-      if (ALLOWED.has(rel)) continue;
+      if (ALLOWED.has(rel) || rel in HOOK_COPIES) continue;
       const text = stripComments(readFileSync(file, 'utf8'));
       for (const value of VALUES) {
         // Word-bounded so 1_100_000 / 2_500_000 are not read as 100000.
@@ -387,15 +406,24 @@ describe('nothing else in the app re-states a large-deal amount', () => {
     }
     expect(
       hits,
-      'these files restate a threshold that `src/objects/_thresholds.ts` owns. Import the ' +
+      'these files restate a threshold that `src/sales/objects/_thresholds.ts` owns. Import the ' +
         'constant, or — if the number genuinely means something else here — add the file to ' +
         'ALLOWED with the reason:\n  ' +
         hits.join('\n  '),
     ).toEqual([]);
   });
 
+  it.each(Object.entries(HOOK_COPIES))('%s carries exactly one copy of the line (%s), equal to it and cut inclusively', (rel) => {
+    const text = stripComments(readFileSync(join(REPO_ROOT, rel), 'utf8'));
+    expect(text.match(/const LARGE_DEAL_AMOUNT = [\d_]+;/g), `${rel} must declare the line once`).toEqual([
+      `const LARGE_DEAL_AMOUNT = ${LARGE_DEAL_AMOUNT};`,
+    ]);
+    expect(text, `${rel} must compare at >= the line (#1087)`).toMatch(/>= LARGE_DEAL_AMOUNT\b/);
+    expect(text, `${rel} compares against the line with another operator`).not.toMatch(/(?:[^>]>|<=?) LARGE_DEAL_AMOUNT\b/);
+  });
+
   it('the sweep can actually see the constants module — anti-vacuity', () => {
-    const text = readFileSync(join(REPO_ROOT, 'src/objects/_thresholds.ts'), 'utf8');
+    const text = readFileSync(join(REPO_ROOT, 'src/sales/objects/_thresholds.ts'), 'utf8');
     expect(text).toMatch(/LARGE_DEAL_AMOUNT = 100_000/);
     expect(text).toMatch(/HIGH_VALUE_DEAL_AMOUNT = 500_000/);
   });

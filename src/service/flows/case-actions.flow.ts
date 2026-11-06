@@ -1,0 +1,240 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { cel } from '@objectstack/spec';
+import type * as Automation from '@objectstack/spec/automation';
+type Flow = Automation.Flow;
+
+/**
+ * Screen flows behind the Escalate Case / Close Case header actions.
+ *
+ * There is no Claim Case flow: taking a case out of Support Intake is the
+ * console's own **Claim** on a record that sits in the queue (ADR-0142 D4,
+ * hotcrm#2395), which writes the owner only.
+ *
+ * ⛔ Never re-express these as `body`-typed actions (verified against the
+ * running 16.1.0 console, 2026-07-28):
+ *
+ *  - `type: 'modal'` never executes the body at all — on submit the console
+ *    resolves the action `target` as an OBJECT name and dies on
+ *    `GET /api/v1/meta/object/<target>` → 400 ("Error loading form").
+ *  - `type: 'script'` DOES reach `POST /api/v1/actions/...`, but a body that
+ *    UPDATES a record on an object with sharing rules is rejected by the
+ *    sharing middleware ("FORBIDDEN: insufficient privileges to update
+ *    crm_case …") — the sandbox execution context does not carry the caller
+ *    identity, so `canEdit` fails even for the record owner. Inserts are
+ *    unaffected (clone_opportunity works), updates are not.
+ *  - Screen flows execute through the automation service, whose
+ *    `update_record` nodes demonstrably write `crm_case` (the
+ *    case_escalation record-change flow does exactly that in production).
+ *
+ * Same mechanism as `schedule_followup` / `lead_conversion`.
+ */
+export const EscalateCaseFlow: Flow = {
+  name: 'escalate_case',
+  label: 'Escalate Case',
+  description: 'Collect an escalation reason, then flag and re-prioritise the case.',
+  type: 'screen',
+  status: 'active',
+
+  variables: [
+    // MUST be `recordId` — the console's flow-action contract seeds only that
+    // name (and its camelCase object alias); a custom name arrives undefined.
+    { name: 'recordId', type: 'text', isInput: true, isOutput: false },
+    { name: 'reason', type: 'text', isInput: true, isOutput: false },
+  ],
+
+  nodes: [
+    { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_case' } },
+    {
+      id: 'screen_1', type: 'screen', label: 'Escalate Case',
+      config: {
+        fields: [
+          { name: 'reason', label: 'Escalation Reason', type: 'textarea', required: true },
+        ],
+      },
+    },
+    {
+      // The USER-CONTEXT half of the escalation. Everything here is a
+      // column the acting agent may legitimately write, so it is written with
+      // their identity — this flow stays `runAs: 'user'`.
+      //
+      //   escalation_reason  the agent's own screen input
+      //   priority           an ordinary editable field
+      //   status             ordinary, and the hook trigger (below)
+      //
+      // The two stamps a person never types — `is_escalated` and
+      // `escalated_date` — are `readonly: true` on `crm_case` and are written
+      // by the `case_escalation_stamp` subflow that follows, with the system
+      // context. See `src/service/flows/case-escalation-stamp.flow.ts`.
+      //
+      // ⚠️ `status: 'escalated'` MUST stay in this node, and not only because
+      // it is user-writable: it is the trigger both escalation hooks key off —
+      // `case_escalation_reassign` (`_case-assignment.ts`) gates on
+      // `input.status !== 'escalated' || previous.status === 'escalated'`, and
+      // `case_status_side_effects` (`case.hook.ts`) reads the same transition.
+      // Keeping it here keeps the ownership hand-off and the side-effect tasks
+      // firing from the ACTING USER's write, exactly as they did before the
+      // split. Moving it into the elevated subflow would silently re-attribute
+      // both to the system.
+      //
+      // It is also what suppresses a double-fire of the automatic
+      // `case_escalation` record-change flow.
+      id: 'escalate', type: 'update_record', label: 'Escalate Case',
+      config: {
+        objectName: 'crm_case',
+        filter: { id: cel`recordId` },
+        fields: {
+          escalation_reason: cel`reason`,
+          status: 'escalated',
+          priority: 'critical',
+        },
+      },
+    },
+    {
+      // The ELEVATED half, and the only elevation in this flow: one
+      // `runAs: 'system'` flow, one `update_record`, two readonly columns.
+      // The maintainer-approved direction — elevate the write, not the flow.
+      //
+      // ⚠️ THIS NODE MUST RUN AFTER `escalate`, NOT BEFORE. `crm_case`'s
+      // `escalation_reason_required` validation rejects any write whose merged
+      // record has `is_escalated == true` and a blank `escalation_reason`. The
+      // reason is written by the node above, so by the time the flag flips it
+      // is already stored. Reversing these two nodes fires that validation
+      // against a record with no reason yet and the stamp is rejected.
+      //
+      // ⛔ Do not "simplify" this by giving THIS flow `runAs: 'system'` and
+      // folding the stamp back into the node above. That is option A, costed
+      // and explicitly not adopted: it elevates every write this screen flow
+      // makes and stops it carrying the acting user's context downstream.
+      // `AGENTS.md` house rule 9 states it as standing policy.
+      id: 'stamp_escalation', type: 'subflow', label: 'Stamp Escalation Flags',
+      config: {
+        flowName: 'case_escalation_stamp',
+        input: { recordId: cel`recordId` },
+      },
+    },
+    { id: 'end', type: 'end', label: 'End' },
+  ],
+
+  edges: [
+    { id: 'e1', source: 'start', target: 'screen_1', type: 'default' },
+    { id: 'e2', source: 'screen_1', target: 'escalate', type: 'default' },
+    { id: 'e3', source: 'escalate', target: 'stamp_escalation', type: 'default' },
+    { id: 'e4', source: 'stamp_escalation', target: 'end', type: 'default' },
+  ],
+};
+
+export const CloseCaseFlow: Flow = {
+  name: 'close_case',
+  label: 'Close Case',
+  description: 'Collect the resolution, then close the case and stop the SLA clock.',
+  type: 'screen',
+  status: 'active',
+  // Runs as the person who starts it (`AGENTS.md` house rule 9), so the engine
+  // applies that person's own grants to the `close` write below: Close Case
+  // changes a case only for a caller who may edit it, and a caller who may
+  // not is refused at `close` with nothing written.
+  //
+  // ⭐ No elevated step, because no column of the close needs one — measured
+  // on the verify boot, not assumed. The caller writes `status`, `resolution`
+  // and `resolved_by_article`, none of them readonly. Everything readonly that
+  // a close changes — `is_closed`, `closed_date`, `resolution_time_hours` — and
+  // the SLA breach flag are DERIVED by `case_sla_defaults`
+  // (`src/service/objects/case.hook.ts`) on that same write, from `status`.
+  // A key a hook writes onto its own record is not a caller-supplied key, so
+  // the platform's readonly strip leaves it: the caller's own close lands the
+  // same end state the record has always had. The afterUpdate hooks that
+  // follow a close (`case_close_escalation_task`, which completes the
+  // escalation follow-up task and so moves the account's last activity date)
+  // key off the same `status` transition and declare their own elevation.
+  // `test/close-case-caller-may-edit.test.ts` holds both halves.
+  //
+  // ⛔ Do not give this flow `runAs: 'system'`: the caller's own grants are
+  // what decide the close. ⛔ Do not add a hand-written permission check
+  // either; the engine's own gate on a user-context write IS the check. If a
+  // column the close must write ever becomes one the caller may not write, it
+  // goes into a dedicated `runAs: 'system'` sub-flow reached by a `subflow`
+  // node AFTER `close` succeeds — the `escalate_case` /
+  // `case_escalation_stamp` shape above.
+  runAs: 'user',
+
+  variables: [
+    { name: 'recordId', type: 'text', isInput: true, isOutput: false },
+    { name: 'resolution', type: 'text', isInput: true, isOutput: false },
+    { name: 'resolved_by_article', type: 'text', isInput: true, isOutput: false },
+  ],
+
+  nodes: [
+    { id: 'start', type: 'start', label: 'Start', config: { objectName: 'crm_case' } },
+    {
+      // The "attach the article that resolved it" affordance. Optional
+      // on purpose: most cases are not resolved out of the knowledge base, and
+      // a required field here would be answered with a junk value rather than
+      // left honest — which is worse than an absent link for a measure whose
+      // whole job is to say how OFTEN the KB resolves a case.
+      //
+      // `reference` names the object the picker offers. Up to
+      // `@objectstack/spec@17.4.0` a screen field had no such key, so this
+      // `type: 'lookup'` field had nothing to resolve a record picker from;
+      // 17.5.0 added `reference` to `ScreenFieldConfigSchema` and made it
+      // REQUIRED on a lookup screen field (#17913) — the stack does not load
+      // without it. It is the same target the case's own `resolved_by_article`
+      // lookup declares (`crm_knowledge_article`).
+      //
+      // The `Resolved by Article` lookup in the case's Resolution group, on the
+      // record form, writes the same column; the action is
+      // `refreshAfter: true`, so the record form is what the agent lands on
+      // immediately after closing.
+      id: 'screen_1', type: 'screen', label: 'Close Case',
+      config: {
+        fields: [
+          { name: 'resolution', label: 'Resolution', type: 'textarea', required: true },
+          {
+            name: 'resolved_by_article',
+            label: 'Resolved by Article (optional)',
+            type: 'lookup',
+            reference: 'crm_knowledge_article',
+            required: false,
+          },
+        ],
+      },
+    },
+    {
+      // `resolved_by_article` is written unconditionally, and a blank one is
+      // normalised to NULL by `case_resolution_article_normalize`
+      // (`src/service/objects/case.hook.ts`) rather than branched around here: MEASURED
+      // on the real engine, a screen field left empty resumes as `''` and lands
+      // as an empty string, which `count(resolved_by_article)` counts. A
+      // `decision` node could not have branched it either — this repo has
+      // measured `decision.config.condition` to be inert metadata
+      // (`test/win-loss-capture.test.ts`'s table of five such surfaces).
+      //
+      // The read is guarded because the field is optional: a resume that omits
+      // it leaves the variable unbound, which the 17.x template wrote as nothing
+      // (the stored link left alone) and CEL refuses. The guard writes NULL
+      // there — the value a blank field already lands as after the normalize
+      // hook — so an omitted answer and an empty one now close the case alike.
+      //
+      // ⛔ No `is_closed` here. It is readonly and derived from `status` by
+      // `case_sla_defaults` on every write (see the note on `runAs` above);
+      // this node writes only columns its caller may write.
+      id: 'close', type: 'update_record', label: 'Close Case',
+      config: {
+        objectName: 'crm_case',
+        filter: { id: cel`recordId` },
+        fields: {
+          resolution: cel`resolution`,
+          status: 'closed',
+          resolved_by_article: cel`has(vars.resolved_by_article) ? resolved_by_article : null`,
+        },
+      },
+    },
+    { id: 'end', type: 'end', label: 'End' },
+  ],
+
+  edges: [
+    { id: 'e1', source: 'start', target: 'screen_1', type: 'default' },
+    { id: 'e2', source: 'screen_1', target: 'close', type: 'default' },
+    { id: 'e3', source: 'close', target: 'end', type: 'default' },
+  ],
+};

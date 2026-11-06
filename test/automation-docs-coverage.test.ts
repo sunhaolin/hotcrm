@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 
 /**
  * The automation docs page lists every flow the app ships, in every locale (#827).
@@ -20,7 +20,7 @@ import stack from '../objectstack.config';
  *   - **Half the rows were missing.** The header said `(11)` on the English page
  *     and `(10 个)` / `(10 個)` on the two Chinese ones, while the compiled stack
  *     shipped 24 flows. Contract auto-expiration was among the missing — and
- *     `content/docs/revenue/contracts.mdx` sends admins to this very table to
+ *     `content/docs/sales/contracts.mdx` sends admins to this very table to
  *     find it (#823/#805).
  *   - **A row's TRIGGER was wrong.** `campaign_enrollment` was a Monday-9-AM
  *     schedule flow until it was rewritten as a screen flow (a cron seeds no
@@ -78,14 +78,6 @@ import stack from '../objectstack.config';
  * means — "flows this app ships" or "flows that run" — which is the right moment
  * to make that decision, and better than a filter written now on a guess about
  * which answer a future reader wants.
- *
- * `demo_bootstrap` IS in the table for the same reason, and it is not a close
- * call: that flow ships in the artifact and runs in a customer's org every ten
- * minutes, writing `owner_id` (its own header says so, and
- * `test/demo-staffing.test.ts` polices what it may write). An admin who sees
- * ownership change on a ten-minute beat needs a row to find. The page labels it
- * scaffolding rather than business automation in the prose under the table,
- * which is the honest way to say both things at once.
  *
  * ## Reverse verification (four directions, each predicted before it was run)
  *
@@ -208,7 +200,16 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   // The flow itself carries no locale-pack entry, so this ledger is where the
   // page's spelling is pinned — it moves with the three pages, not after them.
   lead_conversion: { 'zh-Hans': '线索转化流程', 'zh-Hant': '線索轉化流程' },
+  // The elevated callee behind Convert Lead's new-account branch (#2016),
+  // 年营收 and 客户 as the zh-CN pack labels the column and the object, and
+  // 子流程 in the type column like the other callees.
+  lead_conversion_account_revenue: { 'zh-Hans': '将线索年营收写入新客户', 'zh-Hant': '將線索年營收寫入新客戶' },
+  account_approval: { 'zh-Hans': '客户审批', 'zh-Hant': '客戶審批' },
+  lead_conversion_approval: { 'zh-Hans': '线索转化审批', 'zh-Hant': '線索轉化審批' },
   quote_generation: { 'zh-Hans': '由商机生成报价', 'zh-Hant': '由商機產生報價' },
+  // The zh-CN pack's flow label (#2318); 新增 in zh-Hant, the Traditional
+  // pages' word for adding a record.
+  price_book_add_products: { 'zh-Hans': '向价格表添加产品', 'zh-Hant': '向價格表新增產品' },
   schedule_followup: { 'zh-Hans': '安排跟进', 'zh-Hant': '安排跟進' },
   // 营销活动, not 活动: 「活动」 is the locale pack's label for `crm_event`, and this
   // page's own table sits one section from the campaign rows. Naming the master
@@ -226,10 +227,6 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   // 升级工单 / 关闭工单 (`crm_case._actions`), and the pack's own object label
   // is 工单 since #837. These rows spelled it 案例 until then — the page and
   // the pack contradicting each other, both green.
-  // 认领/認領, not 领取/接手: the locale packs label the action 认领工单
-  // (`crm_case._actions.claim_case`), and this page's row follows the pack the
-  // same way the two rows below it do (#837).
-  claim_case: { 'zh-Hans': '认领工单', 'zh-Hant': '認領工單' },
   escalate_case: { 'zh-Hans': '升级工单', 'zh-Hant': '升級工單' },
   case_escalation_stamp: { 'zh-Hans': '标记工单升级', 'zh-Hant': '標記工單升級' },
   close_case: { 'zh-Hans': '关闭工单', 'zh-Hant': '關閉工單' },
@@ -241,6 +238,12 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
     'zh-Hans': '大额商机审批（新建时）',
     'zh-Hant': '大額商機審批（新建時）',
   },
+  // REQ-0006: 状态变更, the wording of the field that arms it
+  // (`status_change_approval_status`, 状态变更审批 in the zh-CN pack).
+  opportunity_status_change_approval: { 'zh-Hans': '商机状态变更审批', 'zh-Hant': '商機狀態變更審批' },
+  // REQ-0006 step 11: 立项, the wording of the field that arms it
+  // (`qualification_approval_status`, 立项审批 in the zh-CN pack).
+  opportunity_qualification_approval: { 'zh-Hans': '商机立项审批', 'zh-Hant': '商機立項審批' },
   opportunity_won_alert: { 'zh-Hans': '大额商机赢单提醒', 'zh-Hant': '大額商機贏單提醒' },
   case_escalation: { 'zh-Hans': '工单升级流程', 'zh-Hant': '工單升級流程' },
   case_escalation_on_create: {
@@ -249,13 +252,13 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   },
   contract_expiration: { 'zh-Hans': '合同自动到期', 'zh-Hant': '合約自動到期' },
   quote_expiration: { 'zh-Hans': '报价自动过期', 'zh-Hant': '報價自動過期' },
+  contract_drafted_notice: { 'zh-Hans': '合同起草通知', 'zh-Hant': '合約起草通知' },
   campaign_completion: { 'zh-Hans': '营销活动自动完成', 'zh-Hant': '行銷活動自動完成' },
   forecast_snapshot: { 'zh-Hans': '预测快照', 'zh-Hant': '預測快照' },
   opportunity_stagnation: { 'zh-Hans': '停滞商机提醒', 'zh-Hant': '停滯商機提醒' },
   contract_renewal: { 'zh-Hans': '合同续约提醒', 'zh-Hant': '合約續約提醒' },
   case_sla_monitor: { 'zh-Hans': '工单 SLA 监控', 'zh-Hant': '工單 SLA 監控' },
   task_due_reminder: { 'zh-Hans': '任务到期提醒', 'zh-Hant': '任務到期提醒' },
-  demo_bootstrap: { 'zh-Hans': '演示数据引导', 'zh-Hant': '展示資料啟動' },
   // 计费/計費, not 账单/帳單: the pages call the outbound target 「计费端点」 and the
   // boundary page is 「计费交接」, so the flow labels follow that one word (#600).
   billing_handoff_closed_won: { 'zh-Hans': '计费交接：赢单', 'zh-Hant': '計費交接：贏單' },
@@ -266,9 +269,8 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   // Demo (epic #2): the nine one-step approval flows, labelled in Chinese at
   // source. The zh-Hans row is the flow's own label; zh-Hant is its
   // Traditional form.
-  account_approval: { 'zh-Hans': '客户审批', 'zh-Hant': '客戶審批' },
   lead_approval: { 'zh-Hans': '线索审批', 'zh-Hant': '線索審批' },
-  opportunity_initiation: { 'zh-Hans': '商机立项审批', 'zh-Hant': '商機立項審批' },
+  opportunity_initiation: { 'zh-Hans': '商机立项审批（演示）', 'zh-Hant': '商機立項審批（演示）' },
   presales_project_approval: { 'zh-Hans': '售前立项审批', 'zh-Hant': '售前立項審批' },
   delivery_project_approval: { 'zh-Hans': '交付立项审批', 'zh-Hant': '交付立項審批' },
   timesheet_approval: { 'zh-Hans': '工时审批', 'zh-Hant': '工時審批' },
@@ -276,6 +278,8 @@ const ROW_LABEL: Record<string, Record<'zh-Hans' | 'zh-Hant', string>> = {
   cost_plan_approval: { 'zh-Hans': '成本计划审批', 'zh-Hant': '成本計畫審批' },
   business_trip_approval: { 'zh-Hans': '出差审批', 'zh-Hant': '出差審批' },
   leave_request_approval: { 'zh-Hans': '请假审批', 'zh-Hant': '請假審批' },
+  // REQ-0008 phase 1 (#2312): 已提交 is the zh-CN pack's word for `presented`.
+  quote_print_presented: { 'zh-Hans': '报价打印后转为已提交', 'zh-Hant': '報價打印後轉為已提交' },
 };
 
 /** How each page spells the two counts. An unmapped count throws — see the header. */

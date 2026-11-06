@@ -6,6 +6,8 @@ import { DefaultDatasourcePlugin, AppPlugin } from '@objectstack/runtime';
 import { ObjectQLPlugin } from '@objectstack/objectql';
 import { MetadataPlugin } from '@objectstack/metadata';
 import stack from '../objectstack.config';
+import { createIdentityObjectsPlugin } from '@objectstack/plugin-auth';
+import { withoutOwnershipQueues } from './helpers/bare-kernel-stack';
 
 /**
  * A guard's refusal must name the record that is refusing — never the record
@@ -30,7 +32,8 @@ import stack from '../objectstack.config';
  *
  * ### Why the hooks cannot simply say "delete"
  *
- * Each guard has TWO invocation contexts and no way to tell them apart:
+ * Each guard has TWO invocation contexts, and until 18.0.0-next.2 no way to tell
+ * them apart:
  *
  * - `contact_integrity`'s `beforeDelete` runs on a direct contact delete AND as
  *   a cascade child of an account delete (`crm_contact.crm_account` is a
@@ -41,12 +44,17 @@ import stack from '../objectstack.config';
  *   holds the lookup, so deleting the referenced record arrives at the guard as
  *   `{ <field>: null }`.
  *
- * Measured on 17.0.0-rc.2 (pinned by the first test below), the hook context in
- * the cascade case carries no marker at all: the same keys, and a `session`
- * that is the caller's own. So the fix is not to detect the cascade — it is to
- * phrase every refusal from the BLOCKING RELATIONSHIP, which is true in both
- * contexts. The messages name the refusing record, the references that block,
- * and what to do.
+ * Measured on 17.0.0-rc.2, the hook context in the cascade case carried no
+ * marker at all: the same keys, and a `session` that is the caller's own. So
+ * the fix is not to detect the cascade — it is to phrase every refusal from the
+ * BLOCKING RELATIONSHIP, which is true in both contexts. The messages name the
+ * refusing record, the references that block, and what to do.
+ *
+ * Since 18.0.0-next.2 the platform declares one marker: the engine's cascade
+ * child delete carries `ctx.referentialCascadeDelete === true`, and nothing
+ * else tells it apart (objectstack#23221, 584e737). The first test below now
+ * pins that. These guards do not read the key yet, so their messages are
+ * unchanged and still true in both contexts.
  *
  * ⚠️ Superseded in part by #720. The three `beforeUpdate` locks no longer refuse
  * the referential clear at all — they yield to it on the write SHAPE, so those
@@ -98,15 +106,30 @@ const uniq = (): string => `${++seq}`;
 
 beforeAll(async () => {
   kernel = new ObjectKernel({ logger: { level: 'silent' } } as never);
-  await kernel.use(new DefaultDatasourcePlugin({ driver: 'memory', config: {} } as never));
+  // The SQL in-memory driver: `driver-memory` refuses every tenant-scoped call
+  // on 18.0.0-next.0, and a system write here now carries the install's one
+  // organization (below), so this kernel left it (`@objectstack/verify` 34dba5a
+  // names the same move for its own boots).
+  await kernel.use(new DefaultDatasourcePlugin({ driver: 'sqlite-wasm', config: { filename: ':memory:' } } as never));
   await kernel.use(new MetadataPlugin({ watch: false, artifactWatch: false, environmentId: 'proj_693' } as never));
   await kernel.use(new ObjectQLPlugin({ environmentId: 'proj_693' } as never));
+  // 17.7.0 refuses an object name the registry does not hold (objectstack#21545):
+  // register the identity objects `plugin-auth` would, through its own preset
+  // (`createIdentityObjectsPlugin`, objectstack#22074).
+  await kernel.use(createIdentityObjectsPlugin() as never);
   // The app's own metadata is the subject — objects and hooks exactly as
   // `objectstack.config.ts` declares them. Seed data is skipped; each test
   // builds the population it needs.
-  await kernel.use(new AppPlugin(stack as never, undefined as never, { skipSeedData: true } as never));
+  await kernel.use(new AppPlugin(withoutOwnershipQueues(stack) as never, undefined as never, { skipSeedData: true } as never));
   await kernel.bootstrap();
   ql = kernel.getService('objectql');
+  // The install's one organization. Since 18.0.0-next.0 a system write on a
+  // tenant-scoped object takes its organization from the install's ONE
+  // organization and is refused when there is none (ADR-0131 D3/D9,
+  // `SystemWriteOrganizationRequiredError`). Since 18.0.0-next.1
+  // `createIdentityObjectsPlugin()` creates it at boot under the `single`
+  // posture (objectstack 917b1a0), so this kernel no longer writes the row
+  // itself: a second one would make every system write ambiguous.
 
   const user = await insert('sys_user', { name: 'Acceptance Rep', email: 'rep@cascade-guards.test' });
   // `isSystem` keeps the fixture out of the sharing model (not what this file
@@ -132,20 +155,26 @@ const accountWithContact = async (label: string) => {
   return { account, contact };
 };
 
-// ────────────────────────────── the premise: no cascade marker in the ctx ──
+// ─────────────────────── the premise: one declared cascade marker in the ctx ──
 
-describe('a guard cannot tell a cascade from a direct write', () => {
+describe('a guard tells a cascade from a direct write by the declared key only', () => {
   /**
-   * The measurement the whole fix rests on. If a future platform version starts
-   * marking referential writes, this test fails — and the messages below can be
-   * re-taken as "…so this ACCOUNT cannot be deleted", which is strictly better.
-   * Treat a failure here as news, not as a regression to paper over.
+   * The measurement the whole fix rests on. Through 18.0.0-next.1 a cascaded
+   * `beforeDelete` carried no marker, and this test asserted none. 18.0.0-next.2
+   * declares `referentialCascadeDelete` (objectstack#23221), and that tripwire
+   * fired as it was written to: the messages below can now be re-taken as
+   * "…so this ACCOUNT cannot be deleted", which is strictly better, by reading
+   * that key and no other. If the key disappears, or an undeclared marker
+   * appears beside it, this test fails. Treat a failure here as news.
    */
-  it('carries no cascade flag on a cascaded beforeDelete or referential update', async () => {
+  it('marks a cascaded beforeDelete with referentialCascadeDelete and nothing else', async () => {
     const seen: AnyRec[] = [];
     ql.registerHook('beforeDelete', async (ctx: AnyRec) => {
       if (ctx.object !== 'crm_contact') return;
-      seen.push({ where: 'contact.beforeDelete', keys: Object.keys(ctx), session: ctx.session ?? {} });
+      seen.push({
+        where: 'contact.beforeDelete', keys: Object.keys(ctx), session: ctx.session ?? {},
+        cascade: ctx.referentialCascadeDelete,
+      });
     }, { object: 'crm_contact', priority: 1 });
 
     const { account } = await accountWithContact('Marker Probe');
@@ -155,10 +184,11 @@ describe('a guard cannot tell a cascade from a direct write', () => {
     expect(seen, 'the cascade never reached the contact guard').toHaveLength(1);
     const [probe] = seen;
     const marker = /cascade|referential|__/i;
-    expect(probe.keys.filter((k: string) => marker.test(k))).toEqual([]);
+    expect(probe.keys.filter((k: string) => marker.test(k))).toEqual(['referentialCascadeDelete']);
+    expect(probe.cascade).toBe(true);
     expect(Object.keys(probe.session).filter((k: string) => marker.test(k))).toEqual([]);
     // Positively: the session is the CALLER's, which is exactly why it cannot
-    // be used to tell the two invocations apart.
+    // be used to tell the two invocations apart; only the declared key can.
     expect(probe.session.userId).toBe(userCtx.userId);
   });
 });
@@ -198,7 +228,7 @@ describe('deleting an account whose contact is still referenced', () => {
     // against a title the app renders nowhere.
     expect(message).toContain('Contact LovelaceAda is still referenced by');
     expect(message).not.toContain(contact.id);
-    expect(message).toContain('1 open opportunity(ies)');
+    expect(message).toContain('still referenced by 1 open opportunity, so it cannot be deleted');
     expect(message).toContain('neither can its account');
     // The reported symptom: a caller who addressed an ACCOUNT was told they
     // could not delete a CONTACT.
@@ -219,7 +249,7 @@ describe('deleting an account whose contact is still referenced', () => {
     const message = await deleteAndCatch('crm_contact', contact.id);
     expect(message).toContain('Contact LovelaceAda is still referenced by');
     expect(message).not.toContain(contact.id);
-    expect(message).toContain('1 open opportunity(ies)');
+    expect(message).toContain('still referenced by 1 open opportunity, so it cannot be deleted');
   });
 
   it('still deletes an account whose contact nothing references', async () => {
@@ -255,7 +285,9 @@ describe('deleting an account whose contact is still referenced', () => {
 // ───────────────────── the account guard's own sentence, measured (#721) ──
 
 /**
- * `account_protection`'s open-opportunity refusal, taken from a real `DELETE`.
+ * `account_protection`'s opportunity refusal, taken from a real `DELETE`. (It
+ * counts every deal on the account since #2019, closed ones included; these
+ * fixtures carry open ones, which is what #721 was measured on.)
  *
  * Not a cascade case — nothing cascades INTO `crm_account`, so this guard only
  * ever answers a caller who addressed the account, and "Cannot delete customer
@@ -288,34 +320,90 @@ describe('deleting a customer account with open opportunities', () => {
     return account;
   };
 
-  it('agrees with a single blocker: "1 open opportunity still references it … reassign it"', async () => {
+  it('agrees with a single blocker: "1 opportunity … still references it … Delete the opportunity"', async () => {
     const account = await accountWithOpenDeals(1);
     const message = await deleteAndCatch('crm_account', account.id);
 
     expect(message, 'the delete must still be refused').toBeTruthy();
     expect(message).toContain(
-      'Cannot delete customer account: 1 open opportunity still references it. Close or reassign it first.',
+      'Cannot delete customer account: 1 opportunity, open or closed, still references it. Delete the opportunity first, or mark the account inactive to retire it instead.',
     );
     // The reported symptom, both halves of it.
-    expect(message).not.toContain('opportunity still reference it');
-    expect(message).not.toContain('reassign them');
+    expect(message).not.toContain('closed, still reference it');
+    expect(message).not.toContain('Delete the opportunities');
   });
 
-  it('agrees with several blockers: "2 open opportunities still reference it … reassign them"', async () => {
+  it('agrees with several blockers: "2 opportunities … still reference it … Delete the opportunities"', async () => {
     const account = await accountWithOpenDeals(2);
     const message = await deleteAndCatch('crm_account', account.id);
 
     expect(message, 'the delete must still be refused').toBeTruthy();
     expect(message).toContain(
-      'Cannot delete customer account: 2 open opportunities still reference it. Close or reassign them first.',
+      'Cannot delete customer account: 2 opportunities, open or closed, still reference it. Delete the opportunities first, or mark the account inactive to retire it instead.',
     );
-    expect(message).not.toContain('opportunities still references');
-    expect(message).not.toContain('reassign it first');
+    expect(message).not.toContain('closed, still references');
+    expect(message).not.toContain('Delete the opportunity first');
   });
 
   it('refuses, and leaves the account in place (semantics unchanged)', async () => {
     const account = await accountWithOpenDeals(1);
     await deleteAndCatch('crm_account', account.id);
     expect(await rowsOf('crm_account', account.id)).toHaveLength(1);
+  });
+});
+
+/**
+ * The same guard, for ACTIVATED contracts (#549).
+ *
+ * `crm_contract` is master-detail under the account since #549, so a
+ * `DELETE crm_account` now cascades its contracts. The guard refuses while an
+ * activated one exists and lets a draft go — measured end-to-end, because only
+ * the engine's own referential pass can show that the refusal reaches the
+ * caller BEFORE the cascade touches the contract.
+ */
+describe('deleting a customer account with activated contracts (#549)', () => {
+  const accountWithContract = async (status: string) => {
+    const n = uniq();
+    const account = await insert('crm_account', {
+      name: `Signed Corp ${n}`, type: 'customer', industry: 'technology',
+    });
+    const contact = await insert('crm_contact', {
+      first_name: 'Sig', last_name: `Nature ${n}`, email: `sig${n}@signed.test`,
+      crm_account: account.id,
+    });
+    const contract = await insert('crm_contract', {
+      crm_account: account.id, crm_contact: contact.id, status,
+      contract_term_months: 12, start_date: '2026-01-01', end_date: '2026-12-31',
+      contract_value: 1000,
+    });
+    return { account, contract };
+  };
+
+  it('refuses while an activated contract exists, naming it, and keeps both rows', async () => {
+    const { account, contract } = await accountWithContract('activated');
+    const message = await deleteAndCatch('crm_account', account.id);
+    expect(message).toContain(
+      'Cannot delete customer account: 1 activated contract still references it. Terminate or reassign it first.',
+    );
+    expect(await rowsOf('crm_account', account.id)).toHaveLength(1);
+    expect(await rowsOf('crm_contract', contract.id)).toHaveLength(1);
+  });
+
+  it('a draft contract is NOT what the guard refuses — it goes with the account', async () => {
+    // MEASURED. The guard stands down on a draft (no activated contract), and
+    // what follows is the engine's cascade. Through 17.7.0 that cascade reached
+    // the CONTACTS first and stopped on `crm_contract.crm_contact`, a required
+    // lookup that cannot be cleared, so the delete was refused in the platform's
+    // words ("still referenced by 1 Contract record") and every row stayed — the
+    // reason this case once asked to be told if it started answering `null`. On
+    // 18.0.0-next.0 it does: the delete goes through and the draft contract goes
+    // with the account, the cascade `hooks-runtime-sales`'s account_protection
+    // case pins for every settled status. The account docs promise only that an
+    // ACTIVATED contract blocks the delete, which still holds (the case above).
+    const { account, contract } = await accountWithContract('draft');
+    const message = await deleteAndCatch('crm_account', account.id);
+    expect(message, 'the delete of an account carrying only a draft contract was refused').toBeNull();
+    expect(await rowsOf('crm_account', account.id)).toEqual([]);
+    expect(await rowsOf('crm_contract', contract.id), 'the draft contract outlived its account').toEqual([]);
   });
 });

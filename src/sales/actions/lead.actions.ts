@@ -1,0 +1,226 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { Action } from '@objectstack/spec/ui';
+import { P } from '@objectstack/spec';
+
+/**
+ * Convert Lead to Account, Contact, and Opportunity.
+ *
+ * Flow-typed action: invocation is delegated to the `lead_conversion`
+ * flow defined under `src/sales/flows/`. The flow engine handles the screen
+ * + server steps; no metadata body is required here.
+ */
+export const ConvertLeadAction: Action = {
+  name: 'convert_lead',
+  label: 'Convert Lead',
+  objectName: 'crm_lead',
+  icon: 'arrow-right-circle',
+  type: 'flow',
+  target: 'lead_conversion',
+  locations: ['record_header', 'list_item'],
+  // Convert is the lead's most basic outcome — surface it on ANY open lead
+  // (new / contacted / qualified), not just qualified. Gating to qualified-only
+  // hid the button on most seeded leads, so it read as "conversion is missing".
+  // Only already-converted or disqualified leads hide it.
+  //
+  // TOTALITY (AGENTS.md → "Validation predicates must be TOTAL", #630): every
+  // `record.x` read carries a `has(record.x)`, and the guards are arranged to
+  // fail CLOSED — an unknown record hides the button. That arrangement is a
+  // MEASUREMENT, not a preference. Measured in the browser on console 17.4.0 by
+  // instrumenting the shipped predicate evaluator: the record page evaluates this
+  // predicate twice against an EMPTY record (`record` is `{}`, zero keys) before
+  // the row lands, then re-evaluates it against the full row. So an absent
+  // `status` here means "no record yet", never "a lead with no status" — a lead
+  // with no status cannot exist, since `status` is `required` with
+  // `storage: { notNull: true }` and `defaultValue: 'new'` (src/sales/objects/lead.object.ts),
+  // and the REST payload this surface reads carries every declared column.
+  // Fail-open (`!has(record.status) || …`) would therefore buy nothing and cost
+  // something real: Convert would flash on a disqualified lead for the
+  // pre-hydration beat, on an IRREVERSIBLE action.
+  // Unguarded, strict CEL aborted the whole predicate on those two renders
+  // (`[runtime] No such key: status`) and object-ui fell back to its own
+  // `fallback: false`, so this spelling states the policy the error path was
+  // already applying — minus the console warning on every lead page load. (#1890)
+  //
+  // ⚠️ The approval term is the ONE fail-OPEN read in this predicate, and the
+  // asymmetry is deliberate rather than an oversight in an otherwise
+  // fail-closed arrangement (REQ-0005 step 7). The two terms above fail closed
+  // because an absent `status` means "no record yet" — a lead with no status
+  // cannot exist, since `status` is `required` with a `defaultValue`. An absent
+  // `conversion_approval_status` means something else entirely: a lead written
+  // before the column existed, which must convert the way it always did. And
+  // the shipped `not_required` default is the gate's OFF position, so treating
+  // "not one of the two refusing verdicts" as convertible is what makes the
+  // default install behave exactly as it did before this field. `lead.hook.ts`
+  // and `lead-conversion.flow.ts`'s `decision_approval` carry the same polarity
+  // — the three surfaces have to agree about what "off" means, or the button
+  // disappears on leads the write path would happily convert.
+  //
+  // ⛔ Hiding this button is NOT the gate. It is the courtesy half; the control
+  // is the `beforeUpdate` refusal in `lead.hook.ts`, which a REST caller cannot
+  // route around.
+  visible: P`has(record.is_converted) && record.is_converted == false && has(record.status) && record.status != "unqualified" && record.status != "converted"
+    && (!has(record.conversion_approval_status) || (record.conversion_approval_status != "pending" && record.conversion_approval_status != "rejected"))`,
+  // NO `confirmText`. A screen flow IS the confirmation, and this one opens
+  // `Conversion Details` — a screen carrying the decision (`Create
+  // Opportunity?`, and the deal's name and amount), a Cancel button, and the
+  // suspected-duplicate warning that says something TRUE about THIS lead. A
+  // dialog in front of it costs every conversion one extra click to answer a
+  // question it cannot help anyone answer. Confirms are for DESTRUCTIVE actions
+  // with no follow-up UI — `close_case` / `escalate_case` in `case.actions.ts`
+  // are the shape that still earns one.
+  //
+  // Mechanism, measured on the console this app pinned at that taking
+  // (@objectstack/console 17.3.0, `dist/assets/`; this bundle read was ⛔ NOT
+  // re-taken on any later pin — 17.4.0, PR #1814, or 17.5.0) rather than
+  // assumed: the runner gates the dialog on
+  // the key's presence alone —
+  //     if (action.confirmText && !await confirmHandler(evaluate(action.confirmText)))
+  //         return { success: false, error: 'Action cancelled by user' };
+  // — so REMOVING the key is what removes the dialog; there is no `confirm:
+  // false` to write, and no other key re-raises it.
+  successMessage: 'Lead converted successfully!',
+  refreshAfter: true,
+  // ADR-0011 — opt this Action in to AI, which materialises the
+  // `action_convert_lead` tool the `lead_qualification` skill references.
+  // Flow-typed with a target, so it has a headless path. `requiresConfirmation`
+  // is the only key the AI path reads: `actionLooksDestructive` consults
+  // `ai.requiresConfirmation` and nothing else, and the console's
+  // confirm-dialog string reached no AI code — so dropping `confirmText` above
+  // leaves the AI approval signal exactly where it was. The flag is SURFACED,
+  // not enforced — `list_actions` reports `requiresConfirmation: true` and the
+  // calling client decides what to do with it, while `run_action` dispatches
+  // the flow with no server-side pause. It warns the caller that this is
+  // irreversible; it is not a lock.
+  ai: {
+    exposed: true,
+    requiresConfirmation: true,
+    description:
+      'Converts a qualified lead into an account, contact and opportunity. Irreversible — requires human approval before it runs.',
+  },
+};
+
+/**
+ * Schedule the next follow-up on a lead.
+ *
+ * The gap this fills: `log_call` / `log_meeting` record what already happened
+ * (a `sys_activity` timeline entry), but nothing put the NEXT touch on the
+ * rep's list. Filing that follow-up meant leaving the lead, opening the
+ * Related tab, finding the Tasks block, and hand-picking the lead back as the
+ * parent — four steps for the single most common thing a rep does after a call.
+ *
+ * Flow-typed, not `type: 'modal'`: modal actions are non-functional in 16.1.0
+ * (the console resolves the action's `target` as an object name, so submitting
+ * one dies on `GET /api/v1/meta/object/<target>` → 400 — reproducible on the
+ * pre-existing `log_call` too). The screen flow under
+ * `src/sales/flows/schedule-followup.flow.ts` collects the same fields and does the
+ * write; that mechanism is proven by `convert_lead` above.
+ */
+export const ScheduleFollowUpAction: Action = {
+  name: 'schedule_followup',
+  label: 'Schedule Follow-up',
+  objectName: 'crm_lead',
+  icon: 'calendar-plus',
+  type: 'flow',
+  target: 'schedule_followup',
+  locations: ['record_header', 'list_item'],
+  // A converted or disqualified lead has no next touch to schedule.
+  visible: P`has(record.is_converted) && record.is_converted == false && has(record.status) && record.status != "unqualified" && record.status != "converted"`,
+  successMessage: 'Follow-up scheduled.',
+  refreshAfter: true,
+  // ADR-0011 — materialises `action_schedule_followup` for the
+  // `lead_qualification` skill. Additive and reversible, so no approval gate.
+  ai: {
+    exposed: true,
+    description:
+      'Schedules the next follow-up task on a lead, assigned to its owner, so the next touch lands on the rep list.',
+  },
+};
+
+/**
+ * Add selected leads to a Campaign.
+ *
+ * Flow-typed action over `campaign_lead_member_enroll`, the one flow that
+ * enrolls one lead (`src/marketing/flows/campaign-member-enroll.flow.ts`). The
+ * param dialog collects the campaign as `campaignId`, the flow's input of that
+ * name; the lead is the dispatched row, which the action door seeds into the
+ * flow's `leadId` through `recordIdParam`. The flow skips a lead the campaign
+ * already has and answers `enrolled: false` for it.
+ *
+ * It runs AS THE CALLER (#2167, Q1 letter B): `crm_campaign_member`'s own
+ * `allowCreate` is the gate, so a profile without it is refused with 400
+ * `FLOW_FAILED` and the permission message, and `visible` stops offering it
+ * to that profile. It was a system-elevated script body until #2167, which
+ * let `sales_rep` and `sales_manager` create members their sets do not let
+ * them create. ⛔ Do not bring a script body back: a body runs elevated by
+ * platform design, and the profile would stop being the answer.
+ *
+ * PER-RECORD dispatch, deliberately. `src/sales/views/lead.view.ts` wires this as the
+ * BARE-STRING form — `bulkActions: ['create_campaign']` — and that string is a
+ * dispatch contract, not a spelling of the other one:
+ *
+ *   - bare string    → the renderer promotes the action to a def carrying its
+ *     own label / icon / params / `visible` and dispatches it ONCE PER selected
+ *     row, each call carrying that row's `recordId` and NO selection array. A
+ *     10-lead selection is 10 flow runs, one lead each, on one collected
+ *     campaign.
+ *   - `bulkActionDefs` + `execution: 'aggregate'` → ONE dispatch for the whole
+ *     selection, every id in the builtin `params._selectedIds` and no
+ *     `recordId` (see `mass_update_stage` in `opportunity.actions.ts`). A flow
+ *     takes one `leadId`, so that contract has nothing to hand this flow.
+ *
+ * ⛔ Never declare a `selectedIds` param (no underscore). Nothing can deliver
+ * that key on either contract: a top-level `selectedIds` is never merged into
+ * the params bag, and the only selection channel is the underscore-prefixed
+ * builtin, which only the aggregate contract injects (`@objectstack/spec`
+ * `ui/action-params.zod.ts`, `ACTION_PARAM_BUILTIN_KEYS`).
+ */
+export const CreateCampaignAction: Action = {
+  name: 'create_campaign',
+  label: 'Add to Campaign',
+  objectName: 'crm_lead',
+  icon: 'send',
+  type: 'flow',
+  target: 'campaign_lead_member_enroll',
+  // The flow's own input name for the lead (the door seeds `recordId` too).
+  recordIdParam: 'leadId',
+  // Two doors, and no header button (#2073 item 5):
+  //   - `list_item`: every row's menu, on every lead view — the row's lead.
+  //   - the SELECTION BAR, which a view opens by naming the action in its
+  //     `bulkActions` (All Leads does) and which fans out once per ticked row.
+  //     That placement is the view's, so it takes no location here.
+  // ⛔ Do not add `list_toolbar` back. A header button is drawn with nothing
+  // selected, and this action runs on exactly one record: launched from the
+  // header it opened the whole Campaign dialog, then refused in English
+  // ("This action runs on a single record — select a row first.") and sent
+  // nothing. The console leaves it out of the header only on a view whose
+  // `bulkActions` names it (objectui#12462). Measured on 18.0.0-next.5, the
+  // seven lead views that name it nowhere (My Leads, Hot Leads, High Priority,
+  // Suspected Duplicates, and the kanban, calendar and gallery views) all drew
+  // it, and a view a user creates names nothing either. On those views a
+  // marketing user gets no row checkboxes at all, so it could never succeed.
+  locations: ['list_item'],
+  // The server refusal is the gate; this only stops offering a button that
+  // cannot succeed (see the header).
+  visible: P`current_user.can("crm_campaign_member", "create")`,
+  params: [
+    // Field-backed param: `field` + `objectOverride` make the console resolve
+    // the widget from crm_campaign_member.crm_campaign (a lookup → crm_campaign),
+    // rendering a RECORD PICKER. A bare `{ type:'lookup' }` with no field can't
+    // resolve a target object and silently falls back to a paste-the-ID textbox.
+    // `name` is the flow's input variable, which the value is sent under.
+    {
+      name: 'campaignId',
+      field: 'crm_campaign',
+      objectOverride: 'crm_campaign_member',
+      label: 'Campaign',
+      required: true,
+    }
+  ],
+  // Says what the run did (#2371 row 1): the campaign, how many were added
+  // and how many were already on it. It read "Leads added to campaign!" on a run
+  // that found the person already a member. The counts are the enrollment
+  // flow's outputs (`campaign-member-enroll.flow.ts`).
+  successMessage: '{{ result.output.campaignName }}: {{ result.output.addedCount }} added, {{ result.output.alreadyCount }} already a member.',
+  refreshAfter: true,
+};

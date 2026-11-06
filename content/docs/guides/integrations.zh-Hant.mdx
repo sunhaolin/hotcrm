@@ -19,7 +19,7 @@ HotCRM 的設計目標是**融入你的技術堆疊**，而非取代它。今天
 - 📥 **試算表匯入**，帶可重複使用的欄位對應，並可先試算。參見[匯入你自己的資料](/zh-Hant/docs/guides/importing-your-data)。
 - ✉️ **對外郵件**——聯絡人上的**傳送郵件**，把郵件排入平台郵件服務。只有出站方向，而且只有在部署設定了傳輸方式時才真的寄得出去。參見[郵件與行事曆](/zh-Hant/docs/guides/email-and-calendar)。
 - 🔔 **應用內通知**——`notify` 流程節點經平台訊息服務送達 Console 鈴鐺。是在 HotCRM 內部，而不是送進 Slack 或某個收件匣。
-- 🧩 **你自己的程式碼**——掛鉤、流程與操作主體在行程內針對同一批物件、同一套權限檢查執行。參見[自訂 › 擴充物件](/zh-Hant/docs/customization/extending-objects)。
+- 🧩 **你自己的程式碼**——掛鉤、流程與操作主體在行程內針對同一批物件、同一套權限檢查執行。參見[客製化 › 擴展物件](/zh-Hant/docs/customization/extending-objects)。
 
 ### Setup → Integrations 底下今天真正有什麼
 
@@ -67,7 +67,7 @@ HotCRM 的設計目標是**融入你的技術堆疊**，而非取代它。今天
 
 設計意圖是這樣的：Stripe 的客戶按郵件或外部 ID 比對到客戶記錄；訂閱鏡像到合約，帶狀態、MRR 與計費頻率；發票出現在客戶的活動時間軸上；付款失敗為負責人或客戶成功經理（CSM）建立高優先級工單；取消則提醒 CSM 並開出一個流失商機。
 
-今天這些都不會自己送上門。合約、以及追進合約的任務，都是在 HotCRM 裡寫出來的——參見[合約](/zh-Hant/docs/revenue/contracts)。
+今天這些都不會自己送上門。合約、以及追進合約的任務，都是在 HotCRM 裡寫出來的——參見[合約](/zh-Hant/docs/sales/contracts)。
 
 ### 📞 電話系統（Twilio / Aircall / RingCentral / Five9）
 
@@ -91,7 +91,7 @@ HotCRM 的設計目標是**融入你的技術堆疊**，而非取代它。今天
 
 這一項不是空話。平台**確實**提供了出站 webhook 服務：`@objectstack/plugin-webhooks` 為每筆訂閱保存一列 `sys_webhook`——既可以透過該物件自己的管理介面撰寫，也可以用 `defineStack({ webhooks })` / `defineWebhook()` 在程式碼裡宣告——它把記錄事件與這些列做比對，並把每次命中交給共享的訊息 HTTP 出站佇列去投遞。
 
-**HotCRM 沒有啟用它。** `objectstack.config.ts` 宣告的是 `requires: ['automation', 'triggers', 'analytics', 'auth', 'ui', 'approvals', 'sharing']`。`webhooks` 不在這個清單裡，也不屬於平台對每個應用都會載入的那一批能力。本應用同樣沒有宣告任何 webhook。因此 HotCRM 今天沒有任何 webhook 介面：`@objectstack/plugin-webhooks` 沒有被載入，它貢獻的兩個 Setup 項目——**Webhooks** 與 **HTTP Deliveries**——也就不會出現在 `Setup → Integrations` 底下。這是*本應用沒啟用*，不是*平台沒做*：照下面那段提示把這項能力打開，外掛自己就會把它們掛上去。
+**HotCRM 沒有啟用它。** 它的兩個套件都沒有在 `requires` 裡列出 `webhooks`——app 套件的在 `src/sales/index.ts`，服務模組的在 `src/service/index.ts`——它也不屬於平台對每個應用都會載入的那一批能力。本應用同樣沒有宣告任何 webhook。因此 HotCRM 今天沒有任何 webhook 介面：`@objectstack/plugin-webhooks` 沒有被載入，它貢獻的兩個 Setup 項目——**Webhooks** 與 **HTTP Deliveries**——也就不會出現在 `Setup → Integrations` 底下。這是*本應用沒啟用*，不是*平台沒做*：照下面那段提示把這項能力打開，外掛自己就會把它們掛上去。
 
 > **這是一個部署側的決定，不是路線圖項目。** 把 `webhooks` 加進 `requires`，宣告你的訂閱，此後投遞就是平台的事了。本頁原先承諾的重試次數、酬載結構選項與投遞紀錄畫面，從來就不由 HotCRM 定義——請按你所執行的版本去讀平台自己的 webhook 文件，而不是這裡。
 
@@ -125,7 +125,7 @@ HotCRM 的設計目標是**融入你的技術堆疊**，而非取代它。今天
 
 ### 2. 行程內擴充程式碼（真實）
 
-掛鉤、流程與操作主體在 HotCRM 內部執行，針對同一批物件、同一套權限檢查。參見[自訂 › 擴充物件](/zh-Hant/docs/customization/extending-objects)。
+掛鉤、流程與操作主體在 HotCRM 內部執行，針對同一批物件、同一套權限檢查。參見[客製化 › 擴展物件](/zh-Hant/docs/customization/extending-objects)。
 
 最適合：無論是誰發起的寫入都必須執行的邏輯。
 

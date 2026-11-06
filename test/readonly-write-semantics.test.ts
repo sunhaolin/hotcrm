@@ -2,11 +2,23 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AutomationEngine, installBuiltinNodes } from '@objectstack/service-automation';
 import type * as Automation from '@objectstack/spec/automation';
-import { P } from '@objectstack/spec';
-import { silentLogger } from './helpers/flow-harness';
+import { P, cel } from '@objectstack/spec';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
+
+/** The engine's logger, silenced: these suites read results, not log lines. */
+const silentLogger: any = {
+  info() {}, warn() {}, error() {}, debug() {}, trace() {},
+  child() { return silentLogger; },
+};
 
 type AnyRec = Record<string, any>;
 type Flow = Automation.Flow;
@@ -57,11 +69,10 @@ type Flow = Automation.Flow;
  *
  * ## Why a real engine and a purpose-built probe object
  *
- * `test/helpers/flow-harness.ts` runs flows over a stand-in data engine with no
- * readonly semantics at all, so it cannot see this. Here the AutomationEngine's
- * `data` service IS a real `ObjectQL` — its flat `update(object, data, options)`
+ * The rule under test is the engine's own, so the AutomationEngine's
+ * `data` service here IS a real `ObjectQL` — its flat `update(object, data, options)`
  * surface is exactly what the `update_record` executor calls — over a real
- * `InMemoryDriver`. The probe object is purpose-built so the measurement never
+ * SQLite database. The probe object is purpose-built so the measurement never
  * depends on, or perturbs, the shipped `crm_case` declaration.
  *
  * First measured on `@objectstack/* 17.1.0`. RE-MEASURED 2026-09-03 against
@@ -138,9 +149,9 @@ const orderedObject = {
 
 /** The three caller contexts the card asks to vary, by name. */
 const CONTEXTS: Array<[label: string, ctx: AnyRec]> = [
-  ['{ userId, isSystem }', { userId: 'user_1', isSystem: true }],
-  ['{ isSystem }', { isSystem: true }],
-  ['{ userId } (no isSystem)', { userId: 'user_1' }],
+  ['{ userId, isSystem }', { userId: 'user_1', tenantId: ORG, isSystem: true }],
+  ['{ isSystem }', { isSystem: true, tenantId: ORG }],
+  ['{ userId } (no isSystem)', { userId: 'user_1', tenantId: ORG }],
 ];
 
 let ql: any;
@@ -150,7 +161,7 @@ const writeNode = {
   id: 'write', type: 'update_record', label: 'Write Probe',
   config: {
     objectName: PROBE,
-    filter: { id: '{rowId}' },
+    filter: { id: cel`rowId` },
     fields: { locked_flag: true, open_flag: true },
   },
 };
@@ -200,9 +211,8 @@ const screenFlow = (name: string, runAs: 'system' | 'user'): Flow =>
 
 /** Boot an AutomationEngine whose `data` service is the REAL ObjectQL. */
 function automation(flows: Record<string, Flow>) {
-  // `any`, matching `test/helpers/flow-harness.ts`: `installBuiltinNodes` wants a
-  // full `PluginContext` and this stands in for the two members the node
-  // executors actually reach for.
+  // `any`: `installBuiltinNodes` wants a full `PluginContext`, and this is the
+  // two members the node executors actually reach for.
   const ctx: any = {
     logger: silentLogger,
     getService: (n: string) => (n === 'data' || n === 'objectql' ? ql : undefined),
@@ -218,17 +228,17 @@ async function seedRow(): Promise<string> {
   const row = await ql.insert(
     PROBE,
     { name: 'probe', locked_flag: false, open_flag: false, locked_after: false },
-    { context: { isSystem: true, userId: 'seed' } },
+    { context: { isSystem: true, tenantId: ORG, userId: 'seed' } },
   );
   return String(row.id);
 }
 
 const readBack = async (id: string): Promise<AnyRec> =>
-  await ql.findOne(PROBE, { where: { id }, context: { isSystem: true, userId: 'seed' } });
+  await ql.findOne(PROBE, { where: { id }, context: { isSystem: true, tenantId: ORG, userId: 'seed' } });
 
 beforeAll(async () => {
   ql = await ObjectQL.create({
-    datasources: { default: new InMemoryDriver({ persistence: false }) },
+    datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
     objects: { [PROBE]: probeObject, [ORDERED]: orderedObject } as never,
     hooks: [
       {
@@ -246,6 +256,7 @@ beforeAll(async () => {
       },
     ],
   });
+  await ql.syncSchemas();
 });
 
 afterAll(async () => {
@@ -373,7 +384,7 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
    * stay unelevated.
    */
   it('escalate_case stays runAs:"user" — the acting agent keeps their identity', async () => {
-    const { EscalateCaseFlow } = await import('../src/flows/case-actions.flow');
+    const { EscalateCaseFlow } = await import('../src/service/flows/case-actions.flow');
     expect(
       (EscalateCaseFlow as AnyRec).runAs ?? 'user',
       'escalate_case is invoked by a person from the UI and must run as that person. ' +
@@ -383,7 +394,7 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
   });
 
   it('escalate_case writes only user-writable columns — the stamps are not in it', async () => {
-    const { EscalateCaseFlow } = await import('../src/flows/case-actions.flow');
+    const { EscalateCaseFlow } = await import('../src/service/flows/case-actions.flow');
     const nodes = (EscalateCaseFlow as AnyRec).nodes as AnyRec[];
     const escalate = nodes.find((n) => n.id === 'escalate');
     const written = Object.keys(escalate?.config?.fields ?? {});
@@ -395,7 +406,7 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
   });
 
   it('the stamping subflow is system, minimal, and writes exactly the two readonly stamps', async () => {
-    const { CaseEscalationStampFlow } = await import('../src/flows/case-escalation-stamp.flow');
+    const { CaseEscalationStampFlow } = await import('../src/service/flows/case-escalation-stamp.flow');
     const flow = CaseEscalationStampFlow as AnyRec;
     expect(flow.runAs, 'this flow exists to be the ONE elevated step').toBe('system');
     const writes = (flow.nodes as AnyRec[]).filter((n) => n.type === 'update_record');
@@ -409,8 +420,8 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
   });
 
   it('escalate_case reaches it through a subflow node, AFTER the reason is written', async () => {
-    const { EscalateCaseFlow } = await import('../src/flows/case-actions.flow');
-    const { CaseEscalationStampFlow } = await import('../src/flows/case-escalation-stamp.flow');
+    const { EscalateCaseFlow } = await import('../src/service/flows/case-actions.flow');
+    const { CaseEscalationStampFlow } = await import('../src/service/flows/case-escalation-stamp.flow');
     const nodes = (EscalateCaseFlow as AnyRec).nodes as AnyRec[];
     const sub = nodes.find((n) => n.type === 'subflow');
     expect(sub, 'the elevated write must be reached by a subflow node').toBeTruthy();
@@ -444,7 +455,7 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
   });
 
   it('the stamped fields are declared readonly, and the user-typed one is not', async () => {
-    const { Case } = await import('../src/objects/case.object');
+    const { Case } = await import('../src/service/objects/case.object');
     const fields = (Case as AnyRec).fields;
     for (const name of ['is_escalated', 'escalated_date']) {
       expect(fields[name].readonly, `${name} is stamped by a system flow and nobody types it`).toBe(true);
@@ -457,14 +468,29 @@ describe('how the shipped escalate path splits privilege (#1434)', () => {
     ).not.toBe(true);
   });
 
-  it('close_case is a historical precedent and says so in the file', async () => {
-    // The in-repo proof that `runAs: 'system'` on a whole flow predates the
-    // rule — kept as a pin because #1434 item 3 requires the file to SAY it is
-    // not a policy, so nobody cites it to elevate the next screen flow.
-    const { CloseCaseFlow } = await import('../src/flows/case-actions.flow');
-    const { Case } = await import('../src/objects/case.object');
-    expect((CloseCaseFlow as AnyRec).runAs).toBe('system');
-    expect((Case as AnyRec).fields.is_closed.readonly).toBe(true);
+  it('close_case stays runAs:"user" and writes only columns its caller may write', async () => {
+    // A person clicks Close Case, so it runs as that person and the engine
+    // applies their grants to the close (house rule 9). Its update node names
+    // no readonly column: `is_closed`, `closed_date` and
+    // `resolution_time_hours` are derived by `case_sla_defaults` on the same
+    // write. The runtime half — who is refused, and that an editor's close
+    // lands the same end state — is `test/close-case-caller-may-edit.test.ts`.
+    const { CloseCaseFlow } = await import('../src/service/flows/case-actions.flow');
+    const { Case } = await import('../src/service/objects/case.object');
+    const flow = CloseCaseFlow as AnyRec;
+    expect(
+      flow.runAs ?? 'user',
+      'close_case is invoked by a person from the UI and must run as that person. A column ' +
+        'the close must write that its caller may not goes into a dedicated runAs:"system" ' +
+        'subflow reached AFTER the close node, the escalate_case shape.',
+    ).toBe('user');
+    const fields = (Case as AnyRec).fields as Record<string, AnyRec>;
+    const written = (flow.nodes as AnyRec[])
+      .filter((n) => n.type === 'update_record')
+      .flatMap((n) => Object.keys(n.config?.fields ?? {}));
+    expect(written.sort()).toEqual(['resolution', 'resolved_by_article', 'status']);
+    expect(written.filter((name) => fields[name]?.readonly === true)).toEqual([]);
+    expect(fields.is_closed.readonly, 'is_closed is derived from status, and nobody types it').toBe(true);
   });
 });
 
@@ -555,7 +581,7 @@ const callerFlow = (name: string, childName: string): Flow =>
       },
       {
         id: 'stamp', type: 'subflow', label: 'Stamp',
-        config: { flowName: childName, input: { rowId: '{rowId}' } },
+        config: { flowName: childName, input: { rowId: cel`rowId` } },
       },
       {
         // The parent's OWN write, after the child returned. Same object, same
@@ -564,7 +590,7 @@ const callerFlow = (name: string, childName: string): Flow =>
         id: 'parent_write', type: 'update_record', label: 'Parent Write',
         config: {
           objectName: PROBE,
-          filter: { id: '{rowId}' },
+          filter: { id: cel`rowId` },
           fields: { locked_after: true },
         },
       },
@@ -668,7 +694,7 @@ const orderedStamp = (name: string): Flow =>
       { id: 'start', type: 'start', label: 'Start', config: {} },
       {
         id: 'write', type: 'update_record', label: 'Stamp',
-        config: { objectName: ORDERED, filter: { id: '{rowId}' }, fields: { locked_flag: true } },
+        config: { objectName: ORDERED, filter: { id: cel`rowId` }, fields: { locked_flag: true } },
       },
       { id: 'end', type: 'end', label: 'End' },
     ],
@@ -685,11 +711,11 @@ const orderedStamp = (name: string): Flow =>
 const orderedCaller = (name: string, childName: string, reasonFirst: boolean): Flow => {
   const reasonNode = {
     id: 'write_reason', type: 'update_record', label: 'Write Reason',
-    config: { objectName: ORDERED, filter: { id: '{rowId}' }, fields: { reason: '{reason}' } },
+    config: { objectName: ORDERED, filter: { id: cel`rowId` }, fields: { reason: cel`reason` } },
   };
   const stampNode = {
     id: 'stamp', type: 'subflow', label: 'Stamp',
-    config: { flowName: childName, input: { rowId: '{rowId}' } },
+    config: { flowName: childName, input: { rowId: cel`rowId` } },
   };
   const [first, second] = reasonFirst ? [reasonNode, stampNode] : [stampNode, reasonNode];
   return {
@@ -720,7 +746,7 @@ async function runOrdered(reasonFirst: boolean, tag: string): Promise<AnyRec> {
   const row = await ql.insert(
     ORDERED,
     { name: 'probe', reason: null, locked_flag: false },
-    { context: { isSystem: true, userId: 'seed' } },
+    { context: { isSystem: true, tenantId: ORG, userId: 'seed' } },
   );
   const id = String(row.id);
   const childName = `probe_ord_child_${tag}`;
@@ -733,7 +759,7 @@ async function runOrdered(reasonFirst: boolean, tag: string): Promise<AnyRec> {
     params: { rowId: id, reason: 'customer escalated on the phone' },
     userId: 'user_1', event: 'manual',
   } as never);
-  return await ql.findOne(ORDERED, { where: { id }, context: { isSystem: true, userId: 'seed' } });
+  return await ql.findOne(ORDERED, { where: { id }, context: { isSystem: true, tenantId: ORG, userId: 'seed' } });
 }
 
 describe('ordering: the reason must be stored BEFORE the flag flips (#1434)', () => {

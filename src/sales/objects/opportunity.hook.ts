@@ -1,0 +1,804 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { Hook, HookContext } from '@objectstack/spec/data';
+import type { HookApi } from './_hook-api';
+
+/**
+ * Opportunity lifecycle hook.
+ *
+ * - Re-derives `expected_revenue` from `amount * stageProbability` when either changes.
+ * - Stamps `stage_entry_date` on insert and on every stage change — the stored
+ *   clock behind the `days_in_stage` formula and the stagnation sweep (#489).
+ * - Freezes most fields after stage is closed (won/lost) — only narrative fields
+ *   editable. The freeze yields to the engine's reference cleanup, so a closed
+ *   deal never makes the records it points at undeletable (#720).
+ * - On `closed_won`: stamps `close_date=today`, promotes the parent account to `customer`,
+ *   and asynchronously schedules an "Activate customer" task.
+ */
+
+const opportunityValidationHook: Hook = {
+  name: 'opportunity_lifecycle',
+  object: 'crm_opportunity',
+  events: ['beforeInsert', 'beforeUpdate'],
+  priority: 200,
+  description:
+    'Recompute expected_revenue, freeze closed opportunities except narrative fields.',
+  handler: async (ctx: HookContext) => {
+    // The refusal envelope (#1075). Mirrored from `./_refusal.ts` because a
+    // lowered body has no module scope and `extractHookBody` THROWS on an
+    // import; `test/refusal-envelope.test.ts` pins every copy against it.
+    function refuse(
+      message: string,
+      code: string,
+      status: number,
+      userMessage: string = message,
+    ): Error {
+      const err = new Error(message) as Error & {
+        code: string;
+        status: number;
+        userMessage: string;
+      };
+      err.code = code;
+      err.status = status;
+      err.userMessage = userMessage;
+      return err;
+    }
+    // NOTE: L2 hook bodies run *body-only* in a sandbox (QuickJS) — module-level
+    // constants are NOT in scope at runtime. These MUST be declared inside the
+    // handler or the body throws `ReferenceError` on every write. (See ADR on
+    // sandboxed hooks; same pattern as lead.hook.ts.)
+    const STAGE_PROBABILITY: Record<string, number> = {
+      prospecting: 10,
+      qualification: 25,
+      needs_analysis: 40,
+      proposal: 60,
+      negotiation: 80,
+      closed_won: 100,
+      closed_lost: 0,
+    };
+    const NARRATIVE_FIELDS = new Set(['description', 'next_step', 'notes']);
+    // Framework-managed columns are re-stamped by the runtime itself (ownership
+    // reassignment, audit timestamps) — including during post-seed ownership
+    // assignment introduced in ObjectStack 9.x. The "freeze closed record" guard
+    // must never reject these system writes, only user edits to business fields.
+    // (Declared in-handler: sandboxed bodies have no module scope.)
+    const SYSTEM_FIELDS = new Set([
+      'id', 'owner_id', 'created_at', 'updated_at',
+      'created_by', 'updated_by', 'space_id', 'organization_id', 'org_id', 'version',
+    ]);
+    // Approval verdicts must be allowed to land even if the deal closes while
+    // the request is in flight — rejecting them left the record locked with a
+    // permanently pending approval.
+    //
+    // ⚠️ Why this exemption is still needed even though `opportunity_approval`
+    // declares `runAs: 'system'`, and why that is not a contradiction:
+    // ELEVATION IS NOT ANONYMITY (objectstack#5494). `resolveRunDataContext`
+    // returns `{ isSystem: true, actor, ...userId }` for a `runAs: 'system'`
+    // run — it carries the triggering user through rather than erasing them.
+    // So ONE approval write is seen by TWO guards keyed on DIFFERENT halves of
+    // that context, and both fire as designed:
+    //   • this freeze guard keys on `ctx.user?.id`, which is PRESENT ⇒ the
+    //     write is judged as a user edit and would be rejected on a closed
+    //     deal — hence this allow-list.
+    //   • the engine's readonly strip keys on `isSystem`, which is TRUE ⇒ the
+    //     strip branch (`if (!opCtx.context?.isSystem)`) is skipped, so the
+    //     stamps land even though both columns are declared `readonly: true`
+    //     (#1666).
+    // ⛔ Neither mechanism needs changing, and neither is a substitute for the
+    // other: dropping this allow-list re-locks in-flight approvals, and the
+    // readonly declaration is what keeps a hand-edit out. Measured in
+    // `test/readonly-write-semantics.test.ts` and pinned for these two columns
+    // in `test/audit-stamp-readonly.test.ts`.
+    // `status_change_approval_status` and `requested_status` join the
+    // allow-list for the same reason and by the same mechanism: the REQ-0006
+    // gate's flow stamps its verdict and clears the request AFTER the deal has
+    // reached a closed stage, and elevation is not anonymity — the freeze
+    // guard below would judge those writes as user edits on a closed record
+    // and re-lock an in-flight approval.
+    // `qualification_approval_status` and `qualification_requested` (the
+    // REQ-0006 step-11 立项 gate) join for the same reason and by the same
+    // mechanism. Their flow stamps the verdict, and on a rejection clears the
+    // request, under the triggering user; a deal a write this hook does not
+    // judge (a system write, no user) closed while the 立项 request was open
+    // would otherwise refuse that stamp and leave the approval decided but
+    // never recorded.
+    const APPROVAL_FIELDS = new Set([
+      'approval_status', 'approved_date',
+      'status_change_approval_status', 'requested_status',
+      'qualification_approval_status', 'qualification_requested',
+    ]);
+    // Stage → forecast category.
+    const STAGE_FORECAST: Record<string, string> = {
+      prospecting: 'pipeline',
+      qualification: 'pipeline',
+      needs_analysis: 'best_case',
+      proposal: 'commit',
+      negotiation: 'commit',
+      closed_won: 'closed',
+      closed_lost: 'omitted',
+    };
+
+    const { event, input } = ctx;
+    const previous = ctx.previous;
+
+    // ─── 立项 (qualification) gate (REQ-0006 step 11) ───────────────────
+    //
+    // 「新增商机可跟进，立项通过后方可更新阶段、投标、赢丢单操作。」 Until 立项 is
+    // approved, two acts are refused and every other edit stays open:
+    //   • any change of `stage` — 更新阶段, which includes a direct close
+    //     (赢丢单);
+    //   • a NEW `requested_status` — the won/lost request (赢丢单) the step-14
+    //     gate opens. So with both gates armed 立项 comes FIRST: an unqualified
+    //     deal cannot even ask for a status change.
+    // `will_bid` (是否投标) is deliberately NOT held (#2004, ruled): step 8 has
+    // the rep fill it as INPUT to 立项, for the approver to read, so holding it
+    // until approval would have the approver decide without it. Step 11's 投标
+    // is the act of bidding, which HotCRM does not model.
+    // Built on the step-14 gate below and deliberately the same in every
+    // load-bearing term:
+    //   • a TRANSITION GATE, not an invariant (AGENTS.md metadata semantics
+    //     rule 7) — inert unless the install arms it, since
+    //     `qualification_approval_status` ships `not_required`;
+    //   • the verdict is read INPUT-FIRST, so a write that carries the
+    //     approved verdict is judged as approved. This gate's own flow writes
+    //     only the verdict (and on a rejection the request), so it never needs
+    //     that; it keeps the sibling's reading, and a hand-supplied verdict is
+    //     stripped before this hook runs (see the field);
+    //   • `rejected` refuses as `pending` does — an approver's "no" is not a
+    //     release; the way on is a new request;
+    //   • USER writes only (`ctx.user?.id`), the boundary both other guards in
+    //     this hook draw;
+    //   • RECORD_LOCKED / 409 (`REFUSAL_CODES.locked`).
+    // It sits ABOVE the step-14 block so an unqualified deal's direct close
+    // names the gate that comes first.
+    //
+    // ⚠️ BOUNDARY, recorded rather than hidden: `beforeInsert` is not judged.
+    // Creating a deal is 新增商机, which step 11 leaves open (step 8 has the rep
+    // fill 是否投标 on the new-deal form) — the line the step-14 gate draws too.
+    if (event === 'beforeUpdate' && previous && ctx.user?.id) {
+      const qualification = (input.qualification_approval_status ?? previous.qualification_approval_status) as string | undefined;
+      if (qualification === 'pending' || qualification === 'rejected') {
+        const held: string[] = [];
+        if (typeof input.stage === 'string' && input.stage !== previous.stage) held.push('Stage');
+        if (typeof input.requested_status === 'string' && input.requested_status !== '' && input.requested_status !== previous.requested_status) {
+          held.push('Requested Status');
+        }
+        if (held.length > 0) {
+          throw refuse(
+            `This deal needs qualification approval first: tick Request Qualification Approval. ${held.join(' and ')} can change once it is approved.`,
+            'RECORD_LOCKED',
+            409,
+          );
+        }
+      }
+    }
+
+    // ─── Status-change gate (REQ-0006 steps 13-14) ──────────────────────
+    //
+    // A TRANSITION GATE, not an invariant (AGENTS.md metadata semantics rule
+    // 7): it refuses the next move, and every deal already sitting in a closed
+    // stage keeps it. Inert unless the install arms the gate — shipped,
+    // `status_change_approval_status` defaults to `not_required` and this
+    // condition is false for every record that has ever existed, which is what
+    // keeps REQ-0006 acceptance 3's "bit-for-bit what it is today" true.
+    //
+    // ⚠️ The gate value is read INPUT-FIRST, and that is load-bearing. The
+    // approving flow writes `stage` and `status_change_approval_status:
+    // 'approved'` in ONE payload; reading `previous` first would see `pending`
+    // and refuse the flow's own write. `runAs: 'system'` does not help —
+    // elevation is not anonymity, so `ctx.user?.id` is present in that run
+    // exactly as the APPROVAL_FIELDS note above records.
+    //
+    // ⚠️ `rejected` refuses too, exactly as `lead_automation` refuses a
+    // conversion in both `pending` and `rejected`. An approver's "no" is not a
+    // release: if only `pending` refused, a single rejection would disarm the
+    // gate on that deal for good, and the rep could then close it directly with
+    // no approval at all. From `rejected` the way forward is a NEW request — the
+    // flow's start condition re-opens on it — never a direct stage write.
+    //
+    // RECORD_LOCKED / 409 (`REFUSAL_CODES.locked`): while the gate holds, the
+    // deal's own state freezes `stage` against a move into a closed stage — the
+    // same class the lead sibling answers with.
+    if (event === 'beforeUpdate' && previous && ctx.user?.id) {
+      const gate = (input.status_change_approval_status ?? previous.status_change_approval_status) as string | undefined;
+      const next = input.stage as string | undefined;
+      const closing = (next === 'closed_won' || next === 'closed_lost') && next !== previous.stage;
+      if (closing && (gate === 'pending' || gate === 'rejected')) {
+        throw refuse(
+          'This deal\'s status change needs approval: set Requested Status (and the win/loss reason) instead. The stage takes effect when the request is approved.',
+          'RECORD_LOCKED',
+          409,
+        );
+      }
+    }
+
+    // ─── Large Deal Approval: no close-won without it (#2334, #2350) ────
+    //
+    // `opportunity_approval` sends a deal at or over the large-deal line for
+    // approval, and its verdict lands in `approval_status`. A deal at or over
+    // the line is won only once that verdict is `approved` (#2350, ruling B):
+    // every other value refuses a user's move to `closed_won`, and that is
+    // deliberately wider than "pending or rejected" (#2334), which left two
+    // ways for a rep alone to win a large deal with no approval:
+    //   • recall, then close — the platform's recall hands the deal back at
+    //     `not_required`, and a save that moves the stage to Closed Won is not
+    //     a submission (the flow's start condition excludes closed stages);
+    //   • raise and close in one save — a deal under the line is
+    //     `not_required`, and one write that sets the amount over the line and
+    //     the stage to Closed Won opens no request.
+    // So `not_required`, an unset verdict, `pending` and `rejected` all
+    // refuse. From any of them the way forward is a save that leaves the stage
+    // open: the flow's start condition sends the deal for approval (from
+    // `rejected` too, #2334) — never a direct close.
+    //   • `closed_won` only: losing a deal needs no approval;
+    //   • at or over the line, read INPUT-FIRST like the verdict: a deal
+    //     revised under the line in the same write needs none. A
+    //     hand-supplied verdict is stripped before this hook runs (the field
+    //     is `readonly`), and no approval write carries `stage` (#2222);
+    //   • USER writes only (`ctx.user?.id`), the boundary every guard in this
+    //     hook draws: a seed, an import replay or a system sweep is not judged;
+    //   • RECORD_LOCKED / 409 (`REFUSAL_CODES.locked`).
+    // ⚠️ KNOWN LIMIT, measured on 18.2.0 (#2350): the refusal does not know
+    // whether `opportunity_approval` is switched on. A packaged flow is
+    // switched off in the platform's activation ledger
+    // (`sys_metadata_activation`, `POST /automation/:name/toggle`), and this
+    // body reads under the caller, who may not read that ledger (a rep's read
+    // answers PERMISSION_DENIED). An install that switches the flow off can
+    // therefore close no large deal won by hand. ⛔ No setting stands in for
+    // that reading.
+    // ─── …and no deal created at Closed Won by a non-administrator (#2387)
+    //
+    // A deal CREATED at `closed_won` at or over the line has the same hole:
+    // the write has no prior stage, no request ever opens (the on-create
+    // flow's start condition excludes closed stages), and the deal lands won
+    // at `not_required`. Measured on 18.2.0 before this change: a rep's REST
+    // create, JSON import, CSV import and console New form of a 250,000 deal
+    // at Closed Won all answered 201/created. Maintainer ruling (2026-11-02,
+    // 「只拦非管理员」): refuse that create for every user but an
+    // administrator, so an administrator can still load historical won deals.
+    //   • The administrator signal is `ctx.session.positions`, which the
+    //     platform fills from `sys_user_position` PLUS its built-in identity
+    //     projection (`ExecutionContext.positions`, ADR-0090 D3); the three
+    //     administrator identities are `platform_admin`, `org_owner` and
+    //     `org_admin` (`BUILTIN_IDENTITY_NAMES`, `@objectstack/spec`). No app
+    //     position can spell them: `sys_user_position` refuses a reserved
+    //     name. Measured on 18.2.0 through the SHIPPED body (lowered, QuickJS)
+    //     on all four doors above alike: the dev admin reads
+    //     `[platform_admin, org_owner, everyone]`, a member promoted to org
+    //     admin `[org_admin, everyone]`, a rep
+    //     `[org_member, sales_rep, na_sales_team, everyone]`. ⛔ Not keyed on
+    //     a name or email, and not on a permission set: the hook context
+    //     carries no permission list.
+    //   • The exemption is the CREATE's alone. On an update an administrator
+    //     is held to ruling B like everyone else.
+    //   • A system write (seed, a flow or sweep with no user) is not judged,
+    //     the boundary above, so the seed's closed-won deals keep loading.
+    // ⚠️ The line is a COPY of `LARGE_DEAL_AMOUNT` (`_thresholds.ts`): a
+    // lowered body cannot import it. `test/deal-threshold-parity.test.ts`
+    // holds this copy and the `quote_workflow` one to the constant; the
+    // create and the update share it, so there is one copy, not two.
+    const creating = event === 'beforeInsert';
+    if ((creating || (event === 'beforeUpdate' && previous)) && ctx.user?.id) {
+      const LARGE_DEAL_AMOUNT = 100000;
+      const ADMIN_IDENTITIES = ['platform_admin', 'org_owner', 'org_admin'];
+      const prior = (previous ?? {}) as Record<string, unknown>;
+      const verdict = (input.approval_status ?? prior.approval_status) as string | undefined;
+      const dealAmount = Number(input.amount ?? prior.amount);
+      const winning = input.stage === 'closed_won' && (creating || input.stage !== prior.stage);
+      const positions = (ctx.session?.positions ?? []) as string[];
+      const exempt = creating && positions.some((p) => ADMIN_IDENTITIES.includes(p));
+      if (winning && !exempt && verdict !== 'approved' && dealAmount >= LARGE_DEAL_AMOUNT) {
+        // Two sentences, one per reader (#2338 items 12, 14-16): the message
+        // is the diagnostic and keeps API names; the `userMessage` is what the
+        // console shows and names the stage, the field and its value by the
+        // labels on `crm_opportunity` (`test/refusal-labels.test.ts` holds
+        // them to the object). The line is printed from the one copy above.
+        const VERDICT_LABELS: Record<string, string> = { not_required: 'Not Required', pending: 'Pending', rejected: 'Rejected' };
+        const line = String(LARGE_DEAL_AMOUNT).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        const shown = VERDICT_LABELS[verdict as string] ?? VERDICT_LABELS.not_required;
+        const next = creating
+          ? 'Create it at an open stage to send it for approval; it can be Closed Won once approved. Only an administrator can create it already won.'
+          : verdict === 'pending'
+            ? 'It can be Closed Won once the request is approved.'
+            : verdict === 'rejected'
+              ? 'Revise the deal and save it to send it for approval again; it can be Closed Won once approved.'
+              : 'Save the deal without closing it to send it for approval; it can be Closed Won once approved.';
+        throw refuse(
+          creating
+            ? `A deal of LARGE_DEAL_AMOUNT (${LARGE_DEAL_AMOUNT}) or more is created at closed_won only by an administrator (position platform_admin, org_owner or org_admin); amount is ${dealAmount}, approval_status is ${verdict ?? 'unset'}.`
+            : `A deal of LARGE_DEAL_AMOUNT (${LARGE_DEAL_AMOUNT}) or more moves to closed_won only once approval_status is approved; amount is ${dealAmount}, approval_status is ${verdict ?? 'unset'}.`,
+          'RECORD_LOCKED',
+          409,
+          `A deal of ${line} or more needs Large Deal Approval before it can be Closed Won, and its Approval Status is ${shown}. ${next}`,
+        );
+      }
+    }
+
+    // Freeze closed opportunities — but guard ONLY genuine USER edits. A write
+    // with no authenticated user (`ctx.user?.id` absent) is a system / seed /
+    // backfill write and must pass: the seed's `close_date: daysAgo(15)`
+    // re-evaluates to a new date on every reboot, so a re-seed legitimately
+    // changes close_date on already-closed opps. Guarding those threw 23
+    // boot-time BodyRunner errors AND blocked the seed from correcting
+    // closed-won `probability` to 100 (#459). `ctx.user?.id` is this repo's
+    // system-write signal (cf. case/lead/quote hooks) and matches the
+    // SYSTEM_FIELDS intent above ("only user edits to business fields").
+    // Still runs before the derived-field recompute below so a genuine user
+    // edit is judged on the caller's own fields, not injected ones.
+    if (event === 'beforeUpdate' && previous && ctx.user?.id) {
+      const prevStage = previous.stage as string | undefined;
+      const isClosed = prevStage === 'closed_won' || prevStage === 'closed_lost';
+      if (isClosed) {
+        const violating = Object.keys(input).filter(
+          (k) => !NARRATIVE_FIELDS.has(k) && !SYSTEM_FIELDS.has(k) && !APPROVAL_FIELDS.has(k) && input[k] !== previous[k],
+        );
+        if (violating.length > 0) {
+          // Every lookup on `crm_opportunity` a referential clear can attack.
+          const REFERENCE_FIELDS = new Set([
+            'account_manager', 'crm_account', 'crm_campaign', 'crm_legal_entity',
+            'delivery_manager', 'primary_contact', 'solution_manager',
+          ]);
+          // ───────────────────────────────────── the reference-cleanup yield ──
+          // #720. The engine implements `deleteBehavior: 'set_null'` by UPDATING
+          // the row that HOLDS the lookup, so deleting a contact or a campaign a
+          // CLOSED opportunity references arrives here as an ordinary user
+          // `beforeUpdate` — and this freeze refused it, which made the frozen
+          // opportunity able to keep a person undeletable forever (and, through
+          // the master-detail cascade, that person's account too — a GDPR
+          // erasure that cannot be carried out).
+          //
+          // Measured on 17.1.0 — the version this repo pinned AT THE TIME of
+          // the measurement, not the current pin (the cascade shape below has
+          // NOT been re-measured on any later pin — not 17.3.0, #1676, not
+          // 17.4.0, PR #1814, and not 17.5.0) — with a probe hook at priority 199 immediately
+          // ahead of each guard, not assumed.
+          // The engine builds its cleanup write on the CALLER's own context
+          // plus two engine keys, so on the path a REST `DELETE` takes, the
+          // cascade and a user's hand-clear of the same lookup are identical
+          // everywhere a guard can look: payload
+          // `{ id, <link>: null, updated_at, updated_by }`, `ctx.user` the
+          // CALLER, `ctx.session` the caller's own `{ userId, isSystem }`.
+          // (Both `updated_by` and the identity drop out together when the
+          // DELETE itself carried no `userId` — a rig artefact, not this app's
+          // path.) So the WRITE SHAPE is not a discriminator, and the yield
+          // below is not one either: it lets ANY caller clear a declared link
+          // on a settled record. That is the trade #720 accepted, not a side
+          // effect of it.
+          //
+          // ⚠️ A marker DOES reach a hook — and is deliberately not read. An
+          // earlier version of this note concluded "no marker reaches a hook,
+          // and the WRITE SHAPE is the only evidence there is"; it reasoned
+          // only about `ctx.session`, whose allow-list really does omit
+          // `__`-prefixed operation-private keys, and missed the other route
+          // into the context. `ObjectQL.cascadeDeleteRelations` builds
+          // `{ ...context, __referentialFieldClear: true }`, readable at
+          // `ctx.api.executionContext.__referentialFieldClear`: measured `true`
+          // on every cascade into `crm_opportunity`, `crm_quote` and
+          // `crm_lead`, `undefined` on every hand-clear (#1165, #1412).
+          //
+          // ⛔ The #1165 ruling (2026-08-25) reviewed that and upheld NOT
+          // reading it, on two grounds. It is an operation-private key — an
+          // undeclared dependency that can vanish in a patch release. And
+          // reachability through the SHIPPED path is unproven: a hook body runs
+          // body-only in QuickJS, where `buildSandboxApi` passes `engineCtx.api`
+          // only when that exposes `object()`, and otherwise a shim with no
+          // `executionContext` at all. Green in a kernel rig and silently false
+          // in production is the worst outcome a guard can have. The declared
+          // replacement `ctx.referentialFieldClear` is asked for upstream as
+          // objectstack-ai/objectstack#13644.
+          //
+          // ⛔ Keep this narrow (maintainer's ruling on #720, Option A): a write
+          // yields ONLY when every one of its non-system changes is a DECLARED
+          // link going from a value to `null`. One business field alongside it,
+          // or a link repointed to a NEW value, and the refusal below still
+          // fires. The three freeze guards share this block verbatim — sharing
+          // it as an imported helper is not possible (hook bodies run body-only
+          // in the sandbox and cannot reach module scope), so
+          // `test/freeze-guard-reference-cleanup.test.ts` pins the three copies
+          // as identical text and pins both directions of the narrowness.
+          const isReferenceCleanup = violating.every(
+            (k) => REFERENCE_FIELDS.has(k) && input[k] === null && previous?.[k] != null,
+          );
+          if (isReferenceCleanup) return;
+
+          // `crm_opportunity.nameField` IS `name`, so the name on its own is
+          // exactly how every other surface titles this record. ⛔ Never append
+          // the record id — it matches none of them.
+          const name = typeof previous.name === 'string' ? previous.name.trim() : '';
+          const subject = name ? `Opportunity ${name}` : 'Opportunity';
+          // Two sentences, one per reader (#2338 item 12). The message is the
+          // diagnostic and keeps API names, including the attempted keys —
+          // nothing gets a turn after this throw, so it is the only place a
+          // log or an API caller learns which key tripped the freeze. The
+          // `userMessage` is what the console shows, and it names the stage
+          // and the fields by their labels: users were shown "closed
+          // (closed_won); only description, next_step, notes may be edited.
+          // Attempted: amount". A lowered body cannot read the object's
+          // metadata, so the labels are written out here;
+          // `test/refusal-labels.test.ts` reads them off `crm_opportunity` and
+          // fails when a label and this sentence part ways. `notes` has no
+          // label because the object has no such field.
+          const STAGE_LABELS: Record<string, string> = { closed_won: 'Closed Won', closed_lost: 'Closed Lost' };
+          const NARRATIVE_LABELS: Record<string, string> = { description: 'Description', next_step: 'Next Steps' };
+          const editable = [...NARRATIVE_FIELDS].map((k) => NARRATIVE_LABELS[k]).filter(Boolean).join(' and ');
+          throw refuse(
+            `${subject} is closed (${prevStage}); only ${[...NARRATIVE_FIELDS].join(', ')} may be edited. Attempted: ${violating.join(', ')}.`,
+            'RECORD_LOCKED',
+            409,
+            `${subject} is closed (${STAGE_LABELS[prevStage as string]}); only its ${editable} can still be edited.`,
+          );
+        }
+      }
+    }
+
+    // D3 stand-down: a predicate update has ONE payload for every matched row,
+    // so the `ctx.previous`-conditioned recomputes below would land on rows that
+    // did not earn them — refused as a diverging key set, or stored silently
+    // from the last row. Full account and the measurement: `forecast.hook.ts`.
+    // The closed-record REFUSAL above deliberately sits before this line:
+    // reading `previous` to throw is what D3 supplies it for, and a batch that
+    // touches a closed deal must still be refused.
+    if (ctx.event === 'beforeUpdate' && ctx.dispatch?.mode === 'per-row') return;
+
+    // Recompute expected_revenue
+    const amount =
+      typeof input.amount === 'number'
+        ? input.amount
+        : typeof previous?.amount === 'number'
+          ? (previous.amount as number)
+          : undefined;
+    const stage =
+      typeof input.stage === 'string'
+        ? input.stage
+        : typeof previous?.stage === 'string'
+          ? (previous.stage as string)
+          : undefined;
+    if (typeof amount === 'number' && stage && STAGE_PROBABILITY[stage] !== undefined) {
+      input.expected_revenue = Math.round(amount * STAGE_PROBABILITY[stage]) / 100;
+    }
+    if (stage && STAGE_PROBABILITY[stage] !== undefined) {
+      // Always sync probability with stage (single source of truth = stage).
+      input.probability = STAGE_PROBABILITY[stage];
+    }
+    // Sync forecast_category with stage on insert and whenever stage changes.
+    if (stage && STAGE_FORECAST[stage] !== undefined) {
+      const stageChanged = event === 'beforeInsert' || (typeof input.stage === 'string' && input.stage !== previous?.stage);
+      if (stageChanged) input.forecast_category = STAGE_FORECAST[stage];
+    }
+
+    // Start the stage-age clock at creation. Without this the row lands with a
+    // null `stage_entry_date`, `days_in_stage` reads null instead of 0, and the
+    // deal is invisible to the stagnation sweep until its first stage change —
+    // exactly backwards, since a deal that never moves is the stalled one.
+    if (event === 'beforeInsert' && !input.stage_entry_date) {
+      input.stage_entry_date = new Date().toISOString().slice(0, 10);
+    }
+
+    if (event === 'beforeUpdate' && previous) {
+      // Stamp close_date when transitioning into closed_won
+      if (input.stage === 'closed_won' && previous.stage !== 'closed_won' && !input.close_date) {
+        input.close_date = new Date().toISOString().slice(0, 10);
+      }
+      // Restart the stage-age clock on any stage change so a deal that
+      // advances stops matching the stagnation sweep. `days_in_stage` is a
+      // formula over this column, so this one write IS the reset — it used to
+      // set `days_in_stage = 0` against a counter nothing ever incremented.
+      // (Readonly fields are writable from before-hooks via input mutation:
+      // readonly stripping only drops keys the CALLER supplied.)
+      if (typeof input.stage === 'string' && input.stage !== previous.stage) {
+        input.stage_entry_date = new Date().toISOString().slice(0, 10);
+      }
+    }
+  },
+};
+
+/**
+ * On close-won: promote the account to `customer` and schedule the activation
+ * task for the deal's owner.
+ *
+ * `runAs: 'system'` (#2014, AGENTS.md rule 9). The trigger is a rep winning
+ * their own deal, and the account need not be theirs: as the caller, a read of
+ * an account the rep cannot see came back empty and the promotion was skipped
+ * without a word (measured: a rep's win on an account another user owns left
+ * it a `prospect`). That an account has a won deal is the account's fact, not
+ * the rep's edit, so the hook elevates; the deal write stays the caller's.
+ * Elevation is not anonymity: `ctx.user` and the audit stamps still name the
+ * rep. Organization (rule 10): it reads and writes only the account the
+ * triggering deal names, and the elevated `ctx.api` keeps the trigger's tenant.
+ */
+const opportunityWonHook: Hook = {
+  name: 'opportunity_promote_account',
+  object: 'crm_opportunity',
+  events: ['afterUpdate'],
+  priority: 800,
+  async: true,
+  onError: 'log',
+  runAs: 'system',
+  description:
+    'On closed_won: promote linked account to customer and create activation task.',
+  handler: async (ctx: HookContext) => {
+    const { input } = ctx;
+    const previous = ctx.previous;
+    const becameWon = input.stage === 'closed_won' && previous?.stage !== 'closed_won';
+    if (!becameWon) return;
+    const api = ctx.api as HookApi | undefined;
+    if (!api) return;
+
+    const accountId =
+      (typeof input.crm_account === 'string' && input.crm_account) ||
+      (typeof previous?.crm_account === 'string' && previous.crm_account) ||
+      undefined;
+    if (!accountId) return;
+
+    const account = await api.object('crm_account').findOne({ where: { id: accountId } });
+    if (account && account.type !== 'customer') {
+      await api.object('crm_account').update(
+        { id: accountId, type: 'customer' },
+        { where: { id: accountId } },
+      );
+    }
+
+    const oppId = (typeof input.id === 'string' && input.id) || previous?.id;
+    const ownerId =
+      (typeof input.owner_id === 'string' && input.owner_id) ||
+      (typeof previous?.owner_id === 'string' && previous.owner_id) ||
+      ctx.user?.id;
+    // UTC calendar for the step, matching the `toISOString()` render below —
+    // see the note on the same shape in `lead.hook.ts`. A local `setDate` step
+    // preserves wall-clock time, so across a spring-forward the activation task
+    // is filed a day early in every non-UTC deployment.
+    const due = new Date();
+    due.setUTCDate(due.getUTCDate() + 3);
+
+    // Title the task with the opportunity's NAME (#1243). This is one of the
+    // two rows a walkthrough of current main still writes with a raw key in it,
+    // and it lands in **All Tasks** next to the escalation rows #1208 already
+    // fixed. `crm_opportunity.name` is required + notNull, so the bare fallback
+    // is a shape the schema does not permit rather than an expected case — it
+    // exists so a pre-image that arrived without the column still produces a
+    // sentence instead of a dangling one. The 255 cap is the same one
+    // `case.hook.ts` documents: `crm_task.subject` enforces it, and this hook is
+    // `async: true` + `onError: 'log'`, so a rejected insert would surface
+    // nowhere at all.
+    //
+    // ⛔ Except when the deal is PRIVATE. A deal flagged Private is visible only
+    // to its owner (`src/docs/crm_admin_access.md`), and that promise covers what the
+    // app derives from it. Who may read THIS task is decided by `crm_task`'s own
+    // grants and its owner, not by the deal's, so its title is written for every
+    // reader of the task: a private deal's task reads
+    // `Activate new customer (private opportunity)`, without the name. The owner
+    // still gets the step, and `related_to_opportunity` still links the deal for
+    // whoever can read it. The flag is read the way the name is — this write's
+    // value first, then the stored row — and only `true` counts as private, the
+    // field's own boolean (`crm_opportunity.is_private`, default `false`).
+    // `test/private-opportunity-derived-records.test.ts` pins it.
+    const isPrivate =
+      typeof input.is_private === 'boolean' ? input.is_private : previous?.is_private === true;
+    const oppName =
+      (typeof input.name === 'string' && input.name.trim()) ||
+      (typeof previous?.name === 'string' && previous.name.trim()) ||
+      '';
+    const titled = isPrivate
+      ? 'Activate new customer (private opportunity)'
+      : oppName
+        ? `Activate new customer for opportunity ${oppName}`
+        : 'Activate new customer';
+    await api.object('crm_task').insert({
+      subject: titled.length > 255 ? `${titled.slice(0, 254)}…` : titled,
+      status: 'not_started',
+      priority: 'high',
+      type: 'follow_up',
+      due_date: due.toISOString().slice(0, 10),
+      owner_id: ownerId,
+      related_to_type: 'crm_opportunity',
+      related_to_opportunity: oppId,
+      related_to_account: accountId,
+    });
+  },
+};
+
+
+/**
+ * The capability gate — an account whose `commercial_capability` is
+ * `settlement_only` may not have a NEW opportunity opened against it.
+ *
+ * REQ-0003's most valuable primitive: *some counterparties are payable but not
+ * sellable* — 「招标代理及其他类客户仅可用于付款回款，无法发起商机」. The category lives on
+ * `crm_account`; this is the rule that reads it, and without a reader the
+ * category would be prose (REQ-0003 *Disposition & rationale*).
+ *
+ * ## ⚠️ `beforeInsert` ONLY — a transition gate, not an invariant
+ *
+ * Maintainer ruling, 2026-09-16 (verbatim, kept untranslated):
+ *
+ *   「闸门走 `opportunity.hook.ts` 的 `beforeInsert`，用 hook 的 `ctx.api` 读客户类别。
+ *    REQ-0003 第 128 行的 `validations[]` 与该记录自己的验收第 2 条冲突，以验收为准。」
+ *
+ * The event list IS the transition gate (AGENTS.md metadata semantics rule 7),
+ * and it is the construct rather than a comment claiming the property. An
+ * opportunity that already points at an account restricted later is never
+ * re-evaluated: it keeps working and keeps being editable, which REQ-0003
+ * acceptance 2 demands in as many words. ⛔ Never restate this as a
+ * `validations[]` script — a validation is evaluated against
+ * `{...previous, ...data}` on every write, where "already linked" and "linking
+ * now" are the same state, so it would refuse every later edit to every
+ * historical opportunity. The whole measurement, including why a predicate
+ * cannot read the account at all, is on `crm_account.commercial_capability`.
+ *
+ * ⚠️ BOUNDARY, recorded rather than hidden: an UPDATE that re-points an
+ * EXISTING opportunity onto a restricted account is not refused. That is the
+ * ruling's construct and it is also what acceptance 2 asks for — the refusal is
+ * scoped to "linked to a NEW opportunity". Widening to `beforeUpdate` is not a
+ * free win either: the update payload would have to be judged against
+ * `previous` to tell a re-point from an ordinary edit, which is the state
+ * confusion this event list exists to avoid. A gate on re-pointing is a
+ * separate decision, not a tidy-up.
+ *
+ * ## Fails OPEN, on purpose
+ *
+ * Only the one verdict a person wrote down refuses (AGENTS.md metadata
+ * semantics rule 8). An account that predates the column, an account that
+ * cannot be found, an absent `ctx.api` and an unrecognised value all let the
+ * write through: the shipped default is `full`, and an account created before
+ * this field existed carries nothing at all — both must open deals exactly as
+ * they did before the gate existed.
+ *
+ * ⚠️ A read that THROWS is not in that list and is deliberately not caught. A
+ * broken read is not evidence that the account is sellable; swallowing it
+ * would make the gate silently absent exactly when the platform cannot answer.
+ *
+ * ## `runAs: 'system'`, and a refusal that names no account (#2014)
+ *
+ * As the caller, the verdict was read under the caller's record access — and a
+ * rep who cannot read the account is not refused that read: record-level
+ * access FILTERS it, `findOne` answers `null`, the gate took that for "cannot
+ * be found" and stood down, and the engine's reference check accepted the link
+ * (measured on 17.7.0: an outsider opened a deal on a Settlement Only account
+ * they cannot read). Whether an account is sellable is the account's
+ * commercial fact, not a privilege of whoever names it, so the gate reads it
+ * elevated (AGENTS.md rule 9 — the read is the one thing elevated; the deal
+ * write stays the caller's).
+ *
+ * What elevation reads must not leak back through the refusal. Maintainer
+ * ruling on #2014 (option B): the refusal says "this account" and names none —
+ * no number, no name, no id — and states nothing it read beyond the one fact
+ * that blocks the deal, the Settlement Only verdict. It supersedes #1243's
+ * "name the account the way the UI does" on this one path: the caller chose
+ * the account on the very form the refusal answers, so the dialog stays clear
+ * without echoing an account the caller may not be allowed to read. So the read
+ * asks for `commercial_capability` and nothing else.
+ *
+ * Organization (AGENTS.md rule 10): the read is pinned to the new deal's own
+ * `organization_id` when it carries one, so an elevated verdict is never read
+ * from another organization's account; a deal with no organization (a
+ * single-organization install) has no wall to stay inside, and is not pinned.
+ * An account outside the deal's organization then reads as "cannot be found"
+ * and the gate stands down — the same answer a person's tenant-scoped read
+ * already gives.
+ *
+ * ⛔ No system-write exemption, deliberately, and it is the same reading the
+ * two approval flows record: a control that engages only for writers carrying a
+ * session is not a control, since a `runAs: 'system'` importer would simply
+ * bypass it.
+ *
+ * Priority 150 runs it AHEAD of `opportunity_lifecycle` (200): a refused write
+ * should not first pay for the derived-field recompute.
+ */
+const opportunityAccountCapabilityHook: Hook = {
+  name: 'opportunity_account_capability',
+  object: 'crm_opportunity',
+  events: ['beforeInsert'],
+  priority: 150,
+  runAs: 'system',
+  description:
+    'Refuse a NEW opportunity linked to an account whose commercial capability is settlement only.',
+  handler: async (ctx: HookContext) => {
+    // The refusal envelope (#1075). Mirrored from `./_refusal.ts` because a
+    // lowered body has no module scope and `extractHookBody` THROWS on an
+    // import; `test/refusal-envelope.test.ts` pins every copy against it.
+    function refuse(
+      message: string,
+      code: string,
+      status: number,
+      userMessage: string = message,
+    ): Error {
+      const err = new Error(message) as Error & {
+        code: string;
+        status: number;
+        userMessage: string;
+      };
+      err.code = code;
+      err.status = status;
+      err.userMessage = userMessage;
+      return err;
+    }
+    const api = ctx.api as HookApi | undefined;
+    if (!api) return;
+    const accountId = ctx.input.crm_account;
+    if (typeof accountId !== 'string' || accountId === '') return;
+
+    const org = ctx.input.organization_id;
+    const account = await api.object('crm_account').findOne({
+      where: { id: accountId, ...(typeof org === 'string' && org ? { organization_id: org } : {}) },
+      fields: ['commercial_capability'],
+    });
+    if (!account || account.commercial_capability !== 'settlement_only') return;
+
+    // ⛔ "this account", never a number, a name or an id — see the note above.
+    throw refuse(
+      'Cannot open an opportunity against this account: its Commercial Capability is Settlement Only, so it is available for billing and payment but no new business may be booked against it. Pick a different account, or have the account reclassified to Full first.',
+      'VALIDATION_FAILED',
+      400,
+    );
+  },
+};
+
+/**
+ * Demo (epic #2 / T6) — 「招标代理及其他类客户仅可用于付款回款，无法发起商机」.
+ * A cross-object TRANSITION gate (a CEL predicate cannot read the parent
+ * account), so it is a hook; existing rows are untouched (semantics rule 7).
+ * Fails open when the account cannot be read, so a seed row whose lookup is
+ * still a name at hook time is not refused by accident.
+ */
+const opportunityAccountClassificationGate: Hook = {
+  name: 'opportunity_account_classification_gate',
+  object: 'crm_opportunity',
+  events: ['beforeInsert'],
+  priority: 150,
+  description: 'Refuse a new opportunity on a bidding-agency or other-class account (demo, epic #2).',
+  handler: async (ctx: HookContext) => {
+    // The refusal envelope (#1075), inline like every refusing hook — see
+    // `_refusal.ts` and `test/refusal-envelope.test.ts`. Both gates are the
+    // `prohibited` class (FORBIDDEN / 403): a compliance flag on the account
+    // forbids the action outright, and retrying does not help.
+    function refuse(
+      message: string,
+      code: string,
+      status: number,
+      userMessage: string = message,
+    ): Error {
+      const err = new Error(message) as Error & {
+        code: string;
+        status: number;
+        userMessage: string;
+      };
+      err.code = code;
+      err.status = status;
+      err.userMessage = userMessage;
+      return err;
+    }
+    const api = ctx.api as HookApi | undefined;
+    const { input } = ctx;
+    const accountId = typeof input?.crm_account === 'string' ? input.crm_account : '';
+    if (!api || !accountId) return;
+    const account = await api.object('crm_account').findOne({ where: { id: accountId }, fields: ['name', 'classification', 'ear_status'] });
+    const cls = account?.classification;
+    if (cls === 'bidding_agency' || cls === 'other') {
+      const name = typeof account?.name === 'string' ? account.name : accountId;
+      throw refuse(
+        `Account ${name} is classified ${cls}; it may only be used for payment and collection, not to open an opportunity.`,
+        'FORBIDDEN',
+        403,
+        `客户「${name}」为招标代理/其他类客户，仅可用于付款回款，无法发起商机`,
+      );
+    }
+    // Round 2 (step 3, semantics rule 8): only a person's CONFIRMED EAR listing
+    // blocks; a machine `suspected` hit lets the write through.
+    if (account?.ear_status === 'confirmed') {
+      const name = typeof account?.name === 'string' ? account.name : accountId;
+      throw refuse(
+        `Account ${name} is confirmed on the US EAR entity list; no opportunity may be opened.`,
+        'FORBIDDEN',
+        403,
+        `客户「${name}」已被人工确认列入美国 EAR 管制清单，无法发起商机`,
+      );
+    }
+  },
+};
+
+export default [
+  opportunityAccountCapabilityHook,
+  opportunityValidationHook,
+  opportunityWonHook,
+  opportunityAccountClassificationGate,
+];

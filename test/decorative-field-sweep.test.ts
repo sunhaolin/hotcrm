@@ -6,25 +6,33 @@ import { DefaultDatasourcePlugin, AppPlugin } from '@objectstack/runtime';
 import { ObjectQLPlugin } from '@objectstack/objectql';
 import { MetadataPlugin } from '@objectstack/metadata';
 import stack from '../objectstack.config';
-import { Product } from '../src/objects/product.object';
-import { Case } from '../src/objects/case.object';
-import { Task } from '../src/objects/task.object';
-import { Contact } from '../src/objects/contact.object';
-import { Campaign } from '../src/objects/campaign.object';
-import { Account } from '../src/objects/account.object';
-import { ProductViews } from '../src/views/product.view';
-import { CaseViews } from '../src/views/case.view';
-import { TaskViews } from '../src/views/task.view';
-import { ContactViews } from '../src/views/contact.view';
-import { CampaignViews } from '../src/views/campaign.view';
-import { AccountViews } from '../src/views/account.view';
-import { products } from '../src/data/catalog.seed';
-import { ContactImportMapping } from '../src/mappings/contact_import.mapping';
-import { AccountImportMapping } from '../src/mappings/account_import.mapping';
-import { localePacks, type AnyRec } from './helpers/metadata-fixtures';
+import { Product } from '../src/revenue/objects/product.object';
+import { Case } from '../src/service/objects/case.object';
+import { Task } from '../src/sales/objects/task.object';
+import { Contact } from '../src/sales/objects/contact.object';
+import { Campaign } from '../src/marketing/objects/campaign.object';
+import { Account } from '../src/sales/objects/account.object';
+import { ProductViews } from '../src/revenue/views/product.view';
+import { CaseViews } from '../src/service/views/case.view';
+import { TaskViews } from '../src/sales/views/task.view';
+import { ContactViews } from '../src/sales/views/contact.view';
+import { CampaignViews } from '../src/marketing/views/campaign.view';
+import { AccountViews } from '../src/sales/views/account.view';
+import { products } from '../src/revenue/data/catalog.seed';
+import { ContactImportMapping } from '../src/sales/mappings/contact_import.mapping';
+import { AccountImportMapping } from '../src/sales/mappings/account_import.mapping';
+import { localePacks, type AnyRec } from './helpers/composed-stack';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
+import { withoutOwnershipQueues } from './helpers/bare-kernel-stack';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * Enforce-or-remove, decided per field (#1182).
@@ -194,7 +202,7 @@ describe('the account hierarchy was kept because it now has a consumer (#1182)',
  * and they are re-measured here on every run.
  */
 describe('the roll-up actually computes, and keeps computing (#1182)', () => {
-  const SYS = { isSystem: true } as AnyRec;
+  const SYS = { isSystem: true, tenantId: ORG } as AnyRec;
   let kernel: AnyRec;
   let ql: AnyRec;
   const id: Record<string, string> = {};
@@ -214,12 +222,12 @@ describe('the roll-up actually computes, and keeps computing (#1182)', () => {
   beforeAll(async () => {
     process.env.OS_REGISTRY_LOG ??= 'silent';
     kernel = new ObjectKernel({ logger: { level: 'silent' } } as never);
-    await kernel.use(new DefaultDatasourcePlugin({ driver: 'memory', config: {} } as never));
+    await kernel.use(new DefaultDatasourcePlugin({ driver: 'sqlite-wasm', config: { filename: ':memory:' } } as never));
     await kernel.use(new MetadataPlugin({ watch: false, artifactWatch: false, environmentId: 'proj_sweep' } as never));
     await kernel.use(new ObjectQLPlugin({ environmentId: 'proj_sweep' } as never));
     // The app's own metadata is the subject. Seed data is skipped — the three
     // accounts below are the whole population, so the sums are unambiguous.
-    await kernel.use(new AppPlugin(stack as never, undefined as never, { skipSeedData: true } as never));
+    await kernel.use(new AppPlugin(withoutOwnershipQueues(stack) as never, undefined as never, { skipSeedData: true } as never));
     await kernel.bootstrap();
     ql = kernel.getService('objectql');
 

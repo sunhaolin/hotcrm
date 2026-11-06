@@ -1,27 +1,20 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { CrmSeedData } from '../src/data/index';
-import caseHooks from '../src/objects/case.hook';
-import {
-  makeHarness as makeHookHarness, makeCtx as makeHookCtx, hookNamed,
-} from './helpers/hook-harness';
-import { CampaignCompletionFlow } from '../src/flows/campaign-completion.flow';
-import { CaseSlaMonitorFlow } from '../src/flows/case-sla-monitor.flow';
-import { ContractExpirationFlow } from '../src/flows/contract-expiration.flow';
-import { ContractRenewalFlow } from '../src/flows/contract-renewal.flow';
-import { DemoBootstrapFlow } from '../src/flows/demo-bootstrap.flow';
-import { ForecastSnapshotFlow } from '../src/flows/forecast-snapshot.flow';
-import * as CrmObjects from '../src/objects';
-import { MarketingUserProfile } from '../src/profiles/marketing-user.profile';
-import { ServiceAgentProfile } from '../src/profiles/service-agent.profile';
-import { OpportunityStagnationFlow } from '../src/flows/opportunity-stagnation.flow';
-import { QuoteExpirationFlow } from '../src/flows/quote-expiration.flow';
-import forecastDerive from '../src/objects/forecast.hook';
-import { TaskDueReminderFlow } from '../src/flows/task-due-reminder.flow';
-import * as allFlows from '../src/flows';
-import { makeFlowHarness, type Rec } from './helpers/flow-harness';
+import { bootStack, type VerifyStack } from '@objectstack/verify';
+import { SeedLoaderService } from '@objectstack/runtime';
+import { claimSeedOwnership } from '@objectstack/plugin-security';
+import { SeedLoaderRequestSchema } from '@objectstack/spec/data';
+import { CrmSeedData } from '../objectstack.composition';
+import artifact from '../objectstack.config';
+import { CrmFlows as allFlows } from './helpers/src-roster';
 import { regionsOf } from './helpers/flow-regions';
+import {
+  hotcrmStack, bootOptions, buildArtifactAgain, signUpPerson, systemUpdate, notificationsTo, runScheduledFlow,
+  settleNotificationDeliveries, type Person,
+} from './helpers/verify-stack';
+
+type Rec = Record<string, any>;
 
 /**
  * Runtime tests for the SCHEDULED sweeps.
@@ -30,13 +23,20 @@ import { regionsOf } from './helpers/flow-regions';
  * hardest flows to get right for exactly the reason that makes them hard to
  * test: they select their own work. A sweep whose filter matches nothing is
  * indistinguishable from a sweep with nothing to do — it runs, logs nothing,
- * and stays green forever. Every case below therefore seeds BOTH rows that must
- * be picked up and rows that must be left alone, so a filter that silently
- * matches everything (or nothing) fails.
+ * and stays green forever. Every case below therefore writes BOTH rows that
+ * must be picked up and rows that must be left alone, so a filter that
+ * silently matches everything (or nothing) fails.
  *
- * These run the real `AutomationEngine` over the in-memory data engine in
- * `test/helpers/flow-harness.ts`, which — unlike the equality-only engines the
- * older flow tests carried — implements `$lt` / `$lte` / `$nin` / `$in`.
+ * These run on the shipped app booted by `@objectstack/verify`: the fixture
+ * rows are written through the real engine (as a person, or as the system
+ * where the row's state is not one a person can produce), each sweep is
+ * started the way its schedule trigger starts it (`runScheduledFlow`: the
+ * trigger door refuses a system sweep to a person since 18.0.0-next.0), and its effects
+ * are read back off the engine — rows, and the notifications it handed the
+ * messaging outbox (`notificationsTo`). The boot replays the app's seed data
+ * and a sweep processes every match, seed rows included; so every reading is
+ * taken over THIS case's own rows (by id, or by the action URL a notification
+ * points at), never as a count over a whole object.
  */
 
 /**
@@ -44,7 +44,7 @@ import { regionsOf } from './helpers/flow-regions';
  * filter on a bare `{TODAY()}`, which the engine resolves on UTC; doing the
  * day arithmetic on the local calendar and rendering it with `toISOString()`
  * mixes two calendars and lands one UTC day late across a DST spring-forward.
- * `test/helpers/hook-harness.ts`'s `daysFromNow` carries the full reasoning.
+ * `test/helpers/verify-stack.ts`'s `daysFromNow` carries the full reasoning.
  */
 const iso = (daysFromNow: number): string => {
   const d = new Date();
@@ -53,48 +53,114 @@ const iso = (daysFromNow: number): string => {
 };
 const day = (daysFromNow: number): string => iso(daysFromNow).slice(0, 10);
 
-describe('case_sla_monitor — hourly breach sweep', () => {
-  const seedCases = (): Rec[] => [
-    // Breached and still open — MUST be flagged.
-    {
-      id: 'c_breached', case_number: 'CASE-1', status: 'working', priority: 'critical',
-      is_sla_violated: false, sla_due_date: iso(-2), owner_id: 'rep1',
-    },
-    // Due in the future — must be left alone.
-    {
-      id: 'c_future', case_number: 'CASE-2', status: 'working', priority: 'high',
-      is_sla_violated: false, sla_due_date: iso(+2), owner_id: 'rep1',
-    },
-    // Past due but already resolved: work is finished, so this is NOT a breach.
-    {
-      id: 'c_resolved', case_number: 'CASE-3', status: 'resolved', priority: 'high',
-      is_sla_violated: false, sla_due_date: iso(-5), owner_id: 'rep1',
-    },
-    // Past due but closed — likewise excluded.
-    {
-      id: 'c_closed', case_number: 'CASE-4', status: 'closed', priority: 'low',
-      is_sla_violated: false, sla_due_date: iso(-9), owner_id: 'rep1',
-    },
-    // Already flagged — must not be re-processed (or re-notified).
-    {
-      id: 'c_already', case_number: 'CASE-5', status: 'escalated', priority: 'critical',
-      is_sla_violated: true, sla_due_date: iso(-3), owner_id: 'rep1',
-    },
-  ];
+let verify: VerifyStack;
+let rep: Person;
+let agent: Person;
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  await verify.signIn(); // the harness admin, as before: the sweeps no longer run as anyone
+  rep = await signUpPerson(verify, 'rep@flow-scheduled.test', {
+    name: 'Sweep Rep', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+  });
+  // Service grants, but NOT on the `service_agent` rota: a case the agent
+  // opens stays the agent's (`case_intake_assignment` hands ownerless cases
+  // to the rota).
+  agent = await signUpPerson(verify, 'agent@flow-scheduled.test', {
+    name: 'Sweep Agent', permissionSets: ['service_agent'],
+  });
+}, 120_000);
 
-  const runSweep = async () => {
-    const h = makeFlowHarness({ case_sla_monitor: CaseSlaMonitorFlow }, { crm_case: seedCases() });
-    await h.run('case_sla_monitor', {}, { event: 'schedule' });
-    return h;
+/** Run a scheduled sweep once, as its schedule trigger does. */
+const sweep = (flowName: string) => runScheduledFlow(verify, flowName);
+
+/** The notifications of `topic` addressed to `userId` about the record at `url`. */
+const notified = async (userId: string, topic: string, url: string) =>
+  (await notificationsTo(verify, userId, topic)).filter((n) => n.payload?.actionUrl === url);
+
+/** The stored rows of `object` with the given ids, keyed by `keys[i]`. */
+const readBack = async (object: string, ids: Record<string, string>): Promise<Record<string, Rec>> => {
+  const out: Record<string, Rec> = {};
+  for (const [key, id] of Object.entries(ids)) out[key] = (await verify.rows(object, { id }))[0]!;
+  return out;
+};
+
+/** An account of the rep's, at `tier`. */
+const account = async (tier = 'smb'): Promise<Rec> =>
+  (await verify.seed('crm_account', [{ name: `Sweep Co ${++k}`, tier, owner_id: rep.id }]))[0]!;
+
+describe('case_sla_monitor — hourly breach sweep', () => {
+  /**
+   * The agent's cases, each opened for real (the case hooks stamp its SLA
+   * clock from the priority × tier matrix) and then put in the state the
+   * sweep is about by a system write — a clock already run out, a status
+   * already settled — which no person's form produces directly.
+   *
+   * `high`, not `critical`: a critical case is escalated by
+   * `case_escalation_on_create` the moment it is opened, which would satisfy
+   * the escalation assertions below before the sweep ever ran.
+   */
+  const openCase = async (priority: string, stored: Rec): Promise<string> => {
+    const acct = await account();
+    const kase = await verify.hooks.run('crm_case', 'insert', {
+      subject: `Server down ${++k}`, description: 'It is down.', crm_account: acct.id, status: 'new', priority,
+    }, { as: agent.token });
+    await systemUpdate(verify, 'crm_case', { id: kase.id, ...stored });
+    return String(kase.id);
   };
 
-  it('flags and escalates exactly the open, past-due, not-yet-flagged cases', async () => {
-    const h = await runSweep();
-    const byId = Object.fromEntries(h.store.crm_case.map((c) => [c.id, c]));
+  /**
+   * A case SETTLED ON TIME whose deadline has passed since — the case the
+   * sweep's status exclusion exists for. It settles first, on the matrix's
+   * future due date, and only then is the clock wound back by a system write
+   * that leaves the status alone.
+   *
+   * ⚠️ Settling in that order is load-bearing (#2070): a case that settles
+   * AFTER its due date is flagged by the settling write itself
+   * (`case_sla_defaults`, pinned in `test/case-sla-breach-on-close.test.ts`),
+   * so a fixture that settled late would carry the flag before the sweep ran
+   * and could no longer show that the sweep left it alone.
+   */
+  const settledOnTime = async (priority: string, stored: Rec, dueDaysAgo: number): Promise<string> => {
+    const id = await openCase(priority, stored);
+    await systemUpdate(verify, 'crm_case', { id, sla_due_date: iso(-dueDaysAgo) });
+    return id;
+  };
 
-    const breached = byId.c_breached;
-    expect(breached.is_sla_violated).toBe(true);
-    expect(breached.is_escalated).toBe(true);
+  const seedCases = async () => ({
+    // Breached and still open — MUST be flagged.
+    c_breached: await openCase('high', { status: 'in_progress', sla_due_date: iso(-2) }),
+    // Due in the future — must be left alone.
+    c_future: await openCase('high', { status: 'in_progress', sla_due_date: iso(+2) }),
+    // Resolved on time, past due since: work is finished, so this is NOT a breach.
+    c_resolved: await settledOnTime('high', { status: 'resolved', resolution: 'Fixed.' }, 5),
+    // Closed on time, past due since — likewise excluded.
+    c_closed: await settledOnTime('low', { status: 'closed', resolution: 'Fixed.' }, 9),
+    // Already flagged — must not be re-processed (or re-notified).
+    c_already: await openCase('high', { status: 'escalated', is_sla_violated: true, sla_due_date: iso(-3) }),
+  });
+
+  let ids: Record<string, string>;
+  let before: Record<string, Rec>;
+  let byId: Record<string, Rec>;
+  beforeAll(async () => {
+    ids = await seedCases();
+    before = await readBack('crm_case', ids);
+    // The first sweep of the file is a BACKLOG sweep: it processes every
+    // match, the seed's past-due cases included, and notifies 30 times (inbox
+    // and email each). Delivering those is the outbox dispatcher's work, after
+    // the sweep returns, and it left nothing else running until it was done:
+    // the no-op test below spent ~2.2 s of its 5 s budget waiting for it
+    // behind its first session lookup, and timed out on slower CI runners
+    // (#2157). The block waits for that aftermath here, inside its own budget.
+    await settleNotificationDeliveries(verify, () => sweep('case_sla_monitor'));
+    byId = await readBack('crm_case', ids);
+  }, 120_000);
+
+  it('flags and escalates exactly the open, past-due, not-yet-flagged cases', () => {
+    const breached = byId.c_breached!;
+    expect(Boolean(breached.is_sla_violated)).toBe(true);
+    expect(Boolean(breached.is_escalated)).toBe(true);
     expect(breached.status).toBe('escalated');
     // `escalation_reason` must accompany `is_escalated` or the object's
     // `escalation_reason_required` validation (severity: error) rejects the
@@ -103,54 +169,43 @@ describe('case_sla_monitor — hourly breach sweep', () => {
     expect(breached.escalated_date).toBeTruthy();
   });
 
-  it('leaves future-due, resolved and closed cases untouched', async () => {
-    const h = await runSweep();
-    const byId = Object.fromEntries(h.store.crm_case.map((c) => [c.id, c]));
-
+  it('leaves future-due, resolved and closed cases untouched', () => {
     for (const id of ['c_future', 'c_resolved', 'c_closed']) {
-      expect(byId[id].is_sla_violated, `${id} was wrongly flagged`).toBe(false);
-      expect(byId[id].is_escalated, `${id} was wrongly escalated`).toBeFalsy();
+      expect(Boolean(byId[id]!.is_sla_violated), `${id} was wrongly flagged`).toBe(false);
+      expect(Boolean(byId[id]!.is_escalated), `${id} was wrongly escalated`).toBe(false);
     }
     // Specifically: a resolved case has met its SLA. The filter used to read
     // `is_closed: false`, which only flips on `closed`, so resolved cases were
     // dragged back to `escalated`.
-    expect(byId.c_resolved.status).toBe('resolved');
+    expect(byId.c_resolved!.status).toBe('resolved');
   });
 
-  it('does not re-process a case already marked as violated', async () => {
-    const h = await runSweep();
-    const already = h.store.crm_case.find((c) => c.id === 'c_already')!;
-    expect(already.escalation_reason, 'already-flagged case was re-written').toBeNull();
+  it('does not re-process a case already marked as violated', () => {
+    // The sweep wrote nothing to it: the row is exactly as it stood before.
+    expect(byId.c_already!.updated_at, 'already-flagged case was re-written').toBe(before.c_already!.updated_at);
+    expect(byId.c_already!.escalation_reason).toBe(before.c_already!.escalation_reason);
   });
 
   it('alerts the case owner, and only for the newly-breached case', async () => {
-    const h = await runSweep();
-    expect(h.notifications.length, 'expected exactly one alert').toBe(1);
-
-    const [alert] = h.notifications;
-    const recipients = JSON.stringify(alert.to);
-    expect(recipients).toContain('rep1');
+    const [alert, ...more] = await notified(agent.id, 'case_sla_breach', `/crm_case/${ids.c_breached}`);
+    expect(alert, 'the owner of the breached case was not alerted').toBeDefined();
+    expect(more, 'expected exactly one alert').toHaveLength(0);
+    for (const id of ['c_future', 'c_resolved', 'c_closed', 'c_already']) {
+      expect(await notified(agent.id, 'case_sla_breach', `/crm_case/${ids[id]}`), `${id} was alerted`).toHaveLength(0);
+    }
     // `{currentCase.owner_id.manager}` dot-walks a lookup, which flow templates
     // interpolate as the literal string "undefined" — a silently undeliverable
     // notification. Guard against that shape reappearing anywhere in the payload.
     expect(JSON.stringify(alert), 'a template dot-walked a lookup').not.toContain('undefined');
-    expect(alert.severity).toBe('critical');
-    expect(String(alert.title)).toContain('CASE-1');
+    expect(alert!.payload.severity).toBe('critical');
+    expect(String(alert!.payload.templateData.case_number)).toBe(byId.c_breached!.case_number);
   });
 
   it('is a clean no-op when nothing has breached', async () => {
-    const h = makeFlowHarness(
-      { case_sla_monitor: CaseSlaMonitorFlow },
-      {
-        crm_case: [{
-          id: 'c1', case_number: 'CASE-9', status: 'working',
-          is_sla_violated: false, sla_due_date: iso(+5), owner_id: 'rep1',
-        }],
-      },
-    );
-    await h.run('case_sla_monitor', {}, { event: 'schedule' });
-    expect(h.store.crm_case[0].is_sla_violated).toBe(false);
-    expect(h.notifications).toHaveLength(0);
+    const id = await openCase('medium', { status: 'in_progress', sla_due_date: iso(+5) });
+    await sweep('case_sla_monitor');
+    expect(Boolean((await verify.rows('crm_case', { id }))[0]!.is_sla_violated)).toBe(false);
+    expect(await notified(agent.id, 'case_sla_breach', `/crm_case/${id}`)).toHaveLength(0);
   });
 });
 
@@ -163,12 +218,13 @@ describe('case_sla_monitor — non-critical breaches (#595)', () => {
    * was never a property of this flow. It was a property of the HOOK: nothing
    * stamped `sla_due_date` below `critical`, and a blank date is never in the
    * past. Proving the fix therefore means running BOTH halves for real: the
-   * shipped `case_sla_defaults` handler stamps the deadline, and the shipped
-   * `case_sla_monitor` flow sweeps it.
+   * shipped `case_sla_defaults` handler stamps the deadline on a real insert,
+   * and the shipped `case_sla_monitor` flow sweeps it.
    *
-   * The clock is moved back to the moment of creation so the matrix's own
-   * offset is what puts the case past due — no hand-written date anywhere in
-   * this test, which is what keeps it honest if a cell ever changes.
+   * The clock (`Date` only — the stack's timers keep running) is moved back to
+   * the moment of creation so the matrix's own offset is what puts the case
+   * past due — no hand-written date anywhere in this test, which is what keeps
+   * it honest if a cell ever changes.
    */
   const NON_CRITICAL: Array<{ priority: string; tier: string; hours: number }> = [
     { priority: 'high', tier: 'strategic', hours: 6 },
@@ -177,205 +233,224 @@ describe('case_sla_monitor — non-critical breaches (#595)', () => {
     { priority: 'low', tier: 'smb', hours: 168 },
   ];
 
-  const slaHook = hookNamed(caseHooks as Record<string, any>[], 'case_sla_defaults');
-
-  /** Stamp a case as if it had been created `hours + 1` hours ago. */
-  const stampInThePast = async (priority: string, tier: string, hours: number): Promise<string> => {
-    const harness = makeHookHarness({ crm_account: [{ id: 'acct_1', tier }] });
-    const input: Rec = { priority, crm_account: 'acct_1', status: 'working' };
-    vi.useFakeTimers();
+  /** Open a case as the agent as if it had been created `hoursAgo` hours ago. */
+  const openAt = async (priority: string, tier: string, hoursAgo: number): Promise<Rec> => {
+    const acct = await account(tier);
+    vi.useFakeTimers({ toFake: ['Date'] });
     try {
-      vi.setSystemTime(new Date(Date.now() - (hours + 1) * 3_600_000));
-      await slaHook.handler(
-        makeHookCtx({ event: 'beforeInsert', input, user: { id: 'rep1' }, api: harness.api }),
-      );
+      vi.setSystemTime(new Date(Date.now() - hoursAgo * 3_600_000));
+      return await verify.hooks.run('crm_case', 'insert', {
+        subject: `Slow burn ${++k}`, description: 'Not urgent, until it is.', crm_account: acct.id,
+        status: 'new', priority,
+      }, { as: agent.token });
     } finally {
       vi.useRealTimers();
     }
-    return input.sla_due_date as string;
   };
 
   it.each(NON_CRITICAL)(
     'flags and escalates a breached $priority case on a $tier account',
     async ({ priority, tier, hours }) => {
-      const due = await stampInThePast(priority, tier, hours);
-      expect(due, `${priority} got no SLA clock at all`).toBeTruthy();
+      const kase = await openAt(priority, tier, hours + 1);
+      const due = String(kase.sla_due_date);
+      expect(kase.sla_due_date, `${priority} got no SLA clock at all`).toBeTruthy();
       expect(new Date(due).getTime(), 'the matrix offset should put this case past due')
         .toBeLessThan(Date.now());
 
-      const h = makeFlowHarness(
-        { case_sla_monitor: CaseSlaMonitorFlow },
-        {
-          crm_case: [{
-            id: 'c_1', case_number: 'CASE-595', status: 'working', priority,
-            is_sla_violated: false, sla_due_date: due, owner_id: 'rep1',
-          }],
-        },
-      );
-      await h.run('case_sla_monitor', {}, { event: 'schedule' });
+      await sweep('case_sla_monitor');
 
-      const swept = h.store.crm_case[0];
-      expect(swept.is_sla_violated, `a breached ${priority} case was not flagged`).toBe(true);
-      expect(swept.is_escalated).toBe(true);
-      expect(swept.status).toBe('escalated');
-      expect(swept.escalation_reason, 'missing reason ⇒ the write is rejected').toBeTruthy();
-      expect(h.notifications, 'the owner must be alerted').toHaveLength(1);
+      const [swept] = await verify.rows('crm_case', { id: kase.id });
+      expect(Boolean(swept!.is_sla_violated), `a breached ${priority} case was not flagged`).toBe(true);
+      expect(Boolean(swept!.is_escalated)).toBe(true);
+      expect(swept!.status).toBe('escalated');
+      expect(swept!.escalation_reason, 'missing reason ⇒ the write is rejected').toBeTruthy();
+      expect(await notified(agent.id, 'case_sla_breach', `/crm_case/${kase.id}`), 'the owner must be alerted').toHaveLength(1);
     },
   );
 
   it('still leaves a non-critical case alone while it is inside its window', async () => {
     // The other half of the guard: a High case that has NOT breached must not
     // be swept just because it finally has a due date.
-    const harness = makeHookHarness({ crm_account: [{ id: 'acct_1', tier: 'enterprise' }] });
-    const input: Rec = { priority: 'high', crm_account: 'acct_1', status: 'working' };
-    await slaHook.handler(
-      makeHookCtx({ event: 'beforeInsert', input, user: { id: 'rep1' }, api: harness.api }),
-    );
-
-    const h = makeFlowHarness(
-      { case_sla_monitor: CaseSlaMonitorFlow },
-      {
-        crm_case: [{
-          id: 'c_1', case_number: 'CASE-596', status: 'working', priority: 'high',
-          is_sla_violated: false, sla_due_date: input.sla_due_date as string, owner_id: 'rep1',
-        }],
-      },
-    );
-    await h.run('case_sla_monitor', {}, { event: 'schedule' });
-    expect(h.store.crm_case[0].is_sla_violated).toBe(false);
-    expect(h.notifications).toHaveLength(0);
+    const kase = await openAt('high', 'enterprise', 0);
+    expect(kase.sla_due_date, 'high got no SLA clock at all').toBeTruthy();
+    await sweep('case_sla_monitor');
+    const [swept] = await verify.rows('crm_case', { id: kase.id });
+    expect(Boolean(swept!.is_sla_violated)).toBe(false);
+    expect(await notified(agent.id, 'case_sla_breach', `/crm_case/${kase.id}`)).toHaveLength(0);
   });
 });
+
+/** A deal of the rep's, on its own account. */
+const deal = async (over: Rec = {}): Promise<Rec> => {
+  const acct = await account();
+  return (await verify.seed('crm_opportunity', [{
+    name: `Sweep Deal ${++k}`, amount: 50_000, stage: 'proposal', close_date: '2030-06-30',
+    crm_account: acct.id, owner_id: rep.id, ...over,
+  }]))[0]!;
+};
+
+/** An account of the rep's with a contact — the two parties every quote and contract names. */
+const parties = async (): Promise<{ account: Rec; contact: Rec }> => {
+  const acct = await account();
+  const [contact] = await verify.seed('crm_contact', [{
+    first_name: 'Cara', last_name: `Signer ${++k}`, email: `cara${k}@flow-scheduled.test`, crm_account: acct.id, owner_id: rep.id,
+  }]);
+  return { account: acct, contact: contact! };
+};
 
 describe('quote_expiration — daily auto-expiry', () => {
+  /** Quotes in every state the sweep has to tell apart, written as the system. */
   const run = async () => {
-    const h = makeFlowHarness({ quote_expiration: QuoteExpirationFlow }, {
-      crm_quote: [
-        { id: 'q_past', status: 'presented', expiration_date: day(-1) },   // expire
-        { id: 'q_draft_past', status: 'draft', expiration_date: day(-30) }, // expire
-        { id: 'q_future', status: 'presented', expiration_date: day(+7) },  // keep
-        { id: 'q_accepted', status: 'accepted', expiration_date: day(-9) }, // settled
-        { id: 'q_rejected', status: 'rejected', expiration_date: day(-9) }, // settled
-        { id: 'q_expired', status: 'expired', expiration_date: day(-9) },   // already
-      ],
-    });
-    await h.run('quote_expiration', {}, { event: 'schedule' });
-    return Object.fromEntries(h.store.crm_quote.map((q) => [q.id, q]));
+    const { account: acct, contact } = await parties();
+    const [opp] = await verify.seed('crm_opportunity', [{
+      name: `Quoted Deal ${++k}`, amount: 50_000, stage: 'proposal', close_date: '2030-06-30',
+      crm_account: acct.id, primary_contact: contact.id, owner_id: rep.id,
+    }]);
+    const quote = async (status: string, expirationDays: number) => String((await verify.seed('crm_quote', [{
+      name: `Q ${status} ${++k}`, status, expiration_date: day(expirationDays), quote_date: day(-60),
+      crm_opportunity: opp!.id, crm_account: acct.id, crm_contact: contact.id, owner_id: rep.id,
+    }]))[0]!.id);
+    const ids = {
+      q_past: await quote('presented', -1),       // expire
+      q_draft_past: await quote('draft', -30),    // expire
+      q_future: await quote('presented', +7),     // keep
+      q_accepted: await quote('accepted', -9),    // settled
+      q_rejected: await quote('rejected', -9),    // settled
+      q_expired: await quote('expired', -9),      // already
+    };
+    await sweep('quote_expiration');
+    return readBack('crm_quote', ids);
   };
 
-  it('expires open quotes past their expiration_date', async () => {
-    const byId = await run();
-    expect(byId.q_past.status).toBe('expired');
-    expect(byId.q_draft_past.status).toBe('expired');
+  let byId: Record<string, Rec>;
+  beforeAll(async () => { byId = await run(); }, 120_000);
+
+  it('expires open quotes past their expiration_date', () => {
+    expect(byId.q_past!.status).toBe('expired');
+    expect(byId.q_draft_past!.status).toBe('expired');
   });
 
-  it('leaves future-dated and already-settled quotes alone', async () => {
-    const byId = await run();
-    expect(byId.q_future.status).toBe('presented');
-    expect(byId.q_accepted.status).toBe('accepted');
-    expect(byId.q_rejected.status).toBe('rejected');
-    expect(byId.q_expired.status).toBe('expired');
+  it('leaves future-dated and already-settled quotes alone', () => {
+    expect(byId.q_future!.status).toBe('presented');
+    expect(byId.q_accepted!.status).toBe('accepted');
+    expect(byId.q_rejected!.status).toBe('rejected');
+    expect(byId.q_expired!.status).toBe('expired');
   });
 });
 
-describe('contract_expiration — daily auto-expiry', () => {
-  const run = async () => {
-    const h = makeFlowHarness({ contract_expiration: ContractExpirationFlow }, {
-      crm_contract: [
-        { id: 'k_past', contract_number: 'CTR-1', status: 'activated', end_date: day(-1), owner_id: 'rep1' },
-        { id: 'k_future', contract_number: 'CTR-2', status: 'activated', end_date: day(+30), owner_id: 'rep1' },
-        { id: 'k_draft', contract_number: 'CTR-3', status: 'draft', end_date: day(-30), owner_id: 'rep1' },
-        { id: 'k_expired', contract_number: 'CTR-4', status: 'expired', end_date: day(-60), owner_id: 'rep1' },
-      ],
-    });
-    await h.run('contract_expiration', {}, { event: 'schedule' });
-    return h;
-  };
+/** A contract of the rep's in the state `over` describes, written as the system. */
+const contract = async (over: Rec = {}): Promise<Rec> => {
+  const { account: acct, contact } = await parties();
+  const endDays = over.endDays ?? 20;
+  const { endDays: _drop, ...rest } = over;
+  return (await verify.seed('crm_contract', [{
+    status: 'activated', crm_account: acct.id, crm_contact: contact.id, owner_id: rep.id,
+    contract_type: 'subscription', contract_value: 90_000, auto_renewal: false, renewal_notice_days: 30,
+    contract_term_months: 12, start_date: day(endDays - 365), end_date: day(endDays),
+    billing_frequency: 'monthly', payment_terms: 'net_30', ...rest,
+  }]))[0]!;
+};
 
-  it('expires only activated contracts past their end_date', async () => {
-    const h = await run();
-    const byId = Object.fromEntries(h.store.crm_contract.map((k) => [k.id, k]));
-    expect(byId.k_past.status).toBe('expired');
-    expect(byId.k_future.status).toBe('activated');
-    expect(byId.k_draft.status, 'a draft contract must not be auto-expired').toBe('draft');
+describe('contract_expiration — daily auto-expiry', () => {
+  let ids: Record<string, string>;
+  let byId: Record<string, Rec>;
+  beforeAll(async () => {
+    ids = {
+      k_past: String((await contract({ endDays: -1 })).id),
+      k_future: String((await contract({ endDays: +30 })).id),
+      k_draft: String((await contract({ status: 'draft', endDays: -30 })).id),
+      k_expired: String((await contract({ status: 'expired', endDays: -60 })).id),
+    };
+    await sweep('contract_expiration');
+    byId = await readBack('crm_contract', ids);
+  }, 120_000);
+
+  it('expires only activated contracts past their end_date', () => {
+    expect(byId.k_past!.status).toBe('expired');
+    expect(byId.k_future!.status).toBe('activated');
+    expect(byId.k_draft!.status, 'a draft contract must not be auto-expired').toBe('draft');
   });
 
   it('notifies the owner once, with a resolved contract number', async () => {
-    const h = await run();
-    expect(h.notifications).toHaveLength(1);
-    const [alert] = h.notifications;
-    expect(alert.to).toContain('rep1');
-    expect(String(alert.title)).toContain('CTR-1');
+    const [alert, ...more] = await notified(rep.id, 'contract_expired', `/crm_contract/${ids.k_past}`);
+    expect(alert, 'the owner was not notified').toBeDefined();
+    expect(more).toHaveLength(0);
+    for (const id of ['k_future', 'k_draft', 'k_expired']) {
+      expect(await notified(rep.id, 'contract_expired', `/crm_contract/${ids[id]}`), `${id} was notified`).toHaveLength(0);
+    }
+    expect(String(alert!.payload.templateData.contract_number)).toBe(byId.k_past!.contract_number);
     expect(JSON.stringify(alert), 'a template failed to interpolate').not.toContain('undefined');
   });
 });
 
 describe('campaign_completion — daily auto-completion', () => {
   it('completes ended in_progress campaigns and leaves the rest', async () => {
-    const h = makeFlowHarness({ campaign_completion: CampaignCompletionFlow }, {
-      crm_campaign: [
-        { id: 'cmp_ended', status: 'in_progress', end_date: day(-1) },
-        { id: 'cmp_running', status: 'in_progress', end_date: day(+10) },
-        { id: 'cmp_planning', status: 'planning', end_date: day(-10) },
-        { id: 'cmp_done', status: 'completed', end_date: day(-10) },
-      ],
-    });
-    await h.run('campaign_completion', {}, { event: 'schedule' });
+    const campaign = async (status: string, endDays: number) => String((await verify.seed('crm_campaign', [{
+      name: `Campaign ${status} ${++k}`, status, start_date: day(endDays - 30), end_date: day(endDays), owner_id: rep.id,
+    }]))[0]!.id);
+    const ids = {
+      cmp_ended: await campaign('in_progress', -1),
+      cmp_running: await campaign('in_progress', +10),
+      cmp_planning: await campaign('planning', -10),
+      cmp_done: await campaign('completed', -10),
+    };
+    await sweep('campaign_completion');
 
-    const byId = Object.fromEntries(h.store.crm_campaign.map((c) => [c.id, c]));
-    expect(byId.cmp_ended.status).toBe('completed');
-    expect(byId.cmp_running.status).toBe('in_progress');
+    const byId = await readBack('crm_campaign', ids);
+    expect(byId.cmp_ended!.status).toBe('completed');
+    expect(byId.cmp_running!.status).toBe('in_progress');
     // A campaign still in planning never ran, so "ended" does not apply.
-    expect(byId.cmp_planning.status).toBe('planning');
-    expect(byId.cmp_done.status).toBe('completed');
+    expect(byId.cmp_planning!.status).toBe('planning');
+    expect(byId.cmp_done!.status).toBe('completed');
   });
 });
 
 describe('task_due_reminder — hourly reminder sweep', () => {
+  const task = async (over: Rec) => String((await verify.seed('crm_task', [{
+    subject: `Task ${++k}`, status: 'not_started', priority: 'normal', owner_id: rep.id, ...over,
+  }]))[0]!.id);
   const run = async () => {
-    const h = makeFlowHarness({ task_due_reminder: TaskDueReminderFlow }, {
-      crm_task: [
-        { id: 't_due', subject: 'Call Acme', owner_id: 'rep1', is_completed: false, reminder_date: iso(-1) },
-        { id: 't_future', subject: 'Later', owner_id: 'rep1', is_completed: false, reminder_date: iso(+3) },
-        { id: 't_done', subject: 'Done', owner_id: 'rep1', is_completed: true, reminder_date: iso(-5) },
-        { id: 't_none', subject: 'No reminder', owner_id: 'rep1', is_completed: false, reminder_date: null },
-      ],
-    });
-    await h.run('task_due_reminder', {}, { event: 'schedule' });
-    return h;
+    const ids = {
+      t_due: await task({ subject: `Call Acme ${k}`, reminder_date: iso(-1) }),
+      t_future: await task({ subject: 'Later', reminder_date: iso(+3) }),
+      t_done: await task({ subject: 'Done', status: 'completed', reminder_date: iso(-5) }),
+      t_none: await task({ subject: 'No reminder', reminder_date: null }),
+    };
+    await sweep('task_due_reminder');
+    return ids;
   };
+  const reminders = (id: string) => notified(rep.id, 'task_reminder', `/crm_task/${id}`);
 
   it('notifies the owner of a task whose reminder time has arrived', async () => {
-    const h = await run();
-    expect(h.notifications).toHaveLength(1);
-    const [alert] = h.notifications;
-    expect(alert.to).toContain('rep1');
-    expect(String(alert.title)).toContain('Call Acme');
-    expect(alert.severity).toBe('warning');
+    const ids = await run();
+    const [alert, ...more] = await reminders(ids.t_due);
+    expect(alert, 'the owner was not reminded').toBeDefined();
+    expect(more).toHaveLength(0);
+    expect(String(alert!.payload.templateData.subject)).toContain('Call Acme');
+    expect(alert!.payload.severity).toBe('warning');
   });
 
   it('clears reminder_date so the same task is never alerted twice', async () => {
-    const h = await run();
-    const byId = Object.fromEntries(h.store.crm_task.map((t) => [t.id, t]));
-    expect(byId.t_due.reminder_sent).toBe(true);
+    const ids = await run();
+    const byId = await readBack('crm_task', ids);
+    expect(Boolean(byId.t_due!.reminder_sent)).toBe(true);
     // Clearing the date is what de-dups: the row stops matching `$lte` next tick.
-    expect(byId.t_due.reminder_date).toBeNull();
+    expect(byId.t_due!.reminder_date).toBeNull();
   });
 
   it('is idempotent across consecutive ticks', async () => {
-    const h = makeFlowHarness({ task_due_reminder: TaskDueReminderFlow }, {
-      crm_task: [{ id: 't_due', subject: 'Call Acme', owner_id: 'rep1', is_completed: false, reminder_date: iso(-1) }],
-    });
-    await h.run('task_due_reminder', {}, { event: 'schedule' });
-    await h.run('task_due_reminder', {}, { event: 'schedule' });
-    expect(h.notifications, 'the same task was alerted twice').toHaveLength(1);
+    const id = await task({ subject: 'Call Acme', reminder_date: iso(-1) });
+    await sweep('task_due_reminder');
+    await sweep('task_due_reminder');
+    expect(await reminders(id), 'the same task was alerted twice').toHaveLength(1);
   });
 
   it('skips future, completed and reminder-less tasks', async () => {
-    const h = await run();
-    const byId = Object.fromEntries(h.store.crm_task.map((t) => [t.id, t]));
-    for (const id of ['t_future', 't_done', 't_none']) {
-      expect(byId[id].reminder_sent, `${id} was wrongly reminded`).toBeFalsy();
+    const ids = await run();
+    const byId = await readBack('crm_task', ids);
+    for (const id of ['t_future', 't_done', 't_none'] as const) {
+      expect(Boolean(byId[id]!.reminder_sent), `${id} was wrongly reminded`).toBe(false);
+      expect(await reminders(ids[id]), `${id} was wrongly reminded`).toHaveLength(0);
     }
   });
 });
@@ -385,53 +460,52 @@ describe('opportunity_stagnation — daily stalled-deal nudge', () => {
   // `days_in_stage` FORMULA — a formula is evaluated after the query, so it
   // cannot be a filter key (#489). `stage_entry_date < TODAY() - 14` is the
   // same test, resolved by the flow template engine.
-  const seedOpps = (): Rec[] => [
-    { id: 'o_stalled', name: 'Stalled Deal', stage: 'proposal', stage_entry_date: day(-30), owner_id: 'rep1' },
-    { id: 'o_fresh', name: 'Fresh Deal', stage: 'proposal', stage_entry_date: day(-3), owner_id: 'rep1' },
-    // Exactly at the threshold: the filter is `$lt`, so a deal that entered its
-    // stage exactly 14 days ago must NOT fire.
-    { id: 'o_boundary', name: 'Boundary Deal', stage: 'proposal', stage_entry_date: day(-14), owner_id: 'rep1' },
-    { id: 'o_won', name: 'Won Deal', stage: 'closed_won', stage_entry_date: day(-99), owner_id: 'rep1' },
-    { id: 'o_lost', name: 'Lost Deal', stage: 'closed_lost', stage_entry_date: day(-99), owner_id: 'rep1' },
-    // A row with a null clock does not satisfy `$lt` and is skipped.
-    { id: 'o_nullclock', name: 'No Clock', stage: 'proposal', stage_entry_date: null, owner_id: 'rep1' },
-  ];
-
-  const run = async () => {
-    const h = makeFlowHarness(
-      { opportunity_stagnation: OpportunityStagnationFlow },
-      { crm_opportunity: seedOpps(), crm_task: [] },
-    );
-    await h.run('opportunity_stagnation', {}, { event: 'schedule' });
-    return h;
+  const seedOpps = async () => {
+    const ids = {
+      o_stalled: String((await deal({ name: `Stalled Deal ${++k}`, stage: 'proposal', stage_entry_date: day(-30) })).id),
+      o_fresh: String((await deal({ stage: 'proposal', stage_entry_date: day(-3) })).id),
+      // Exactly at the threshold: the filter is `$lt`, so a deal that entered its
+      // stage exactly 14 days ago must NOT fire.
+      o_boundary: String((await deal({ stage: 'proposal', stage_entry_date: day(-14) })).id),
+      o_won: String((await deal({ stage: 'closed_won', win_reason: 'better_price', stage_entry_date: day(-99) })).id),
+      o_lost: String((await deal({ stage: 'closed_lost', loss_reason: 'competitor', stage_entry_date: day(-99) })).id),
+      o_nullclock: String((await deal({ stage: 'proposal' })).id),
+    };
+    // A row with a null clock does not satisfy `$lt` and is skipped. An insert
+    // has its clock stamped by the opportunity hook, so a legacy unstamped row
+    // is reproduced by clearing it.
+    await systemUpdate(verify, 'crm_opportunity', { id: ids.o_nullclock, stage_entry_date: null });
+    return ids;
   };
+  const tasksFor = (id: string) => verify.rows('crm_task', { related_to_opportunity: id });
+  const nudges = (id: string) => notified(rep.id, 'deal_stalled', `/crm_opportunity/${id}`);
 
   it('nudges exactly the open deals past the 14-day threshold', async () => {
-    const h = await run();
+    const ids = await seedOpps();
+    await sweep('opportunity_stagnation');
+    const [stalled] = await verify.rows('crm_opportunity', { id: ids.o_stalled });
 
-    expect(h.store.crm_task).toHaveLength(1);
-    const [task] = h.store.crm_task;
-    expect(task.subject).toBe('推进停滞商机：Stalled Deal');
-    expect(task.related_to_opportunity).toBe('o_stalled');
-    expect(task.related_to_type).toBe('crm_opportunity');
-    expect(task.owner_id).toBe('rep1');
-    expect(task.priority).toBe('high');
-    expect(task.status).toBe('not_started');
+    const tasks = await tasksFor(ids.o_stalled);
+    expect(tasks).toHaveLength(1);
+    const [task] = tasks;
+    expect(task!.subject).toBe(`Advance stalled deal: ${stalled!.name}`);
+    expect(task!.related_to_opportunity).toBe(ids.o_stalled);
+    expect(task!.related_to_type).toBe('crm_opportunity');
+    expect(task!.owner_id).toBe(rep.id);
+    expect(task!.priority).toBe('high');
+    expect(task!.status).toBe('not_started');
 
-    expect(h.notifications).toHaveLength(1);
-    expect(h.notifications[0].to).toContain('rep1');
-    expect(String(h.notifications[0].title)).toContain('Stalled Deal');
-    expect(
-      JSON.stringify(h.notifications[0]),
-      'a template dot-walked a lookup',
-    ).not.toContain('undefined');
+    const sent = await nudges(ids.o_stalled);
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0]!.payload.templateData.name)).toContain(stalled!.name);
+    expect(JSON.stringify(sent[0]), 'a template dot-walked a lookup').not.toContain('undefined');
   });
 
   it('skips fresh, boundary, closed and null-clock deals', async () => {
-    const h = await run();
-    const touched = h.store.crm_task.map((t) => t.related_to_opportunity);
-    for (const id of ['o_fresh', 'o_boundary', 'o_won', 'o_lost', 'o_nullclock']) {
-      expect(touched, `${id} should not have been nudged`).not.toContain(id);
+    const ids = await seedOpps();
+    await sweep('opportunity_stagnation');
+    for (const id of ['o_fresh', 'o_boundary', 'o_won', 'o_lost', 'o_nullclock'] as const) {
+      expect(await tasksFor(ids[id]), `${id} should not have been nudged`).toHaveLength(0);
     }
   });
 
@@ -439,142 +513,157 @@ describe('opportunity_stagnation — daily stalled-deal nudge', () => {
     // Without the "already nudged?" gate the daily sweep re-notified and
     // re-created an identical task every morning for as long as the deal stayed
     // stalled — an unbounded duplicate pile-up.
-    const h = makeFlowHarness(
-      { opportunity_stagnation: OpportunityStagnationFlow },
-      { crm_opportunity: seedOpps(), crm_task: [] },
-    );
-    await h.run('opportunity_stagnation', {}, { event: 'schedule' });
-    await h.run('opportunity_stagnation', {}, { event: 'schedule' });
+    const ids = await seedOpps();
+    await sweep('opportunity_stagnation');
+    await sweep('opportunity_stagnation');
 
-    expect(h.store.crm_task, 'duplicate stall task on the second sweep').toHaveLength(1);
-    expect(h.notifications, 'duplicate nudge on the second sweep').toHaveLength(1);
+    expect(await tasksFor(ids.o_stalled), 'duplicate stall task on the second sweep').toHaveLength(1);
+    expect(await nudges(ids.o_stalled), 'duplicate nudge on the second sweep').toHaveLength(1);
   });
 
   it('re-arms once the previous stall task is completed', async () => {
-    const h = makeFlowHarness(
-      { opportunity_stagnation: OpportunityStagnationFlow },
-      {
-        crm_opportunity: seedOpps(),
-        crm_task: [{
-          id: 't_done', related_to_opportunity: 'o_stalled',
-          subject: '推进停滞商机：Stalled Deal', status: 'completed',
-        }],
-      },
-    );
-    await h.run('opportunity_stagnation', {}, { event: 'schedule' });
-    expect(h.store.crm_task.filter((t) => t.status === 'not_started')).toHaveLength(1);
+    const ids = await seedOpps();
+    const [stalled] = await verify.rows('crm_opportunity', { id: ids.o_stalled });
+    await verify.seed('crm_task', [{
+      related_to_type: 'crm_opportunity', related_to_opportunity: ids.o_stalled, owner_id: rep.id,
+      subject: `Advance stalled deal: ${stalled!.name}`, type: 'follow_up', priority: 'high', status: 'completed',
+    }]);
+    await sweep('opportunity_stagnation');
+    expect((await tasksFor(ids.o_stalled)).filter((t) => t.status === 'not_started')).toHaveLength(1);
+  });
+
+  /**
+   * A long deal name still gets its stall task (#2210). `crm_task.subject`
+   * caps at 255 while `crm_opportunity.name` does not, so `Advance stalled
+   * deal: ` + a 250-character name was refused on insert and the deal got no
+   * task. The title is now cut to 254 characters and an ellipsis. A 233-character
+   * name fills the 255 exactly and is not cut. The second sweep proves the gate
+   * matches the cut title, so the long-named deal is not re-tasked every morning.
+   */
+  it('books the stall task for a deal whose name overflows the subject cap (#2210)', async () => {
+    const prefix = 'Advance stalled deal: ';
+    const longName = `Long Stalled Deal ${++k} `.padEnd(250, 'x');
+    const fitName = `Fit Stalled Deal ${++k} `.padEnd(255 - prefix.length, 'y');
+    const longId = String((await deal({ name: longName, stage: 'proposal', stage_entry_date: day(-30) })).id);
+    const fitId = String((await deal({ name: fitName, stage: 'proposal', stage_entry_date: day(-30) })).id);
+    await sweep('opportunity_stagnation');
+    await sweep('opportunity_stagnation');
+
+    const long = await tasksFor(longId);
+    expect(long, 'a long-named deal got no stall task, or got one per sweep').toHaveLength(1);
+    expect(long[0]!.subject).toBe(`${(prefix + longName).slice(0, 254)}…`);
+    expect(String(long[0]!.subject)).toHaveLength(255);
+
+    const fit = await tasksFor(fitId);
+    expect(fit).toHaveLength(1);
+    expect(fit[0]!.subject, 'a title that fits was cut').toBe(prefix + fitName);
   });
 });
 
 describe('contract_renewal — daily notice-window sweep', () => {
-  const contract = (over: Rec): Rec => ({
-    id: 'k1', contract_number: 'CTR-1', status: 'activated', crm_account: 'acc1',
-    owner_id: 'rep1', contract_value: 90_000, auto_renewal: false, renewal_notice_days: 30,
-    end_date: day(+20), ...over,
-  });
-
-  const run = async (contracts: Rec[], seed: Rec = {}) => {
-    const h = makeFlowHarness({ contract_renewal: ContractRenewalFlow }, {
-      crm_contract: contracts, crm_task: [], crm_opportunity: [], ...seed,
-    });
-    await h.run('contract_renewal', {}, { event: 'schedule' });
-    return h;
-  };
+  const renewalTasks = (k: Rec) =>
+    verify.rows('crm_task', { related_to_account: k.crm_account, subject: `Renewal due: contract ${k.contract_number}` });
+  const renewalDeals = (k: Rec) =>
+    verify.rows('crm_opportunity', { crm_account: k.crm_account, type: 'existing_renewal' });
+  const notices = (k: Rec) => notified(rep.id, 'contract_renewal', `/crm_contract/${k.id}`);
 
   it('pre-filters to activated contracts ending within the next 120 days', async () => {
     // The 120-day span must cover the LARGEST renewal_notice_days in use (seeds
     // go to 90). A narrower pre-filter silently truncates the longest notice
-    // periods, so pin the window itself.
-    const h = await run([contract({})]);
-    const q = h.queries.find((x) => x.object === 'crm_contract');
-    expect(q, 'the sweep issued no contract query').toBeTruthy();
-    expect(q!.where.status).toBe('activated');
-    expect(q!.where.end_date).toMatchObject({ $gte: expect.any(String), $lte: expect.any(String) });
-
-    const span =
-      (Date.parse(`${String(q!.where.end_date.$lte).slice(0, 10)}T00:00:00Z`) -
-        Date.parse(`${String(q!.where.end_date.$gte).slice(0, 10)}T00:00:00Z`)) / 86_400_000;
-    expect(span, 'pre-filter must span 120 days').toBe(120);
+    // periods, so pin the window itself — at both of its edges, with contracts
+    // whose own notice period would otherwise reach them.
+    const today = await contract({ endDays: 0, renewal_notice_days: 30 });
+    const lastDay = await contract({ endDays: 120, renewal_notice_days: 120 });
+    const beyond = await contract({ endDays: 121, renewal_notice_days: 200 });
+    await sweep('contract_renewal');
+    expect(await renewalTasks(today), 'a contract ending today is inside the pre-filter').toHaveLength(1);
+    expect(await renewalTasks(lastDay), 'pre-filter must span 120 days').toHaveLength(1);
+    expect(await renewalTasks(beyond), 'pre-filter must end at 120 days').toHaveLength(0);
   });
 
   it('selects nothing outside the pre-filter window', async () => {
-    const h = await run([
-      contract({ id: 'k_far', end_date: day(+200) }),
-      contract({ id: 'k_past', end_date: day(-5) }),
-      contract({ id: 'k_draft', status: 'draft' }),
-    ]);
-    expect(h.store.crm_task).toHaveLength(0);
-    expect(h.notifications).toHaveLength(0);
+    const outside = [
+      await contract({ endDays: 200 }),
+      await contract({ endDays: -5 }),
+      await contract({ status: 'draft' }),
+    ];
+    await sweep('contract_renewal');
+    for (const k of outside) {
+      expect(await renewalTasks(k)).toHaveLength(0);
+      expect(await notices(k)).toHaveLength(0);
+    }
   });
 
   it('books a renewal task and notifies the owner inside the notice window', async () => {
-    const h = await run([contract({ end_date: day(+20), renewal_notice_days: 30 })]);
+    const k = await contract({ endDays: 20, renewal_notice_days: 30 });
+    await sweep('contract_renewal');
 
-    expect(h.store.crm_task).toHaveLength(1);
-    const [task] = h.store.crm_task;
-    expect(task.subject).toBe('续约提醒：合同 CTR-1');
-    expect(task.related_to_account).toBe('acc1');
-    expect(task.owner_id).toBe('rep1');
-    expect(task.priority).toBe('high');
+    const tasks = await renewalTasks(k);
+    expect(tasks).toHaveLength(1);
+    const [task] = tasks;
+    expect(task!.subject).toBe(`Renewal due: contract ${k.contract_number}`);
+    expect(task!.related_to_account).toBe(k.crm_account);
+    expect(task!.owner_id).toBe(rep.id);
+    expect(task!.priority).toBe('high');
 
-    expect(h.notifications).toHaveLength(1);
-    expect(h.notifications[0].to).toContain('rep1');
-    expect(String(h.notifications[0].title)).toContain('CTR-1');
+    const sent = await notices(k);
+    expect(sent).toHaveLength(1);
+    expect(String(sent[0]!.payload.templateData.contract_number)).toContain(k.contract_number);
   });
 
   it('honours each contract’s own renewal_notice_days, not a shared constant', async () => {
     // The pre-filter spans 120 days precisely so a 90-day notice period is not
     // silently truncated; the per-record decision applies the real window.
-    const h = await run([
-      contract({ id: 'k_early', contract_number: 'CTR-90', end_date: day(+80), renewal_notice_days: 90 }),
-      contract({ id: 'k_late', contract_number: 'CTR-30', end_date: day(+80), renewal_notice_days: 30 }),
-    ]);
-    const subjects = h.store.crm_task.map((t) => t.subject);
-    expect(subjects, 'the 90-day-notice contract is in window').toContain('续约提醒：合同 CTR-90');
-    expect(subjects, 'the 30-day-notice contract is still 80 days out').not.toContain('续约提醒：合同 CTR-30');
+    const early = await contract({ endDays: 80, renewal_notice_days: 90 });
+    const late = await contract({ endDays: 80, renewal_notice_days: 30 });
+    await sweep('contract_renewal');
+    expect(await renewalTasks(early), 'the 90-day-notice contract is in window').toHaveLength(1);
+    expect(await renewalTasks(late), 'the 30-day-notice contract is still 80 days out').toHaveLength(0);
   });
 
   it('opens a pre-filled renewal opportunity only when auto_renewal is on', async () => {
-    const withAuto = await run([contract({ auto_renewal: true })]);
-    expect(withAuto.store.crm_opportunity).toHaveLength(1);
-    const [opp] = withAuto.store.crm_opportunity;
-    expect(opp.name).toBe('Renewal — CTR-1');
-    expect(opp.crm_account).toBe('acc1');
-    expect(opp.type).toBe('existing_renewal');
-    expect(Number(opp.amount)).toBe(90_000);
-    expect(opp.stage).toBe('proposal');
+    const withAuto = await contract({ auto_renewal: true });
+    const withoutAuto = await contract({ auto_renewal: false });
+    await sweep('contract_renewal');
 
-    const withoutAuto = await run([contract({ auto_renewal: false })]);
-    expect(withoutAuto.store.crm_opportunity).toHaveLength(0);
+    const deals = await renewalDeals(withAuto);
+    expect(deals).toHaveLength(1);
+    const [opp] = deals;
+    expect(opp!.name).toBe(`Renewal — ${withAuto.contract_number}`);
+    expect(opp!.crm_account).toBe(withAuto.crm_account);
+    expect(opp!.type).toBe('existing_renewal');
+    expect(Number(opp!.amount)).toBe(90_000);
+    expect(opp!.stage).toBe('proposal');
+
+    expect(await renewalDeals(withoutAuto)).toHaveLength(0);
   });
 
   it('never opens a second renewal deal while one is still in flight', async () => {
-    const h = await run([contract({ auto_renewal: true })], {
-      crm_opportunity: [{
-        id: 'o_open', crm_account: 'acc1', type: 'existing_renewal', stage: 'negotiation',
-      }],
-    });
-    expect(h.store.crm_opportunity, 'duplicate renewal deal opened').toHaveLength(1);
+    const auto = await contract({ auto_renewal: true });
+    await verify.seed('crm_opportunity', [{
+      name: `In-flight renewal ${++k}`, crm_account: auto.crm_account, type: 'existing_renewal', stage: 'negotiation',
+      amount: 90_000, close_date: '2030-06-30', owner_id: rep.id,
+    }]);
+    await sweep('contract_renewal');
+    expect(await renewalDeals(auto), 'duplicate renewal deal opened').toHaveLength(1);
   });
 
   it('is idempotent across repeated sweeps within the same window', async () => {
-    const h = makeFlowHarness({ contract_renewal: ContractRenewalFlow }, {
-      crm_contract: [contract({ auto_renewal: true })], crm_task: [], crm_opportunity: [],
-    });
-    await h.run('contract_renewal', {}, { event: 'schedule' });
-    await h.run('contract_renewal', {}, { event: 'schedule' });
-    expect(h.store.crm_task, 'duplicate renewal task').toHaveLength(1);
-    expect(h.store.crm_opportunity, 'duplicate renewal deal').toHaveLength(1);
-    expect(h.notifications, 'duplicate renewal notification').toHaveLength(1);
+    const k = await contract({ auto_renewal: true });
+    await sweep('contract_renewal');
+    await sweep('contract_renewal');
+    expect(await renewalTasks(k), 'duplicate renewal task').toHaveLength(1);
+    expect(await renewalDeals(k), 'duplicate renewal deal').toHaveLength(1);
+    expect(await notices(k), 'duplicate renewal notification').toHaveLength(1);
   });
 
   it('ignores contracts that are not activated', async () => {
-    const h = await run([
-      contract({ status: 'draft' }),
-      contract({ id: 'k2', status: 'expired' }),
-    ]);
-    expect(h.store.crm_task).toHaveLength(0);
-    expect(h.notifications).toHaveLength(0);
+    const inactive = [await contract({ status: 'draft' }), await contract({ status: 'expired' })];
+    await sweep('contract_renewal');
+    for (const k of inactive) {
+      expect(await renewalTasks(k)).toHaveLength(0);
+      expect(await notices(k)).toHaveLength(0);
+    }
   });
 });
 
@@ -592,190 +681,208 @@ describe('forecast_snapshot — nightly per-owner pipeline snapshot', () => {
   const beforePeriod = isoUtc(new Date(qStart.getTime() - 86_400_000));
   const quarterLabel = `Q${Math.floor(qStart.getUTCMonth() / 3) + 1} ${qStart.getUTCFullYear()}`;
 
-  const users = (): Rec[] => [
-    { id: 'rep1', name: 'Rep One' },
-    { id: 'rep2', name: 'Rep Two' },
-    { id: 'rep3', name: 'No Deals At All' },
-    { id: 'rep4', name: 'Only Lost Deals' },
-  ];
-
-  // Both rows that MUST be counted and rows that must be left out — a sweep
-  // whose window or bucket filter silently matches everything looks identical
-  // to a correct one otherwise.
-  const opps = (): Rec[] => [
-    // rep1 — one deal per bucket, plus two that must not count.
-    { id: 'o1', owner_id: 'rep1', stage: 'qualification',  forecast_category: 'pipeline',  amount: 100_000, close_date: inPeriod },
-    { id: 'o2', owner_id: 'rep1', stage: 'needs_analysis', forecast_category: 'best_case', amount: 50_000,  close_date: inPeriod },
-    { id: 'o3', owner_id: 'rep1', stage: 'negotiation',    forecast_category: 'commit',    amount: 30_000,  close_date: inPeriod },
-    { id: 'o4', owner_id: 'rep1', stage: 'closed_won',     forecast_category: 'closed',    amount: 70_000,  close_date: inPeriod },
-    // Closes in the PREVIOUS quarter — outside every bucket, but still makes
-    // rep1 an active owner.
-    { id: 'o5', owner_id: 'rep1', stage: 'proposal',       forecast_category: 'commit',    amount: 999_999, close_date: beforePeriod },
-    // Lost deals are neither open nor won.
-    { id: 'o6', owner_id: 'rep1', stage: 'closed_lost',    forecast_category: 'omitted',   amount: 12_345,  close_date: inPeriod },
-    // rep2 — the second amount arrives as a STRING, the shape a currency
-    // column takes coming back from some drivers. Without the `* 1` coercion
-    // in the accumulator the template CONCATENATES and pipeline reads
-    // "020000" + "25000" instead of 45000.
-    { id: 'o7', owner_id: 'rep2', stage: 'proposal',       forecast_category: 'commit',    amount: 20_000,  close_date: inPeriod },
-    { id: 'o8', owner_id: 'rep2', stage: 'qualification',  forecast_category: 'pipeline',  amount: '25000', close_date: inPeriod },
-    // rep4 owns nothing but a lost deal — not a forecast owner.
-    { id: 'o9', owner_id: 'rep4', stage: 'closed_lost',    forecast_category: 'omitted',   amount: 88_000,  close_date: inPeriod },
-  ];
-
-  const harness = (forecasts: Rec[] = []) =>
-    makeFlowHarness(
-      { forecast_snapshot: ForecastSnapshotFlow },
-      {
-        sys_user: users(),
-        crm_opportunity: opps(),
-        crm_forecast: forecasts,
-      },
-      { hooks: [forecastDerive] },
-    );
-
-  const run = async (forecasts: Rec[] = []) => {
-    const h = harness(forecasts);
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
-    return h;
+  /**
+   * Four people the sweep's `sys_user` read reaches — two active deal owners,
+   * one who owns nothing, one who owns only a lost deal — and their deals.
+   * Both rows that MUST be counted and rows that must be left out: a sweep
+   * whose window or bucket filter silently matches everything looks identical
+   * to a correct one otherwise. Fresh people per case, since a snapshot row is
+   * per owner and per period.
+   */
+  const world = async () => {
+    const n = ++k;
+    const person = (who: string) => signUpPerson(verify, `${who}.${n}@forecast.flow-scheduled.test`, { name: `${who} ${n}` });
+    const people = {
+      rep1: await person('rep1'),
+      rep2: await person('rep2'),
+      rep3: await person('no-deals'),
+      rep4: await person('only-lost'),
+    };
+    const acct = await account();
+    const opp = (owner: Person, stage: string, amount: unknown, close_date: string, extra: Rec = {}) => ({
+      name: `Forecast ${stage} ${++k}`, owner_id: owner.id, stage, amount, close_date, crm_account: acct.id, ...extra,
+    });
+    await verify.seed('crm_opportunity', [
+      // rep1 — one deal per bucket, plus two that must not count.
+      opp(people.rep1, 'qualification', 100_000, inPeriod, { approval_status: 'approved' }),
+      opp(people.rep1, 'needs_analysis', 50_000, inPeriod),
+      opp(people.rep1, 'negotiation', 30_000, inPeriod),
+      opp(people.rep1, 'closed_won', 70_000, inPeriod, { win_reason: 'better_price' }),
+      // Closes in the PREVIOUS quarter — outside every bucket, but still makes
+      // rep1 an active owner.
+      opp(people.rep1, 'proposal', 999_999, beforePeriod, { approval_status: 'approved' }),
+      // Lost deals are neither open nor won.
+      opp(people.rep1, 'closed_lost', 12_345, inPeriod, { loss_reason: 'competitor' }),
+      // rep2 — the second amount is handed over as a STRING, the shape a
+      // currency column takes coming back from some drivers. Without the `* 1`
+      // coercion in the accumulator the template CONCATENATES and pipeline
+      // reads "020000" + "25000" instead of 45000.
+      opp(people.rep2, 'proposal', 20_000, inPeriod),
+      opp(people.rep2, 'qualification', '25000', inPeriod),
+      // rep4 owns nothing but a lost deal — not a forecast owner.
+      opp(people.rep4, 'closed_lost', 88_000, inPeriod, { loss_reason: 'competitor' }),
+    ]);
+    return people;
   };
+  type World = Awaited<ReturnType<typeof world>>;
 
-  const byOwner = (h: ReturnType<typeof harness>) =>
-    Object.fromEntries(h.store.crm_forecast.map((f) => [f.owner_id, f]));
+  /** The snapshot rows of `w`'s people, by person key. */
+  const rowsOf = async (w: World): Promise<Record<string, Rec[]>> => {
+    const out: Record<string, Rec[]> = {};
+    for (const [key, who] of Object.entries(w)) out[key] = await verify.rows('crm_forecast', { owner_id: who.id });
+    return out;
+  };
+  const currentOf = (rows: Rec[]) =>
+    rows.filter((r) => r.period === 'quarter' && String(r.period_start) === isoUtc(qStart));
 
   it('opens a current-period row for every active opportunity owner, and only for them', async () => {
-    const h = await run();
+    const w = await world();
+    await sweep('forecast_snapshot');
+    const rows = await rowsOf(w);
 
-    expect(h.store.crm_forecast).toHaveLength(2);
-    const owners = h.store.crm_forecast.map((f) => f.owner_id).sort();
-    expect(owners).toEqual(['rep1', 'rep2']);
+    expect(rows.rep1, 'rep1 owns live deals').toHaveLength(1);
+    expect(rows.rep2, 'rep2 owns live deals').toHaveLength(1);
     // A user with no opportunities at all, and one whose only deal is lost,
     // must not collect an empty snapshot row.
-    expect(owners, 'rep3 owns nothing').not.toContain('rep3');
-    expect(owners, 'rep4 owns only a lost deal').not.toContain('rep4');
+    expect(rows.rep3, 'rep3 owns nothing').toHaveLength(0);
+    expect(rows.rep4, 'rep4 owns only a lost deal').toHaveLength(0);
   });
 
   it('lands on a calendar-true quarter, derived by the hook rather than the flow', async () => {
-    const h = await run();
-    const snap = byOwner(h).rep1;
+    const w = await world();
+    await sweep('forecast_snapshot');
+    const [snap] = (await rowsOf(w)).rep1!;
 
-    expect(snap.period).toBe('quarter');
+    expect(snap!.period).toBe('quarter');
     // The invariant #530 pinned for the seeds now also holds for every
     // runtime snapshot: exact boundaries, and the label dialect the hook and
     // the seeds both speak.
-    expect(snap.period_start).toBe(isoUtc(qStart));
-    expect(snap.period_end).toBe(isoUtc(qEnd));
-    expect(snap.period_label).toBe(quarterLabel);
-    expect(snap.snapshot_date).toBe(isoUtc(nowUtc));
-    expect(snap.source).toBe('scheduled');
+    expect(snap!.period_start).toBe(isoUtc(qStart));
+    expect(snap!.period_end).toBe(isoUtc(qEnd));
+    expect(snap!.period_label).toBe(quarterLabel);
+    expect(snap!.snapshot_date).toBe(isoUtc(nowUtc));
+    expect(snap!.source).toBe('scheduled');
   });
 
   it('sums the cumulative buckets from forecast_category', async () => {
-    const h = await run();
-    const snap = byOwner(h).rep1;
+    const w = await world();
+    await sweep('forecast_snapshot');
+    const [snap] = (await rowsOf(w)).rep1!;
 
     // pipeline = every open deal in the window: 100k + 50k + 30k.
-    expect(Number(snap.pipeline_amount)).toBe(180_000);
+    expect(Number(snap!.pipeline_amount)).toBe(180_000);
     // best case = best_case ∪ commit: 50k + 30k. A strict partition would
     // read 50k here, so this pins the ladder, not just "some sum happened".
-    expect(Number(snap.best_case_amount)).toBe(80_000);
-    expect(Number(snap.commit_amount)).toBe(30_000);
-    expect(Number(snap.closed_amount)).toBe(70_000);
+    expect(Number(snap!.best_case_amount)).toBe(80_000);
+    expect(Number(snap!.commit_amount)).toBe(30_000);
+    expect(Number(snap!.closed_amount)).toBe(70_000);
   });
 
   it('excludes deals closing outside the period, and lost deals', async () => {
-    const h = await run();
-    const snap = byOwner(h).rep1;
+    const w = await world();
+    await sweep('forecast_snapshot');
+    const [snap] = (await rowsOf(w)).rep1!;
     // The 999,999 last-quarter deal and the 12,345 lost deal are the only way
     // any total could exceed these.
     for (const field of ['pipeline_amount', 'best_case_amount', 'commit_amount', 'closed_amount']) {
-      expect(Number(snap[field]), `${field} swallowed an out-of-scope deal`).toBeLessThan(200_000);
+      expect(Number(snap![field]), `${field} swallowed an out-of-scope deal`).toBeLessThan(200_000);
     }
   });
 
   it('coerces a string amount instead of concatenating it', async () => {
-    const h = await run();
-    const snap = byOwner(h).rep2;
-    expect(Number(snap.pipeline_amount)).toBe(45_000);
-    expect(typeof snap.pipeline_amount, 'the accumulator produced a string').toBe('number');
+    // ⚠️ What this can and cannot show on the real engine: the string is
+    // handed to the engine, and the SQLite datasource stores and returns it as
+    // the number 25000 (measured) — so the `* 1` guard for a driver that
+    // returns currency as a string is not exercised here. What IS pinned is
+    // the outcome on the shape this datasource returns: a sum, never a
+    // concatenation.
+    const w = await world();
+    await sweep('forecast_snapshot');
+    const [snap] = (await rowsOf(w)).rep2!;
+    expect(Number(snap!.pipeline_amount)).toBe(45_000);
+    expect(typeof snap!.pipeline_amount, 'the accumulator produced a string').toBe('number');
   });
 
   it('is idempotent: a second sweep refreshes the row instead of duplicating it', async () => {
-    const h = harness();
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
+    const w = await world();
+    await sweep('forecast_snapshot');
+    await sweep('forecast_snapshot');
+    const rows = await rowsOf(w);
 
-    expect(h.store.crm_forecast, 'the sweep inserted a second row for the same period').toHaveLength(2);
-    const snap = byOwner(h).rep1;
+    expect(rows.rep1, 'the sweep inserted a second row for the same period').toHaveLength(1);
+    expect(rows.rep2, 'the sweep inserted a second row for the same period').toHaveLength(1);
     // Re-running must RECOMPUTE, not accumulate: a sweep that added to the
     // stored totals would read 360,000 here.
-    expect(Number(snap.pipeline_amount)).toBe(180_000);
+    expect(Number(rows.rep1![0]!.pipeline_amount)).toBe(180_000);
   });
+
+  /** A snapshot row of `owner`'s from an earlier night, written as the system. */
+  const earlierRow = async (owner: Person, over: Rec) => (await verify.seed('crm_forecast', [{
+    owner_id: owner.id, period: 'quarter',
+    period_start: isoUtc(qStart), period_end: isoUtc(qEnd), period_label: quarterLabel,
+    snapshot_date: beforePeriod, source: 'scheduled', ...over,
+  }]))[0]!;
 
   it('overwrites stale amounts when the pipeline moves', async () => {
     // A pre-existing row from an earlier night, carrying numbers that no
     // longer reflect the pipeline. The whole point of a nightly upsert is
     // that amounts can go DOWN, which a create-once writer never achieves.
-    const h = await run([{
-      id: 'f_rep1', owner_id: 'rep1', period: 'quarter',
-      period_start: isoUtc(qStart), period_end: isoUtc(qEnd), period_label: quarterLabel,
-      snapshot_date: beforePeriod, source: 'scheduled',
+    const w = await world();
+    const stale = await earlierRow(w.rep1, {
       pipeline_amount: 9_999_999, best_case_amount: 9_999_999,
       commit_amount: 9_999_999, closed_amount: 9_999_999,
-    }]);
+    });
+    await sweep('forecast_snapshot');
 
-    expect(h.store.crm_forecast).toHaveLength(2);
-    const snap = byOwner(h).rep1;
-    expect(snap.id, 'the existing row was replaced rather than refreshed').toBe('f_rep1');
-    expect(Number(snap.pipeline_amount)).toBe(180_000);
-    expect(Number(snap.closed_amount)).toBe(70_000);
-    expect(snap.snapshot_date).toBe(isoUtc(nowUtc));
+    const rows = (await rowsOf(w)).rep1!;
+    expect(rows).toHaveLength(1);
+    const [snap] = rows;
+    expect(snap!.id, 'the existing row was replaced rather than refreshed').toBe(stale.id);
+    expect(Number(snap!.pipeline_amount)).toBe(180_000);
+    expect(Number(snap!.closed_amount)).toBe(70_000);
+    expect(snap!.snapshot_date).toBe(isoUtc(nowUtc));
   });
 
   it('never writes quota — the manually-maintained attainment denominator', async () => {
-    const h = await run([{
-      id: 'f_rep1', owner_id: 'rep1', period: 'quarter',
-      period_start: isoUtc(qStart), period_end: isoUtc(qEnd), period_label: quarterLabel,
-      snapshot_date: beforePeriod, source: 'scheduled', quota: 1_500_000,
-    }]);
+    const w = await world();
+    await earlierRow(w.rep1, { quota: 1_500_000 });
+    await sweep('forecast_snapshot');
 
-    const snap = byOwner(h).rep1;
-    expect(Number(snap.quota), 'the sweep clobbered a hand-maintained quota').toBe(1_500_000);
+    const rows = await rowsOf(w);
+    expect(Number(rows.rep1![0]!.quota), 'the sweep clobbered a hand-maintained quota').toBe(1_500_000);
     // And a freshly opened row leaves quota NULL rather than zeroing it — the
     // column the sweep never writes, as a materialising driver returns it — so
     // `attainment_pct` guards on quota > 0 instead of dividing by a lie.
-    expect(byOwner(h).rep2.quota).toBeNull();
+    expect(rows.rep2![0]!.quota).toBeNull();
   });
 
   it('does not touch a snapshot belonging to a different period', async () => {
+    const w = await world();
     const previousQuarterEnd = isoUtc(new Date(qStart.getTime() - 86_400_000));
-    const h = await run([{
-      id: 'f_old', owner_id: 'rep1', period: 'quarter',
+    const old = await earlierRow(w.rep1, {
       period_start: isoUtc(new Date(Date.UTC(qStart.getUTCFullYear(), qStart.getUTCMonth() - 3, 1))),
       period_end: previousQuarterEnd, period_label: 'previous',
-      snapshot_date: previousQuarterEnd, source: 'scheduled', closed_amount: 1_485_000,
-    }]);
+      snapshot_date: previousQuarterEnd, closed_amount: 1_485_000,
+    });
+    await sweep('forecast_snapshot');
 
-    const old = h.store.crm_forecast.find((f) => f.id === 'f_old')!;
-    expect(Number(old.closed_amount), 'a closed period was rewritten').toBe(1_485_000);
+    const [after] = await verify.rows('crm_forecast', { id: old.id });
+    expect(Number(after!.closed_amount), 'a closed period was rewritten').toBe(1_485_000);
     // rep1 still gets a NEW row for the current quarter.
-    expect(h.store.crm_forecast).toHaveLength(3);
+    const rows = await rowsOf(w);
+    expect(rows.rep1, 'rep1 has its old row and a new current one').toHaveLength(2);
+    expect(currentOf(rows.rep1!)).toHaveLength(1);
   });
 
   it('is a clean no-op when nobody owns a live deal', async () => {
-    const h = makeFlowHarness(
-      { forecast_snapshot: ForecastSnapshotFlow },
-      {
-        sys_user: [{ id: 'rep9', name: 'Idle' }],
-        crm_opportunity: [
-          { id: 'ox', owner_id: 'rep9', stage: 'closed_lost', amount: 10, close_date: inPeriod },
-        ],
-        crm_forecast: [],
-      },
-      { hooks: [forecastDerive] },
-    );
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
-    expect(h.store.crm_forecast).toHaveLength(0);
+    const idle = await signUpPerson(verify, `idle.${++k}@forecast.flow-scheduled.test`, { name: 'Idle' });
+    const acct = await account();
+    await verify.seed('crm_opportunity', [{
+      name: `Lost ${k}`, owner_id: idle.id, stage: 'closed_lost', loss_reason: 'competitor', amount: 10,
+      close_date: inPeriod, crm_account: acct.id,
+    }]);
+    await sweep('forecast_snapshot');
+    expect(await verify.rows('crm_forecast', { owner_id: idle.id })).toHaveLength(0);
   });
 });
 
@@ -791,14 +898,24 @@ describe('forecast_snapshot — nightly per-owner pipeline snapshot', () => {
  * the current quarter after every re-seeded boot.
  *
  * The fix is in the seed data — the current quarter is no longer seeded — and
- * this file's job is to show that the invariant survives the two scheduled
- * sweeps in EITHER ORDER. That matters because the obvious alternative fix
- * (claim `crm_forecast` and let the sweep adopt the claimed row) holds only
- * while `demo_bootstrap` reaches the window before `forecast_snapshot` does,
- * and a duplicate opened by losing that race never heals. Both orders are run
- * below over the REAL seed records; the last case restores a current-quarter
- * seed row and reproduces the duplicate, so a green run here can never be green
- * for want of a mechanism.
+ * this block's job is to show that the invariant survives the ownership claim
+ * and the scheduled sweep in EITHER ORDER. That matters because the obvious
+ * alternative fix (claim `crm_forecast` and let the sweep adopt the claimed
+ * row) holds only while the claim reaches the window before `forecast_snapshot`
+ * does, and a duplicate opened by losing that race never heals.
+ *
+ * Each ordering gets a stack of its own (`bootStack`): the cold boot is the
+ * platform's own — the seed loader writes the app's REAL seed records and
+ * `claimSeedOwnership` runs on `app:seeded`. On top of it, each ordering runs
+ * its two steps, replays the seeds the way a warm boot does — the platform's
+ * own `SeedLoaderService`, `mode: 'upsert'` on `seed_key`, a PARTIAL write over
+ * the columns the seed declares (the seeds declare no `owner_id`, so a claimed
+ * owner SURVIVES the replay; if it did not, the ownerless state would return
+ * on every boot and no claim could ever settle it) — and runs the two steps
+ * again. The claim is the platform's `claimSeedOwnership` (objectstack#17872,
+ * shipped in 17.6.0), on the booted engine, for the admin. The last case
+ * restores a current-quarter seed row and reproduces the duplicate, so a green
+ * run here can never be green for want of a mechanism.
  */
 describe('re-seed × snapshot leaves one row per (owner, period, window) (#702)', () => {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -808,89 +925,63 @@ describe('re-seed × snapshot leaves one row per (owner, period, window) (#702)'
   const qEnd = new Date(Date.UTC(qStart.getUTCFullYear(), qStart.getUTCMonth() + 3, 0));
   const today = isoUtc(nowUtc);
 
-  /** The forecast rows the seed loader actually ships, read from the app. */
-  const seedRecords = ((CrmSeedData as unknown as Array<{ object: string; records: Rec[] }>)
-    .find((d) => d.object === 'crm_forecast')?.records ?? []);
+  /** The forecast dataset the seed loader actually ships, read from the app. */
+  const forecastSeed = (CrmSeedData as unknown as Array<{ object: string; records: Rec[] }>)
+    .find((d) => d.object === 'crm_forecast')!;
+  const seedRecords = forecastSeed.records ?? [];
 
-  const users = (): Rec[] => [
-    // `get_user` takes an unordered first row; the demo's first user is the
-    // dev admin, and `demo_bootstrap` claims every ownerless row for them.
-    { id: 'usr_admin', name: 'Dev Admin' },
-    { id: 'rep_two', name: 'Rep Two' },
-    { id: 'rep_idle', name: 'No Deals At All' },
-  ];
-
-  /** Two active deal owners and one user the sweep must skip. */
-  const opps = (): Rec[] => [
-    { id: 'o1', owner_id: 'usr_admin', stage: 'negotiation', forecast_category: 'commit', amount: 200_000, close_date: isoUtc(qStart) },
-    { id: 'o2', owner_id: 'rep_two', stage: 'proposal', forecast_category: 'commit', amount: 90_000, close_date: isoUtc(qStart) },
-  ];
+  const silent = { info: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined };
 
   /**
-   * One seed-loader pass, faithful to what the loader does rather than to what
-   * "re-seed" sounds like: `mode: 'upsert'` on `seed_key` resolves to
-   * `engine.update({ ...record, id })` for a row that already exists — a
-   * PARTIAL write over the columns the seed declares — and to an insert
-   * otherwise (`@objectstack/metadata-protocol`, `SeedLoaderService.writeRecord`).
-   *
-   * Partial is the load-bearing word: the seeds declare no `owner_id`, so a
-   * claimed owner SURVIVES a warm-boot replay. If it did not, the ownerless
-   * state would return on every boot and no claim could ever settle it.
-   *
-   * A fresh insert lands with `owner_id: null`, not with the key absent — the
-   * registry injects the column into every user-owned object, and the seed
-   * write only skips the security plugin's insert-time STAMP. That distinction
-   * decides whether `demo_bootstrap` can see the row at all: its filter is
-   * `{ owner_id: null }`, and an absent key is not null. The row below states
-   * neither `owner_id` nor `organization_id` any more; the harness store
-   * materialises every declared column the way a driver does (#1458), so the
-   * fixture no longer has to name the columns the filters happen to read.
+   * A stack of the ordering's own, with two deal owners (the admin — the
+   * claim's target and the demo's first administrator — and a rep) holding a
+   * live current-quarter deal each, and one person the sweep must skip.
    */
-  const loadSeeds = (store: Record<string, Rec[]>) => {
-    const rows = (store.crm_forecast ??= []);
-    for (const rec of seedRecords) {
-      const existing = rows.find((r) => r.seed_key === rec.seed_key);
-      if (existing) Object.assign(existing, rec);
-      else rows.push({ id: `seed_${String(rec.seed_key)}`, ...rec });
-    }
-  };
-
-  const makeHarness = (forecasts: Rec[] = []) =>
-    makeFlowHarness(
-      { demo_bootstrap: DemoBootstrapFlow, forecast_snapshot: ForecastSnapshotFlow },
-      {
-        sys_user: users(),
-        crm_opportunity: opps(),
-        crm_forecast: forecasts,
-      },
-      { hooks: [forecastDerive] },
-    );
-
-  /** A cold boot and a warm one, both running the sweeps in `order`. */
-  const boot = async (order: readonly string[]) => {
-    const h = makeHarness();
-    loadSeeds(h.store);
-    for (const flow of order) await h.run(flow, {}, { event: 'schedule' });
-    loadSeeds(h.store);
-    for (const flow of order) await h.run(flow, {}, { event: 'schedule' });
-    return h;
+  const bootWorld = async () => {
+    // A build of its own (one live kernel per configuration since
+    // 18.0.0-next.0, objectstack#22301).
+    const stack = await bootStack(await buildArtifactAgain(), bootOptions());
+    const adminToken = await stack.signIn();
+    const adminId = String((await stack.contextFor(adminToken)).userId);
+    const repTwo = await signUpPerson(stack, 'rep.two@reseed.flow-scheduled.test', { name: 'Rep Two' });
+    const idle = await signUpPerson(stack, 'idle@reseed.flow-scheduled.test', { name: 'No Deals At All' });
+    const [acct] = await stack.seed('crm_account', [{ name: 'Reseed Co', owner_id: adminId }]);
+    await stack.seed('crm_opportunity', [
+      { name: 'Admin Q deal', owner_id: adminId, stage: 'negotiation', amount: 200_000, approval_status: 'approved', close_date: isoUtc(qStart), crm_account: acct!.id },
+      { name: 'Rep Two Q deal', owner_id: repTwo.id, stage: 'proposal', amount: 90_000, close_date: isoUtc(qStart), crm_account: acct!.id },
+    ]);
+    const ql = stack.kernel.getService<Rec>('objectql');
+    const steps: Record<string, () => Promise<unknown>> = {
+      claim: () => claimSeedOwnership(ql, adminId, { logger: silent }),
+      forecast_snapshot: () => runScheduledFlow(stack, 'forecast_snapshot'),
+    };
+    const replaySeeds = () => new SeedLoaderService(ql as never, stack.kernel.getService('metadata') as never, silent as never)
+      .load(SeedLoaderRequestSchema.parse({ seeds: [forecastSeed], config: { defaultMode: 'upsert', multiPass: true } }));
+    return { stack, adminId, repTwo, idle, steps, replaySeeds };
   };
 
   const inCurrentQuarter = (r: Rec) =>
     r.period === 'quarter' && String(r.period_start) <= today && today <= String(r.period_end);
 
   const ORDERINGS = [
-    ['claim first — the ten-minute sweep reaches the window first', ['demo_bootstrap', 'forecast_snapshot']],
-    ['sweep first — a boot minutes before 03:00', ['forecast_snapshot', 'demo_bootstrap']],
+    ['claim first — the seed settles before the snapshot sweep runs', ['claim', 'forecast_snapshot']],
+    ['sweep first — a boot minutes before 03:00', ['forecast_snapshot', 'claim']],
   ] as const;
 
   for (const [label, order] of ORDERINGS) {
     describe(label, () => {
-      let h: Awaited<ReturnType<typeof boot>>;
-      beforeAll(async () => { h = await boot(order); });
+      let w: Awaited<ReturnType<typeof bootWorld>>;
+      let rows: Rec[];
+      beforeAll(async () => {
+        w = await bootWorld();
+        for (const name of order) await w.steps[name]!();
+        await w.replaySeeds();
+        for (const name of order) await w.steps[name]!();
+        rows = await w.stack.rows('crm_forecast', {});
+      }, 120_000);
 
-      it('leaves no forecast row owned by nobody', async () => {
-        const ownerless = h.store.crm_forecast
+      it('leaves no forecast row owned by nobody', () => {
+        const ownerless = rows
           .filter((r) => r.owner_id == null)
           .map((r) => `${String(r.seed_key ?? r.id)} (${String(r.period)} ${String(r.period_start)})`);
         expect(
@@ -901,73 +992,87 @@ describe('re-seed × snapshot leaves one row per (owner, period, window) (#702)'
         ).toEqual([]);
       });
 
-      it('leaves exactly one row per (owner, period, period_start)', async () => {
-        const keys = h.store.crm_forecast.map(
+      it('leaves exactly one row per (owner, period, period_start)', () => {
+        const keys = rows.map(
           (r) => `${String(r.owner_id)}|${String(r.period)}|${String(r.period_start)}`,
         );
-        const dupes = [...new Set(keys.filter((k, i) => keys.indexOf(k) !== i))];
+        const dupes = [...new Set(keys.filter((key, i) => keys.indexOf(key) !== i))];
         expect(
           dupes,
           `two rows share one snapshot identity — a quota/closed double count:\n  ${dupes.join('\n  ')}`,
         ).toEqual([]);
       });
 
-      it('gives the current quarter one row per ACTIVE deal owner and no other', async () => {
-        const current = h.store.crm_forecast.filter(inCurrentQuarter);
-        expect(current.map((r) => String(r.owner_id)).sort()).toEqual(['rep_two', 'usr_admin']);
+      it('gives the current quarter one row per ACTIVE deal owner and no other', () => {
+        const current = rows.filter(inCurrentQuarter);
+        for (const [who, id] of [['the admin', w.adminId], ['rep two', w.repTwo.id]] as const) {
+          expect(current.filter((r) => r.owner_id === id), `${who} has no single current-quarter row`).toHaveLength(1);
+        }
+        expect(current.filter((r) => r.owner_id === w.idle.id), 'a person with no deals got a row').toHaveLength(0);
         expect(
           current.map((r) => r.seed_key).filter(Boolean),
           'a seeded row opened in the window forecast_snapshot writes',
         ).toEqual([]);
       });
 
-      it('leaves the current-quarter numbers the sweep computed, not seeded ones', async () => {
+      it('leaves the current-quarter numbers the sweep computed, not seeded ones', () => {
         // The other half of the warm-boot story: the replay must not stomp a
         // runtime writer's row. It cannot, because the seeds no longer declare
         // one in this window — this asserts the outcome rather than the reason.
-        const admin = h.store.crm_forecast.find((r) => inCurrentQuarter(r) && r.owner_id === 'usr_admin')!;
-        expect(admin, 'no current-quarter row for the admin').toBeTruthy();
-        expect(Number(admin.commit_amount)).toBe(200_000);
-        expect(Number(admin.pipeline_amount)).toBe(200_000);
-        expect(admin.period_start).toBe(isoUtc(qStart));
-        expect(admin.period_end).toBe(isoUtc(qEnd));
+        const two = rows.find((r) => inCurrentQuarter(r) && r.owner_id === w.repTwo.id)!;
+        expect(two, 'no current-quarter row for rep two').toBeTruthy();
+        expect(Number(two.commit_amount)).toBe(90_000);
+        expect(Number(two.pipeline_amount)).toBe(90_000);
+        expect(two.period_start).toBe(isoUtc(qStart));
+        expect(two.period_end).toBe(isoUtc(qEnd));
+        const mine = rows.find((r) => inCurrentQuarter(r) && r.owner_id === w.adminId)!;
+        expect(mine.seed_key ?? null, 'the admin’s current-quarter row is a seeded one').toBeNull();
+        expect(mine.source).toBe('scheduled');
       });
 
-      it('claims every settled seed row for the first user', async () => {
-        const seeded = h.store.crm_forecast.filter((r) => r.seed_key != null);
+      it('claims every settled seed row for the first user', () => {
+        const seeded = rows.filter((r) => r.seed_key != null);
         expect(seeded, 'the seed replay inserted duplicates').toHaveLength(seedRecords.length);
-        expect(seeded.map((r) => String(r.owner_id))).toEqual(seedRecords.map(() => 'usr_admin'));
+        expect(seeded.map((r) => String(r.owner_id))).toEqual(seedRecords.map(() => w.adminId));
       });
     });
   }
 
   it('reproduces the phantom when a current-quarter row IS seeded', async () => {
     // Non-vacuity, and the reported mechanism end to end. Restore the row the
-    // seeds used to ship and run the sweep before the claim: the sweep's
-    // owner-scoped lookup cannot match an ownerless row, so it opens a second
-    // one; the claim then stamps the first, leaving TWO rows for ONE owner in
-    // ONE window. Predicted direction, and the one that makes the guards above
+    // seeds used to ship — written as the seed loader writes it, ownerless —
+    // and run the sweep before the claim: the sweep's owner-scoped lookup
+    // cannot match an ownerless row, so it opens a second one; the claim then
+    // stamps the first, leaving TWO rows for ONE owner in ONE window.
+    // Predicted direction, and the one that makes the guards above
     // meaningful — the duplicate is what they would report.
-    const phantom: Rec = {
-      id: 'seed_demo_quarter_current', seed_key: 'demo_quarter_current', owner_id: null,
+    const w = await bootWorld();
+    const [restored] = await w.stack.seed('crm_forecast', [{
+      seed_key: 'demo_quarter_current', owner_id: null,
       period: 'quarter', period_start: isoUtc(qStart), period_end: isoUtc(qEnd),
       snapshot_date: today, source: 'scheduled', quota: 1_500_000, closed_amount: 820_000,
-    };
-    const h = makeHarness([phantom]);
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
-    await h.run('demo_bootstrap', {}, { event: 'schedule' });
+    }]);
+    // Since 18.0.0-next.2 the claim re-owns an ownerless row only when the seed
+    // reports landing on it (objectstack#23354): a boot binds that reading from
+    // the `seed-settlement` contract, and a direct call without it re-owns none.
+    // This row stands in for one the seed shipped, so the claim is told so.
+    const ql = w.stack.kernel.getService<Rec>('objectql');
+    const claimAsSeeded = () => claimSeedOwnership(ql, w.adminId, {
+      logger: silent,
+      seededRecordIds: (object: string) => (object === 'crm_forecast' ? [String(restored!.id)] : []),
+    });
+    await w.steps.forecast_snapshot!();
+    await claimAsSeeded();
 
-    const adminRows = h.store.crm_forecast.filter((r) => inCurrentQuarter(r) && r.owner_id === 'usr_admin');
-    expect(adminRows, 'the sweep adopted the ownerless row instead of duplicating it').toHaveLength(2);
+    const adminRows = async () =>
+      (await w.stack.rows('crm_forecast', { owner_id: w.adminId })).filter(inCurrentQuarter);
+    expect(await adminRows(), 'the sweep adopted the ownerless row instead of duplicating it').toHaveLength(2);
     // And it is terminal: the sweep's findOne refreshes whichever row it
     // reaches first and never sees, let alone merges, the other.
-    await h.run('forecast_snapshot', {}, { event: 'schedule' });
-    await h.run('demo_bootstrap', {}, { event: 'schedule' });
-    expect(
-      h.store.crm_forecast.filter((r) => inCurrentQuarter(r) && r.owner_id === 'usr_admin'),
-      'a later pass healed the duplicate — then the seed guard would be optional',
-    ).toHaveLength(2);
-  });
+    await w.steps.forecast_snapshot!();
+    await claimAsSeeded();
+    expect(await adminRows(), 'a later pass healed the duplicate — then the seed guard would be optional').toHaveLength(2);
+  }, 120_000);
 });
 
 /**
@@ -1007,11 +1112,13 @@ describe('re-seed × snapshot leaves one row per (owner, period, window) (#702)'
  */
 describe('loop-nested conditions must be explicit CEL envelopes', () => {
   it('the engine evaluates a bare string and an envelope identically', () => {
-    const h = makeFlowHarness({}, {});
+    // The booted stack's own automation service — a kernel service the handle
+    // does not front — asked directly.
+    const automation = verify.kernel.getService<{
+      evaluateCondition(c: unknown, v: Map<string, unknown>): boolean;
+    }>('automation');
     const evaluate = (condition: unknown) =>
-      (h.engine as unknown as {
-        evaluateCondition(c: unknown, v: Map<string, unknown>): boolean;
-      }).evaluateCondition(condition, new Map([['existingStallTask', null]]));
+      automation.evaluateCondition(condition, new Map([['existingStallTask', null]]));
 
     // Both forms open the gate as of 17.0.0-rc.2 (#4336). If the bare-string
     // case ever flips back to `false`, the legacy string-compare path has
@@ -1076,442 +1183,5 @@ describe('loop-nested conditions must be explicit CEL envelopes', () => {
       'bare string condition(s) inside a loop body — these never evaluate.\n' +
         "Wrap as { dialect: 'cel', source: '…' }:\n  " + bare.join('\n  '),
     ).toEqual([]);
-  });
-});
-
-/**
- * demo_bootstrap — the post-seed ownership claim (#622, re-based on #548).
- *
- * The failure this guards against is silent by construction. A seeded row
- * reaches the database with the ownership column (`owner_id`) empty: seed
- * writes run `{ isSystem: true }`, which short-circuits the security
- * middleware, so its insert-time auto-stamp never fires — and these seeds
- * cannot declare an owner either (a seed cannot name a user; that is why this
- * flow exists). `owner_id` is the column the sharing service reads, so under
- * `sharingModel: 'private'` such a row is editable by NOBODY, the admin
- * included: `PATCH` answers 403, and the attachment surface — which gates on
- * `canEdit(parent)` — answers 403 ATTACHMENT_PARENT_ACCESS.
- *
- * #622 was the two-column version of this: the app also authored its own
- * `owner` lookup, the sweep stamped only that one, and the record LOOKED
- * claimed everywhere a human would check while the platform still owned it to
- * nobody — with the sweep's own filter (`owner != null`) then excluding the row
- * forever, so the broken state was terminal. #548 removed the second column, so
- * the half-claimed state is no longer reachable and there is nothing left for a
- * `plat_only` fixture to describe.
- *
- * What remains is one column and one question, and these cases assert the
- * OUTCOME — every claimed object comes out of bootstrap with a real owner —
- * over the object list read from the flow itself, so a newly claimed object is
- * covered the day it is added. The single-column claim is NOT weaker than the
- * two-column one it replaces: it is the same assertion with the column that
- * could disagree with it deleted.
- */
-describe('demo_bootstrap — post-seed ownership claim', () => {
-  const USER = 'usr_first';
-
-  /** The app's ONE ownership column — the platform anchor sharing reads. */
-  const PLATFORM_OWNER = 'owner_id';
-
-  /** Every object the flow claims, read off the flow's own `get_record` nodes. */
-  const claimedObjects = (): string[] => {
-    const nodes = (DemoBootstrapFlow.nodes ?? []) as Rec[];
-    const names = nodes
-      .filter((n) => n.type === 'get_record' && n.config?.objectName !== 'sys_user')
-      .map((n) => String(n.config.objectName));
-    return [...new Set(names)];
-  };
-
-  /**
-   * Two rows per claimed object:
-   *  - `unowned` — a fresh seed row, `owner_id` empty. The sweep must claim it.
-   *  - `owned`   — already claimed by a real rep. The sweep must leave it alone.
-   *
-   * The `app_only` / `plat_only` shapes this fixture used to carry described the
-   * two columns DISAGREEING, which #548 made unrepresentable — there is one
-   * column now, so "claimed here but not there" has no spelling. They are not
-   * re-spelled onto `owner_id` (that would duplicate `unowned` / `owned` under
-   * new names and assert nothing extra); they are deleted with the state they
-   * described.
-   */
-  const seedStore = (): Record<string, Rec[]> => {
-    const store: Record<string, Rec[]> = { sys_user: [{ id: USER, email: 'admin@objectos.ai' }] };
-    for (const object of claimedObjects()) {
-      store[object] = [
-        { id: `${object}_unowned`, [PLATFORM_OWNER]: null },
-        { id: `${object}_owned`, [PLATFORM_OWNER]: 'rep_9' },
-      ];
-    }
-    return store;
-  };
-
-  const runBootstrap = async (store: Record<string, Rec[]> = seedStore()) => {
-    const h = makeFlowHarness({ demo_bootstrap: DemoBootstrapFlow }, store);
-    await h.run('demo_bootstrap', {}, { event: 'schedule' });
-    return h;
-  };
-
-  it('claims every object the seed data ships an owner-scoped record for', () => {
-    // Guards the cases below: they iterate this list, so an empty or truncated
-    // one would make every assertion vacuous.
-    const claimed = claimedObjects();
-    for (const object of [
-      'crm_lead', 'crm_account', 'crm_contact', 'crm_opportunity',
-      'crm_case', 'crm_task', 'crm_quote', 'crm_contract',
-      // #702: `crm_forecast` is `private` and `sales_rep` reads it with
-      // `readScope: 'own'`, so an ownerless snapshot row is invisible to every
-      // rep and editable by nobody — the same defect as the eight above, on the
-      // one owner-scoped seeded object this list used to omit.
-      'crm_forecast',
-      // #716: the last two, and the ones that hid longest. Both are seeded and
-      // both declare `owner_id`, but their OWD is `public_read` — so unlike the
-      // nine above their ownerless rows READ fine for everybody and nothing
-      // looked broken until somebody tried to WRITE one. `public_read` opens
-      // the read baseline only; the write filter still needs owner-match, so
-      // `marketing_user.crm_campaign.allowEdit` and
-      // `service_agent.crm_knowledge_article.allowEdit` (both at
-      // `modifyAllRecords: false`, i.e. write depth `own` → `owner_id ==
-      // caller`) were granted permissions that answered 403 on every seeded
-      // row for everyone but `system_admin`.
-      'crm_campaign',
-      'crm_knowledge_article',
-      // #671: the activity model got demo rows, and `crm_event` declares
-      // `owner_id` under a `private` OWD — so an unclaimed seeded interaction
-      // is invisible to every rep (`sales_rep` reads it `own`-only), missing
-      // from the owner axis of `event_metrics`, and editable by nobody. This is
-      // the cross-table below going red the day the seeds landed, which is the
-      // mechanism working.
-      'crm_event',
-    ]) {
-      expect(claimed, `demo_bootstrap never claims ${object}`).toContain(object);
-    }
-  });
-
-  /**
-   * The other half of #671, and the direction that is easy to get wrong by
-   * copying the line above: `crm_event_attendee` is seeded in the same commit
-   * as `crm_event` but declares NO `owner_id` — its access derives from the
-   * event it hangs off (`sharingModel: 'controlled_by_parent'`). Claiming it
-   * would stamp a column the object does not have, on rows where ownership
-   * means nothing. The computed cross-table below asserts this as a general
-   * rule; this case names the record so a future edit cannot quietly add it.
-   */
-  it('does not claim the attendee junction — it has no ownership to claim', () => {
-    expect(claimedObjects()).not.toContain('crm_event_attendee');
-  });
-
-  /**
-   * The roster above is a list a human maintains, and #716 is what happens when
-   * one falls behind: `crm_campaign` and `crm_knowledge_article` sat seeded,
-   * owner-scoped and unclaimed for release after release because nothing ever
-   * COMPUTED the question — and their `public_read` OWD meant the omission
-   * showed up as a 403 on an edit nobody in a demo tries, rather than as an
-   * empty list somebody would have reported.
-   *
-   * So compute it, from the app's own metadata. An object that is SEEDED and
-   * declares `owner_id` reaches the database owned by nobody — seed writes run
-   * `{ isSystem: true }`, which skips the security middleware's insert-time
-   * stamp, and no seed can name a user — so this sweep is the ONLY thing that
-   * can give it an owner, and it belongs in the list. Objects with no
-   * `owner_id` (`crm_product`, and the `controlled_by_parent` children whose
-   * access derives from their master) have no ownership to claim and must stay
-   * out — stamping one would write a column the object does not have.
-   */
-  it('leaves no seeded owner-scoped object unclaimed — the cross-table, computed', () => {
-    const seeded = new Set(
-      (CrmSeedData as unknown as Array<{ object: string }>).map((d) => d.object),
-    );
-    const claimed = new Set(claimedObjects());
-    const objects = Object.values(CrmObjects as unknown as Record<string, Rec>).filter(
-      (o) => o != null && typeof o.name === 'string' && o.fields != null,
-    );
-    const ownerScoped = (o: Rec) =>
-      Object.prototype.hasOwnProperty.call(o.fields as Rec, PLATFORM_OWNER);
-
-    // Guard the guard: a broken walk would make every filter below empty and
-    // the whole case vacuous.
-    expect(objects.length, 'no objects read off the barrel — the walk broke').toBeGreaterThan(10);
-    expect(
-      objects.filter((o) => seeded.has(String(o.name)) && ownerScoped(o)).length,
-      'no seeded owner-scoped object found at all — the cross-table is empty',
-    ).toBeGreaterThan(5);
-
-    const unclaimed = objects
-      .filter((o) => seeded.has(String(o.name)) && ownerScoped(o) && !claimed.has(String(o.name)))
-      .map((o) => `${String(o.name)} (sharingModel: ${String(o.sharingModel)})`);
-    expect(
-      unclaimed,
-      'these objects ship seed records AND declare the ownership column, so their rows\n' +
-        'reach the database owned by nobody and nothing else can claim them. Under any\n' +
-        'OWD that leaves them uneditable by every user, `system_admin` aside — and under\n' +
-        '`public_read` it does so while the rows still read normally, so the only symptom\n' +
-        'is a 403 (#716). Add them to CLAIMED_OBJECTS:\n  ' + unclaimed.join('\n  '),
-    ).toEqual([]);
-
-    // The other direction: claiming an object with no ownership column would
-    // stamp a field it does not declare, on rows where ownership means nothing.
-    const byName = new Map(objects.map((o) => [String(o.name), o]));
-    const claimedWithoutOwner = [...claimed].filter((name) => {
-      const object = byName.get(name);
-      return object != null && !ownerScoped(object);
-    });
-    expect(
-      claimedWithoutOwner,
-      `these claimed objects declare no ${PLATFORM_OWNER}:\n  ` + claimedWithoutOwner.join('\n  '),
-    ).toEqual([]);
-  });
-
-  it('leaves no claimed object ownerless at the PLATFORM level', async () => {
-    const h = await runBootstrap();
-
-    const ownerless: string[] = [];
-    for (const object of claimedObjects()) {
-      for (const row of h.store[object] ?? []) {
-        if (row[PLATFORM_OWNER] == null) ownerless.push(`${object}/${row.id as string}`);
-      }
-    }
-    expect(
-      ownerless,
-      'these rows came out of demo_bootstrap owned by nobody at the platform level.\n' +
-        `Under sharingModel:'private' that makes them read-only for EVERY user, admin\n` +
-        'included, and blocks attachments on them:\n  ' + ownerless.join('\n  '),
-    ).toEqual([]);
-  });
-
-  it('claims the ownership column on every row it touches', async () => {
-    const h = await runBootstrap();
-
-    for (const object of claimedObjects()) {
-      const row = (h.store[object] ?? []).find((r) => r.id === `${object}_unowned`);
-      expect(row, `${object}_unowned vanished`).toBeTruthy();
-      expect(row![PLATFORM_OWNER], `${object}_unowned: ${PLATFORM_OWNER} not claimed`).toBe(USER);
-    }
-  });
-
-  it('stamps no OTHER ownership-shaped column — one owner, or the #622 split is back', async () => {
-    // The half-claimed state of #622 needed two columns to exist in. This is
-    // the assertion that keeps it that way: a future sweep that starts writing
-    // a second `owner`-ish key re-creates the state the fixture above no longer
-    // has a shape for, and it would do so silently.
-    const h = await runBootstrap();
-    for (const object of claimedObjects()) {
-      for (const row of h.store[object] ?? []) {
-        const ownerish = Object.keys(row).filter((k) => k === 'owner' || k.endsWith('_owner'));
-        expect(ownerish, `${object}/${row.id as string} grew a second ownership column`).toEqual([]);
-      }
-    }
-  });
-
-  it('never reassigns a record that already has a real owner', async () => {
-    const h = await runBootstrap();
-    for (const object of claimedObjects()) {
-      const owned = (h.store[object] ?? []).find((r) => r.id === `${object}_owned`);
-      expect(owned?.[PLATFORM_OWNER], `${object}: overwrote a real owner`).toBe('rep_9');
-    }
-  });
-
-  it('is a no-op on a fully claimed org', async () => {
-    const first = await runBootstrap();
-    const settled = JSON.parse(JSON.stringify(first.store)) as Record<string, Rec[]>;
-
-    const second = await runBootstrap(JSON.parse(JSON.stringify(settled)) as Record<string, Rec[]>);
-    expect(second.store).toEqual(settled);
-  });
-
-  it('does nothing at all before the first user exists', async () => {
-    const store = seedStore();
-    store.sys_user = [];
-    const h = await runBootstrap(store);
-
-    // Every row keeps exactly the ownership it started with — in particular the
-    // sweep must not stamp the literal `{firstUser.id}` placeholder.
-    for (const object of claimedObjects()) {
-      const unowned = (h.store[object] ?? []).find((r) => r.id === `${object}_unowned`);
-      expect(unowned?.[PLATFORM_OWNER], `${object}: claimed with no user present`).toBeNull();
-    }
-  });
-});
-
-/**
- * #716 end to end: the two `public_read` families, over the records the seed
- * loader actually ships.
- *
- * The block above runs on a synthetic two-row fixture per claimed object. That
- * proves the sweep's MECHANICS and nothing about the real seed book — and #716
- * was not a mechanics bug: the sweep worked perfectly, it simply never looked
- * at these two objects. So this runs it over the actual `crm_campaign` and
- * `crm_knowledge_article` seed records, read from `src/data/` rather than
- * restated here, and asserts the outcome the issue is about.
- *
- * Why these two hid so long is worth keeping in the fixture: their OWD is
- * `public_read`, so every one of these rows READS normally for every user even
- * while owned by nobody. Nothing is empty, nothing errors, no list is short.
- * The only symptom is a write — and a demo org is read almost exclusively.
- */
-describe('demo_bootstrap claims the real campaign and knowledge seeds (#716)', () => {
-  const ADMIN = 'usr_admin';
-  const PLATFORM_OWNER = 'owner_id';
-
-  /** The two families, with the `externalId` their `defineSeed` upserts on. */
-  const FAMILIES = [
-    ['crm_campaign', 'name'],
-    ['crm_knowledge_article', 'title'],
-  ] as const;
-
-  const seedRecordsOf = (object: string): Rec[] =>
-    (CrmSeedData as unknown as Array<{ object: string; records: Rec[] }>).find(
-      (d) => d.object === object,
-    )?.records ?? [];
-
-  /**
-   * One seed-loader pass, faithful to what the loader does: `mode: 'upsert'` on
-   * the dataset's `externalId` resolves to a PARTIAL update over the columns
-   * the seed declares when the row already exists, and to an insert otherwise.
-   *
-   * Partial is load-bearing — the seeds declare no `owner_id`, so a claimed
-   * owner survives a warm-boot replay. And a fresh insert lands with
-   * `owner_id: null` rather than with the key absent: the registry injects the
-   * column into every user-owned object, and the seed write only skips the
-   * security plugin's insert-time STAMP. That distinction decides whether the
-   * sweep can see the row at all — its filter is `{ owner_id: null }`, and an
-   * absent key is not null. The pushed row no longer states the column: the
-   * harness store materialises every declared column the way a driver does
-   * (#1458), which is what makes the seeded row visible to that filter.
-   */
-  const loadSeeds = (store: Record<string, Rec[]>) => {
-    for (const [object, externalId] of FAMILIES) {
-      const rows = (store[object] ??= []);
-      for (const rec of seedRecordsOf(object)) {
-        const key = String(rec[externalId]);
-        const existing = rows.find((r) => String(r[externalId]) === key);
-        if (existing) Object.assign(existing, rec);
-        else rows.push({ id: `seed_${object}_${key}`, ...rec });
-      }
-    }
-  };
-
-  const freshStore = (): Record<string, Rec[]> => {
-    const store: Record<string, Rec[]> = { sys_user: [{ id: ADMIN, email: 'admin@objectos.ai' }] };
-    loadSeeds(store);
-    return store;
-  };
-
-  const sweep = async (store: Record<string, Rec[]>) => {
-    const h = makeFlowHarness({ demo_bootstrap: DemoBootstrapFlow }, store);
-    await h.run('demo_bootstrap', {}, { event: 'schedule' });
-    return h;
-  };
-
-  const ownerless = (rows: Rec[]) => rows.filter((r) => r[PLATFORM_OWNER] == null);
-
-  it('the seed book actually ships rows for both, and ships them ownerless', () => {
-    // Guard the guard, twice over. An empty family makes every case below
-    // vacuous, and a family that arrived already owned would mean the fixture
-    // no longer presents the defect the sweep is supposed to fix.
-    const store = freshStore();
-    for (const [object] of FAMILIES) {
-      expect(seedRecordsOf(object).length, `${object} ships no seed records`).toBeGreaterThan(0);
-      expect(store[object].length, `${object} did not load`).toBe(seedRecordsOf(object).length);
-      expect(
-        ownerless(store[object]).length,
-        `${object}: seeds arrived owned — the fixture no longer shows the defect`,
-      ).toBe(store[object].length);
-    }
-  });
-
-  it('leaves no seeded campaign or article ownerless after one pass', async () => {
-    const h = await sweep(freshStore());
-
-    const stillOwnerless: string[] = [];
-    for (const [object, externalId] of FAMILIES) {
-      for (const row of ownerless(h.store[object] ?? [])) {
-        stillOwnerless.push(`${object}/${String(row[externalId])}`);
-      }
-    }
-    expect(
-      stillOwnerless,
-      'these seeded rows came out of demo_bootstrap owned by nobody. Their OWD is\n' +
-        '`public_read`, so they still READ fine — the failure is silent until an edit,\n' +
-        'which answers 403 for every user but system_admin (#716):\n  ' +
-        stillOwnerless.join('\n  '),
-    ).toEqual([]);
-
-    for (const [object] of FAMILIES) {
-      for (const row of h.store[object]) {
-        expect(row[PLATFORM_OWNER], `${object}/${String(row.id)}: wrong owner`).toBe(ADMIN);
-      }
-    }
-  });
-
-  /**
-   * The permission half of #716, as far as this repo can honestly take it.
-   *
-   * This is a MODEL of the platform's write gate, not the platform's own code —
-   * `@objectstack/plugin-security` is not a dependency of this app and standing
-   * one up would test the platform rather than us. The model is one line of
-   * documented behaviour: a grant with `modifyAllRecords: false` and no
-   * `writeScope` resolves to the `own` write depth, whose write filter is
-   * `owner_id == caller`, and `public_read` does NOT exempt writes from it
-   * ("public_read is read-open but write-owned; only a fully public object is
-   * write-open" — `@objectstack/plugin-sharing` 17.0.0-rc.2, `buildWriteFilter`).
-   *
-   * So what this pins is not "the 403 is gone" — only a running server shows
-   * that. It pins the single input the app controls and #716 got wrong: the row
-   * a granted editor is measured against has an owner at all. The grants are
-   * read from the real profile metadata, so the case fails loudly if the
-   * premise it reasons from (edit granted, `modifyAllRecords` off) ever moves.
-   */
-  it('turns a granted editor from zero editable rows into all of them', async () => {
-    const GRANTS = [
-      ['crm_campaign', (MarketingUserProfile.objects as Rec).crm_campaign, 'marketing_user'],
-      ['crm_knowledge_article', (ServiceAgentProfile.objects as Rec).crm_knowledge_article, 'service_agent'],
-    ] as const;
-
-    for (const [object, grant, profile] of GRANTS) {
-      expect(grant, `${profile} has no ${object} grant`).toBeTruthy();
-      expect(grant.allowEdit, `${profile}.${object}: edit grant gone`).toBe(true);
-      expect(grant.modifyAllRecords, `${profile}.${object}: now modifies all records`).toBe(false);
-      expect(grant.writeScope, `${profile}.${object}: gained a writeScope`).toBeUndefined();
-    }
-
-    // The `own`-depth write filter, applied to the rows a granted editor faces.
-    const editable = (rows: Rec[], userId: string) =>
-      rows.filter((r) => r[PLATFORM_OWNER] === userId);
-
-    const before = freshStore();
-    for (const [object] of GRANTS) {
-      expect(
-        editable(before[object], ADMIN).length,
-        `${object}: an editable row before the sweep — the fixture is wrong`,
-      ).toBe(0);
-    }
-
-    const h = await sweep(before);
-    for (const [object] of GRANTS) {
-      expect(
-        editable(h.store[object], ADMIN).length,
-        `${object}: rows a granted editor still cannot reach`,
-      ).toBe(seedRecordsOf(object).length);
-    }
-  });
-
-  it('survives a warm boot — the replayed seed does not blank the claim', async () => {
-    // The seeds re-run on every boot. They declare no `owner_id`, so the upsert
-    // is a partial write and the claim must persist; if it did not, the sweep
-    // would re-claim forever and any real reassignment would be undone by the
-    // next restart.
-    const h = await sweep(freshStore());
-    loadSeeds(h.store);
-
-    for (const [object] of FAMILIES) {
-      expect(ownerless(h.store[object]).length, `${object}: re-seed blanked the owner`).toBe(0);
-      expect(h.store[object].length, `${object}: re-seed duplicated rows`).toBe(
-        seedRecordsOf(object).length,
-      );
-    }
-
-    const settled = JSON.parse(JSON.stringify(h.store)) as Record<string, Rec[]>;
-    const again = await sweep(JSON.parse(JSON.stringify(settled)) as Record<string, Rec[]>);
-    expect(again.store).toEqual(settled);
   });
 });

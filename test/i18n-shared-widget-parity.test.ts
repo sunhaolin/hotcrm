@@ -1,9 +1,8 @@
 // Copyright (c) 2026 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import stack from '../objectstack.config';
-import { type AnyRec, localePacks, packFor } from './helpers/metadata-fixtures';
-import * as sharedWidgets from '../src/dashboards/shared-widgets';
+import stack, { type AnyRec, localePacks, packFor } from './helpers/composed-stack';
+import * as sharedWidgets from '../src/sales/dashboards/shared-widgets';
 
 /**
  * Locale bundles must not re-fork the widgets `src/dashboards/shared-widgets.ts`

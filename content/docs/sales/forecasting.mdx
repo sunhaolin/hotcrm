@@ -13,11 +13,11 @@ This page is about the **forecast object** that stores those snapshots. For the 
 
 | Section | Fields |
 | --- | --- |
-| **Period** | Owner and period (`month` / `quarter`). The period start, the period end and the friendly label (e.g. **Q3 2026**) are all derived. |
-| **Numbers** | Quota, pipeline amount, best-case amount, commit amount, closed amount. |
-| **Derived** | **Expected**, **Attainment %** and **Coverage Ratio** — formula fields computed per row from the numbers above. Nobody types these in. |
-| **Source** | `scheduled` (nightly job), `ai` (reserved for an agent or integration of your own — nothing in HotCRM writes it), `manual` (manager entry). Not only a label: on the current quarter, an `ai` or `manual` row **stands the nightly job down** for that owner and period — see *How forecasts get created* below. |
-| **Narrative** | Optional commentary — what changed, what's at risk, what to ask in the next 1:1. |
+| **Snapshot** | Owner and period (`month` / `quarter`). The period start, the period end and the friendly label (e.g. **Q3 2026**) are all derived. |
+| **Amounts** | Quota, pipeline amount, best-case amount, commit amount, closed amount — and **Expected**, **Attainment %** and **Coverage Ratio**, formula fields computed per row from those numbers. Nobody types these three in. |
+| **Source** *(collapsed by default)* | **Snapshot Date**, the day the snapshot was captured. **Source**: `scheduled` (nightly job), `ai` (reserved for an agent or integration of your own — nothing in HotCRM writes it), `manual` (manager entry). Not only a label: on the current quarter, an `ai` or `manual` row **stands the nightly job down** for that owner and period — see *How forecasts get created* below. And **Notes**: optional commentary — what changed, what's at risk, what to ask in the next 1:1. |
+
+Those are the record's three sections. The strip at the top of the record carries **Owner**, **Period**, **Period Start**, **Commit** and **Closed Won**, so the sections under it do not repeat them. The New and Edit form arranges the same fields its own way: *Snapshot* (with **Snapshot Date** and **Source** in it), *Amounts*, and *Notes*.
 
 Pipeline, best case and commit are **nested**, not independent — each is a subset of the one above it, so you read them as a ladder of confidence rather than as slices of a pie:
 
@@ -30,7 +30,7 @@ A deal's Forecast Category is set automatically from its **Stage**, so the same 
 
 ## How periods are derived
 
-You choose a `period`; the system computes the rest. Supply a `period_start` — that period's own first day — to snapshot a specific quarter or month, or leave it out and the snapshot lands on the calendar period containing its snapshot date. For a quarterly forecast taken on 2026-08-02:
+You choose a `period`; the system computes the rest. Supply a `period_start` — that period's own first day — to snapshot a specific quarter or month, or leave it out and the snapshot lands on the calendar period containing its snapshot date, which is today unless you enter another. For a quarterly forecast taken on 2026-08-02:
 
 - `period_start` → 2026-07-01
 - `period_end` → 2026-09-30
@@ -40,14 +40,14 @@ Because that derivation lives in one place instead of in every writer, snapshots
 
 **What you do supply is checked, not merely kept.** The derivation fills in the blanks, and it still never rewrites a value that arrived with the record — but a value that disagrees with the period it is labelled with is now refused outright rather than stored. The window is pinned at both ends:
 
-- **`period_start` must be the period's own first day.** A monthly snapshot starts on the 1st; a quarterly one must additionally start on a quarter boundary — January 1, April 1, July 1 or October 1. So a quarterly snapshot sent with `period_start` 2026-07-15 no longer lands mid-quarter under a **Q3 2026** label: the save is refused, with *Period Start must be the first day of the period — e.g. 2026-08-01 for Aug 2026*.
-- **`period_end` must close that same period — or be left blank.** Leave it out and the derivation fills it in. Type it by hand and it has to be the last day of the period `period_start` opens: 2026-09-30 for a quarter starting 2026-07-01, or 2026-08-31 for Aug 2026. A ten-month window cannot be filed under a one-quarter label.
+- **`period_start` must be the period's own first day.** A monthly snapshot starts on the 1st; a quarterly one must additionally start on a quarter boundary — January 1, April 1, July 1 or October 1. So a quarterly snapshot sent with `period_start` 2026-07-15 no longer lands mid-quarter under a **Q3 2026** label: the save is refused, with *A quarterly forecast's Period Start must be on a quarter boundary — January 1, April 1, July 1 or October 1*.
+- **`period_end` must close that same period — or be left blank.** Leave it out and the derivation fills it in. Type it by hand and it has to be the last day of the period `period_start` opens: 2026-09-30 for a quarter starting 2026-07-01, or 2026-08-31 for Aug 2026. A ten-month window cannot be filed under a one-quarter label. While `period_start` is itself off its boundary, the refusal names `period_start` alone: the end is judged once the start opens a real period.
 
 The advice is therefore what it always was — when you write a snapshot by hand or through the API, send the period's first day, or send no `period_start` at all and let the derivation place it. The reason is not what it used to be. It is no longer that a mid-period row is merely hard to find; it is that the row cannot be saved at all. Being hard to find is *why* the rules exist: the forecast list's *This Quarter* tab and the Sales dashboard's *Quota Attainment by Rep* table both match `period_start` against the quarter's real first day, and the nightly sweep picks a period's current row by the window that contains today.
 
 **A row stored before these rules shipped stays refused until its window is corrected.** The check reads the whole record on every save, not just the field you touched, so even an unrelated edit to such a row — a quota correction, a note — is rejected until the dates agree with the label. The correction itself is always accepted: put `period_start` and `period_end` back on the calendar period, and the row saves normally again.
 
-So you'll never see a record labelled “2026-07-01 through ???” — only the human label. The list view and dashboards group by `period_label` directly.
+So you'll never see a record labelled “2026-07-01 through ???” — only the human label. A forecast's own title adds its owner after that label — **Q4 2026 · Nina Reyes** — so two reps' forecasts for the same quarter read apart on the record, in Recent items and in a lookup. A forecast with no owner is titled by its label alone. The name is taken from **Owner** when the forecast is saved: reassign it and the title follows; rename the user and the title changes at the forecast's next save. Dashboards group by `period_label` directly. The **All Forecasts** list groups by `period_label`, one heading per period (**Q4 2026**), newest period first: the headings are ordered by each period's `period_start`, not by the label's text, which would put *Sep 2026* before *Q4 2026* and *Q4 2025* before *Oct 2026*. It groups by the label rather than by the start date because a quarter and the month that opens it start on the same day: **Q4 2026** and **Oct 2026** each get a heading of their own.
 
 ## How forecasts get created
 
@@ -86,7 +86,7 @@ You can have all three for the same owner/period — they sit next to each other
 Forecasts inherit the standard CRM permission model:
 
 - **Sales reps** read their **own** forecasts — they do not write them. The Sales Rep profile is read-only on Forecast and scoped to their own records, so a rep who opens their snapshot to adjust a number cannot save it; the change goes through their manager.
-- **Sales managers** see and edit **every** forecast: the Sales Manager profile holds *View All* / *Modify All* on Forecast, so the reach is org-wide rather than a team slice. Positions are flat — there is no reporting line that could narrow it to "their" reps. Hand entry lives here — a manager creates a snapshot and overrides any number on it, but cannot delete one.
+- **Sales managers** see and edit **every** forecast: the Sales Manager profile holds *View All* on Forecast, and the built-in **Forecasts — Sales Manager Edit** sharing rule lets every `sales_manager` edit every snapshot, so the reach is org-wide rather than a team slice. Positions are flat — there is no reporting line that could narrow it to "their" reps. Hand entry lives here — a manager creates a snapshot and overrides any number on it, but cannot delete one.
 - **Administrators** are the only ones who can **delete** a forecast — the gesture that hands a suppressed period back to the nightly job (see *How forecasts get created* above).
 - All edits are tracked in the platform audit log — every commit change is attributed and time-stamped.
 

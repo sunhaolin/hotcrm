@@ -1,0 +1,757 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { Hook, HookContext } from '@objectstack/spec/data';
+import type { HookApi } from '../../sales/objects/_hook-api';
+import { createCaseEscalationReassign } from './_case-assignment';
+
+/**
+ * Case SLA & escalation hook.
+ *
+ * - Stamps `sla_due_date` on a case that has none, from the priority × account
+ *   tier matrix in `_case-sla.ts`, and re-derives it when a priority change
+ *   tightens the window — earlier only, never later (#2073).
+ * - Records `is_sla_violated` on the write that resolves or closes a case after
+ *   its `sla_due_date` — the half of the breach rule no schedule can miss.
+ * - On escalation: creates a follow-up task OWNED BY the account owner (the
+ *   single owner of escalation tasks — flows must not create their own).
+ *   Owning it, not merely labelling it: `owner_id` is the one ownership column,
+ *   so the person the task names is the person who can work it.
+ * - On `resolved`: bumps account `last_activity_date` — its own hook,
+ *   `case_resolution_account_activity`, because it is the one write here that
+ *   needs elevation (#2014).
+ * - On `closed`: completes the case's open escalation follow-up task(s) — its
+ *   own hook, `case_close_escalation_task`, elevated for the same reason.
+ *
+ * ⚠️ Ownership assignment is NOT here. Who owns a NEW case is the platform's
+ * answer (ADR-0142): `case_intake_assignment` routes an ownerless case into
+ * the `case_intake` queue, and an agent takes a parked case with the console's
+ * Claim. The one owner writer this app keeps — the escalation hand-off to the
+ * `service_manager` pool — lives in `_case-assignment.ts` and is composed into
+ * this module's default export below, so the registry still sees one
+ * `crm_case` hook set. In particular the escalation hand-off is deliberately NOT a branch of
+ * `case_status_side_effects` below: that hook writes through `ctx.api`, a seam
+ * the #3004 transfer guard CAN see (which would demand
+ * `crm_case.allowTransfer`) and a second write that re-enters the record-change
+ * trigger surface. Both measurements are in `_case-assignment.ts`'s header.
+ */
+
+const caseValidation: Hook = {
+  name: 'case_sla_defaults',
+  object: 'crm_case',
+  events: ['beforeInsert', 'beforeUpdate'],
+  priority: 200,
+  description: 'Apply the priority × account-tier SLA matrix and the case lifecycle defaults.',
+  handler: async (ctx: HookContext) => {
+    // D3 stand-down: a predicate update has ONE payload for every matched row,
+    // so the `ctx.previous`-conditioned writes below would land on rows that
+    // did not earn them — refused as a diverging key set, or stored silently
+    // from the last row. Full account and the measurement: `forecast.hook.ts`.
+    if (ctx.event === 'beforeUpdate' && ctx.dispatch?.mode === 'per-row') return;
+
+    const { input } = ctx;
+    const api = ctx.api as HookApi | undefined;
+
+    // Guest (web-to-case) sanitisation. OVERWRITE with a safe value — never
+    // `delete`.
+    //
+    // ✅ HISTORY, RESOLVED — and the conclusion is unchanged. Through 17.2.0,
+    // `delete ctx.input.<field>` in a hook was a SILENT NO-OP: ObjectQL hands a
+    // hook `ctx.input` as `{ data, options }` behind a flat-record Proxy
+    // (`installFlatInput`, `@objectstack/objectql` `src/hook-wrappers.ts`) that
+    // trapped `get` / `set` / `has` / `ownKeys` / `getOwnPropertyDescriptor` and
+    // routed each into `data` — but declared no `deleteProperty` trap, so the
+    // delete fell through to the WRAPPER, one level above the record:
+    //
+    //   delete input.owner_id   -> returned TRUE  (JS reported success)
+    //   'owner_id' in input     -> still true
+    //   input.owner_id          -> still the caller's value
+    //
+    // Fifteen such statements across two intake hooks did nothing in production
+    // while their tests passed (#1133). This block was rewritten to ASSIGN.
+    //
+    // The block above predicted its own trigger — "a platform release that
+    // POSTDATES 2026-08-26" — and that release is **17.3.0**, so every later
+    // pin carries the fix. objectstack#12277 shipped: the in-process Proxy
+    // traps `deleteProperty`, and the sandbox path diffs deletions against the
+    // entry snapshot rather than writing mutations home with `Object.assign`,
+    // which cannot represent a removal. Re-measured through the engine's own
+    // `wrapDeclarativeHook` in `test/hook-input-shape.test.ts`, which now pins
+    // the new contract in both directions.
+    //
+    // ⛔ The trap arriving is NOT a licence to spell this block with `delete`.
+    // What these lines WRITE is load-bearing independently of how it is spelled:
+    // the column must arrive `null` rather than ABSENT (see the `null` note
+    // below). Removing a key and writing `null` are different downstream, so
+    // switching to `delete` would be a behaviour change on the public-form
+    // boundary, not a re-spelling. Assign — for the reason, not the constraint.
+    //
+    // ⚠️ `null` rather than `''` or `undefined`, all three measured on the
+    // write path: `null` stores as null, `''` stores as an empty string (wrong
+    // in a lookup — see `case_resolution_article_normalize` below), and
+    // `undefined` stores the KEY with an undefined value rather than omitting
+    // it, which is not the same as absent and is what a `has()`-guarded CEL
+    // predicate then trips over. `null` is also what the platform's
+    // assignment step reads as "ownerless" (ADR-0142 D5, measured on 18.3.0:
+    // a guest submission with a spoofed owner is stored `owner_id` null and
+    // routed by `case_intake_assignment`), and that step runs after every
+    // beforeInsert hook, so the strip always precedes it.
+    //
+    // ⚠️ `!ctx.session?.isSystem` is load-bearing. A predicate of
+    // `!ctx.previous && !ctx.user?.id` conflates the two callers that both
+    // arrive without a user id: an anonymous web-to-case submitter (untrusted,
+    // the caller this branch exists for) and a SYSTEM write — seed load,
+    // backfill, demo bootstrap, migration — the most trusted caller there is.
+    // Elsewhere in this app that same absence is read the opposite way:
+    // `lead_automation`'s converted-lead lock treats `!ctx.user?.id` as "system
+    // write, allow it". Without the narrowing, a system insert that names an
+    // owner has that owner blanked and every seeded or backfilled case lands
+    // ownerless (the seed loader and `verify.seed` insert owned cases exactly
+    // that way). `ctx.session.isSystem` is the
+    // discriminator: a system context arrives as `session: { isSystem: true }`
+    // and an anonymous one carries no session at all. Narrowing only ever
+    // REMOVES callers from the branch, so nothing sanitised today stops being.
+    //
+    // `escalation_reason` is stripped ALONGSIDE `is_escalated`, and the pair is
+    // why: cleaning only the FLAG leaves the prose that explains the flag
+    // writable, so a case could carry a stated escalation reason while
+    // `is_escalated` is false — a contradiction on the record page's own
+    // `escalation` field group, where a service agent reads both. It IS a
+    // widening of a security control, so it is argued rather than assumed:
+    // `escalation_reason` is pipeline, not a fact a submitter states about
+    // themselves — the rule this branch declares — and every real writer is
+    // staff-side (`case_escalation`, `case_sla_monitor`, the `escalate_case`
+    // screen flow). The public `web_to_case` form (`src/service/views/case.view.ts`)
+    // collects exactly `supplied_name`, `supplied_email`, `subject`,
+    // `description` and `type`, so nulling this drops nothing any guest
+    // surface asks for. ⛔ The two `supplied_*` columns (#2190) are NOT
+    // in the strip below, deliberately: they are the visitor's own name and
+    // reply address, the one fact about themselves the form exists to collect,
+    // and nothing downstream reads them as verified. `guest_portal`
+    // grants `crm_case.allowCreate` at the OBJECT level with no field
+    // allow-list, which is precisely why this branch is the field-level control
+    // and why an omission from it is a hole rather than a second layer.
+    //
+    // ⚠️ The middleware path is MEASURED, and the answer bounds what this
+    // branch may claim. A real anonymous write does NOT reach these columns on
+    // the shipped app today — and this branch is not what stops it. Driven
+    // against a real server (`objectstack start`, the production plugin set:
+    // Auth, Security, Sharing, RestAPI), unauthenticated over HTTP:
+    //
+    //   POST  /api/v1/data/crm_case         401 UNAUTHENTICATED
+    //   PATCH /api/v1/data/crm_case/:id     401 UNAUTHENTICATED
+    //   POST  /api/v1/actions/...           401 UNAUTHENTICATED
+    //   POST  /api/v1/mcp                   401 UNAUTHENTICATED
+    //   POST  /api/v1/forms/support/submit  201 — the ONE anonymous write path
+    //
+    // and that surviving route filters the body against an allow-list built
+    // from the matched form view's OWN declared sections (`@objectstack/rest`,
+    // `registerFormEndpoints`), so a planted internal field is dropped before
+    // ObjectQL and before this hook.
+    // ⛔ So do NOT write down that a guest reaches these columns in production.
+    //
+    // ⛔ And do not read that as "this branch is cosmetic". That allow-list is
+    // the form's FIELD LIST — a product decision, not a security declaration —
+    // and #1505 measured it by widening it: ONE line added to `web_to_case`'s
+    // sections and the same anonymous POST stored the planted value, while a
+    // field left off the widened form stayed null in the same request. That is
+    // what identifies the form list as the only thing holding, and this branch
+    // as the layer that has to hold when it moves. ⚠️ That measurement was
+    // taken on `customer_rating` / `customer_feedback`, which #1428 has since
+    // retired under ADR-0049 — the two columns are gone, so the branch no
+    // longer strips them; the mechanism the measurement established is
+    // unchanged and governs every field it still assigns.
+    //
+    // ⚠️ Field-level permissions are not a second layer behind this branch, and
+    // that was re-measured against the installed tree rather than taken on
+    // report: `PermissionEvaluator.getFieldPermissions` builds its mask ONLY
+    // from `<object>.<field>` keys a permission set names in its `fields` map,
+    // and `FieldMasker.detectForbiddenWrites` returns early on an empty mask
+    // and otherwise flags only names present in it. `guest_portal` declares no
+    // `fields` key at all, so its mask is empty and the write guard is skipped
+    // outright — a field NO profile names is unrestricted, not restricted.
+    //
+    // Nulling `escalation_reason` cannot trip the object's
+    // `escalation_reason_required` validation: that rule fires only on
+    // `is_escalated == true`, this same branch forces `is_escalated = false`,
+    // and on the engine's insert path `validateRecord` /
+    // `evaluateValidationRules` run AFTER the `beforeInsert` hooks, against the
+    // row the hook has already rewritten.
+    const isGuestSubmission = !ctx.previous && !ctx.user?.id && !ctx.session?.isSystem;
+    if (isGuestSubmission) {
+      if (!input.origin)   input.origin   = 'web';
+      if (!input.status)   input.status   = 'new';
+      // ⚠️ No `priority` default here, and the absence is deliberate. A
+      // `if (!input.priority) input.priority = 'medium'` line here can never
+      // execute: `crm_case.priority` declares its `low` option `default: true`,
+      // and on the engine's own insert path `applyFieldDefaults` produces the
+      // row that BECOMES `ctx.input.data` before `triggerHooks('beforeInsert')`
+      // is called — so the slot is already full every time this branch runs.
+      // Such a line reads as a declared intent ("guest submissions start at
+      // medium") that the app does not honour. Whether a web-submitted case
+      // SHOULD outrank a staff-created one is a product question, and it is not
+      // settled by leaving dead code here that says it already is.
+      //
+      // A guest picks at most High (#2368, maintainer ruling). Critical
+      // escalates on insert (`case_escalation_on_create`), hands the case to
+      // the service manager pool and takes the 4-hour SLA row, so it is a
+      // staff decision. A form row's `options` subset does not narrow the
+      // door (`POST /forms/support/submit`): the posted value is validated
+      // against the OBJECT's options, so a form that asks for priority lets a
+      // crafted `critical` reach this line. It is CAPPED rather than refused: the
+      // visitor's case is real and the hotline hint tells them how to get a
+      // P1 handled; refusing would lose the case to save a staff re-triage.
+      // Capping here, before `priority` is read below, keeps the rank, the SLA
+      // row and every after-insert flow on the stored `high`.
+      // On 18.2.0 the form asks no priority at all (no per-form option subset
+      // exists), so the door's allow-list drops a posted one first; this line
+      // is the layer that holds the day the form's list moves (#1505).
+      if (input.priority === 'critical') input.priority = 'high';
+      input.owner_id          = null;
+      input.is_escalated      = false;
+      input.escalation_reason = null;
+      input.internal_notes    = null;
+      input.resolution        = null;
+    }
+
+    const priority =
+      (typeof input.priority === 'string' && input.priority) ||
+      (typeof ctx.previous?.priority === 'string' && (ctx.previous.priority as string)) ||
+      undefined;
+
+    // Materialise the urgency ordinal so queue views can sort by it. Sorting on
+    // `priority` itself compares raw strings and inverts urgency
+    // (medium > low > high > critical).
+    //
+    // ⚠️ The map is declared INLINE and duplicated in task.hook.ts on purpose:
+    // L2 hook bodies run body-only in the QuickJS sandbox, so a shared module
+    // constant resolves at authoring time and arrives as `undefined`. The two
+    // maps key off different vocabularies (medium vs normal), but the UNKNOWN
+    // fallback must stay identical on both objects — `0`, the unranked sentinel
+    // that sorts below every real rank. `test/priority-rank-parity.test.ts`
+    // pins that agreement.
+    if (priority) {
+      const rank: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+      input.priority_rank = rank[priority] ?? 0;
+    }
+
+    // ── SLA policy matrix: priority × account tier ──
+    //
+    // The canonical write-up — the unit, and why the `critical` row is flat at
+    // 4 — lives in `_case-sla.ts`.
+    //
+    // ⚠️ The table is declared INLINE and duplicated in `_case-sla.ts` on
+    // purpose, for the same reason as the `rank` map above: L2 hook bodies run
+    // body-only in the QuickJS sandbox, so a shared module constant resolves at
+    // authoring time and arrives as `undefined`. The seed module imports the
+    // real constant; this body cannot. `test/case-sla-matrix.test.ts` pins all
+    // sixteen cells by driving THIS handler, so the copies cannot drift.
+    //
+    // ── A priority raise re-derives the deadline (#2073) ──
+    //
+    // The stamp used to run once: a case that already carried a due date kept
+    // it whatever happened to its priority, so a Medium case escalated to
+    // Critical kept its 36-hour clock, and a Low case raised to High its
+    // 7-day one. Now a write that CHANGES `priority` re-runs the lookup, and
+    // the rule has three parts:
+    //
+    //   1. Only a change that TIGHTENS the window — the new priority's cell is
+    //      smaller than the old one's, on the same tier — re-derives. A change
+    //      that loosens it (Critical → Low) leaves the deadline alone, as every
+    //      priority change did before: the app never extends a deadline by
+    //      itself, so lowering the priority cannot take a breach that is about
+    //      to happen off the books. A person who agrees a later date sets SLA
+    //      Due Date by hand; the field is not `readonly`.
+    //   2. The new window runs from the moment of the change (now + hours),
+    //      the same clock the first stamp uses — NOT from `created_at`. Counted
+    //      from creation, every escalation made after the new window had
+    //      already elapsed would land in the past: `case_sla_monitor` would
+    //      flag it within the hour and its breach write would replace the
+    //      agent's own escalation reason. A case is put on the Critical clock
+    //      when it becomes Critical.
+    //   3. The re-derived date only ever moves the deadline EARLIER: it is
+    //      written when it is before the stored one, and otherwise the stored
+    //      one stays. So a raise cannot extend a deadline either — a case
+    //      escalated in the last hours of its old window keeps the sooner
+    //      date, and a case already past due stays past due, its breach still
+    //      there for the sweep or the settling write to record.
+    //
+    // Only a write that changes the priority re-derives. One that does not
+    // carry `priority`, or carries the value already stored (a whole-form
+    // save), leaves the due date alone, and so does a write that carries
+    // `sla_due_date` itself: the writer's own date wins.
+    const storedDue = ctx.previous?.sla_due_date;
+    const changedFrom =
+      ctx.previous && storedDue && !('sla_due_date' in input) &&
+      typeof input.priority === 'string' && input.priority &&
+      input.priority !== ctx.previous.priority
+        ? String(ctx.previous.priority)
+        : undefined;
+    if (priority && ((!input.sla_due_date && !storedDue) || changedFrom)) {
+      const slaCalendarHours: Record<string, Record<string, number>> = {
+        critical: { strategic: 4, enterprise: 4, mid_market: 4, smb: 4 },
+        high: { strategic: 6, enterprise: 8, mid_market: 8, smb: 8 },
+        medium: { strategic: 24, enterprise: 36, mid_market: 48, smb: 48 },
+        low: { strategic: 96, enterprise: 120, mid_market: 168, smb: 168 },
+      };
+      // `smb` is both the loosest column and the `tier` field's own default, so
+      // an unclassified account and an UNREADABLE one land on the same cell.
+      // Erring loose is the safe direction: a tighter deadline invented out of
+      // a permission error would manufacture breaches.
+      const DEFAULT_TIER = 'smb';
+      const row = slaCalendarHours[priority];
+      // The window the case is leaving, on a priority change.
+      const leftRow = changedFrom ? slaCalendarHours[changedFrom] : undefined;
+      // An unrecognised priority gets no clock at all rather than a guessed
+      // one — the same refusal-to-invent as the `0` unranked sentinel above.
+      // A change away from one has no window to compare with, so it re-derives
+      // nothing either.
+      if (row && (!changedFrom || leftRow)) {
+        let tier = DEFAULT_TIER;
+        // Only pay for the account read when a row in play actually varies by
+        // tier. The `critical` row does not, which is what makes a critical case
+        // behave EXACTLY as it did before this hook learned about accounts —
+        // same 4 hours, same absence of any dependency on `ctx.api`. On a
+        // priority change the row being left counts too, so the two cells are
+        // compared on the case's own tier.
+        const variesByTier = [row, leftRow].some((r) =>
+          !!r && (r.strategic !== r.enterprise || r.enterprise !== r.mid_market || r.mid_market !== r.smb));
+        const accountId =
+          (typeof input.crm_account === 'string' && input.crm_account) ||
+          (typeof ctx.previous?.crm_account === 'string' && (ctx.previous.crm_account as string)) ||
+          undefined;
+        if (variesByTier && accountId && api) {
+          try {
+            const found = await api.object('crm_account').find({
+              where: { id: accountId }, fields: ['tier'], top: 1,
+            });
+            const rows = Array.isArray(found) ? found : [];
+            const stored = rows.length ? rows[0].tier : undefined;
+            if (typeof stored === 'string' && stored) tier = stored;
+          } catch {
+            // Best-effort tier resolution: the anonymous web-to-case grant can
+            // create a case and read nothing else, and a denial there must not
+            // reject the submission. Falling through leaves `tier` on the
+            // default column. (No `console` in the L2 hook sandbox — cf. #471.)
+          }
+        }
+        const hours = row[tier] ?? row[DEFAULT_TIER];
+        // Milliseconds, not `setHours(getHours() + n)`: the latter does LOCAL
+        // calendar arithmetic, so on a host in a DST-observing zone "+4 hours"
+        // silently becomes 3 or 5 real hours across a transition — and a 168h
+        // Low-priority clock crosses one twice a year by construction. These
+        // are elapsed hours, so add elapsed milliseconds.
+        const dueMs = Date.now() + hours * 3_600_000;
+        if (!changedFrom) {
+          input.sla_due_date = new Date(dueMs).toISOString();
+        } else if (
+          leftRow &&
+          hours < (leftRow[tier] ?? leftRow[DEFAULT_TIER]) &&
+          dueMs < Date.parse(String(storedDue))
+        ) {
+          input.sla_due_date = new Date(dueMs).toISOString();
+        }
+      }
+    }
+
+    // Closed flag/date + resolution time.
+    const effStatus =
+      (typeof input.status === 'string' && input.status) ||
+      (typeof ctx.previous?.status === 'string' && (ctx.previous.status as string)) ||
+      undefined;
+
+    // `is_closed` is DERIVED from `status`, on every write including a guest's.
+    // ⛔ Never make the recompute conditional on the caller: a guest's
+    // `status: 'closed'` stored alongside `is_closed: false` contradicts
+    // itself, and every consumer keyed on the flag — the manager and director
+    // sharing rules on critical cases — reads such a case as open forever. A derived column is derived on
+    // every write or it is not derived at all; the guest's own `is_closed` is
+    // still ignored, because this recompute overwrites whatever they sent.
+    if (typeof effStatus === 'string') input.is_closed = effStatus === 'closed';
+
+    if (!isGuestSubmission) {
+      // ── A reopen clears the close (#2375) ──
+      //
+      // A reopen is any move from a settled status (`CLOSED_CASE_STATUSES`,
+      // spelled inline as below) to an open one, whichever door it comes
+      // through: Reopen Case, Edit, the Status dropdown or REST all reach this
+      // hook as the same status change, so the clear lives here and not in
+      // the action. Before it, a reopened case kept the first close's
+      // `closed_date` while it was open again, the stamp below skipped the
+      // next close because a date was already stored, and
+      // `resolution_time_hours` kept measuring to that first close. Cleared,
+      // the next close stamps both afresh. A move between the two settled
+      // statuses is not a reopen and keeps them. The SLA fields are not
+      // touched: the due date, and a breach already recorded, stay.
+      const reopenFrom = ['resolved', 'closed'];
+      const reopened =
+        typeof input.status === 'string' &&
+        !reopenFrom.includes(input.status) &&
+        reopenFrom.includes(String(ctx.previous?.status));
+      if (reopened) {
+        input.closed_date = null;
+        input.resolution_time_hours = null;
+      }
+
+      const becameClosed = input.status === 'closed' && ctx.previous?.status !== 'closed';
+      if (becameClosed && !input.closed_date && !ctx.previous?.closed_date) {
+        input.closed_date = new Date().toISOString();
+      }
+
+      // A reopen reads no stored date: the stored one is the close it clears.
+      const closedDate = reopened
+        ? undefined
+        : (typeof input.closed_date === 'string' && input.closed_date) ||
+          (typeof ctx.previous?.closed_date === 'string' && (ctx.previous.closed_date as string)) ||
+          undefined;
+      // The creation instant is the platform's `created_at` (#1992): stamped
+      // by `sys_stamp_audit_insert` before this hook runs on an insert (a
+      // seed row keeps its authored value), and read back off the stored row
+      // on an update.
+      const createdDate =
+        (typeof input.created_at === 'string' && input.created_at) ||
+        (typeof ctx.previous?.created_at === 'string' && (ctx.previous.created_at as string)) ||
+        undefined;
+      if (closedDate && createdDate) {
+        const hrs = (new Date(closedDate).getTime() - new Date(createdDate).getTime()) / 3_600_000;
+        if (Number.isFinite(hrs) && hrs >= 0) input.resolution_time_hours = Math.round(hrs * 10) / 10;
+      }
+
+      // ── The breach is recorded when the clock stops (#2070) ──
+      //
+      // `case_sla_monitor` flags a breach only while a case is live work, and
+      // only where scheduled work runs. A case resolved or closed after its
+      // `sla_due_date` therefore kept `is_sla_violated: false` for good, and
+      // the closed-case surfaces (`sla_performance`, the compliance gauge)
+      // counted it as met. The write that takes the case out of live work is
+      // the moment its clock stops, so that write records a late finish.
+      //
+      // The rule is `caseSlaBreached` in `_case-sla.ts`; the status set is
+      // `CLOSED_CASE_STATUSES` in `_case-assignment.ts`. Both are spelled
+      // inline because this body has no module scope:
+      // `test/case-sla-breach-on-close.test.ts` drives the lowered body
+      // against the helper, and `test/live-work-predicate-parity.test.ts` pins
+      // the set by name. Only the ENTRY into the set is judged (a
+      // resolved → closed write stopped no clock), a case with no due date is
+      // left alone, and the flag is never cleared — a breach stays recorded.
+      //
+      // The stop instant is the `closed_date` this write carries — the stamp
+      // above, or a system writer's own — else now. The flag is written onto
+      // this record's own payload, which is not a caller-supplied key, so the
+      // agent's `editable: false` mask on it does not refuse the agent's close.
+      const settledStatuses = ['resolved', 'closed'];
+      if (settledStatuses.includes(String(effStatus)) && !settledStatuses.includes(String(ctx.previous?.status))) {
+        const due = input.sla_due_date !== undefined ? input.sla_due_date : ctx.previous?.sla_due_date;
+        const stoppedAt = (typeof input.closed_date === 'string' && input.closed_date) || new Date().toISOString();
+        if (typeof due === 'string' && Date.parse(due) < Date.parse(stoppedAt)) input.is_sla_violated = true;
+      }
+    }
+  },
+};
+
+const caseSideEffects: Hook = {
+  name: 'case_status_side_effects',
+  object: 'crm_case',
+  events: ['afterUpdate'],
+  priority: 800,
+  async: true,
+  onError: 'log',
+  description: 'Open the escalation follow-up task for the account owner.',
+  handler: async (ctx: HookContext) => {
+    const { input } = ctx;
+    const previous = ctx.previous;
+    if (!previous) return;
+    const api = ctx.api as HookApi | undefined;
+    if (!api) return;
+
+    const caseId =
+      (typeof input.id === 'string' && input.id) ||
+      (typeof previous.id === 'string' ? (previous.id as string) : undefined);
+    const accountId =
+      (typeof input.crm_account === 'string' && input.crm_account) ||
+      (typeof previous.crm_account === 'string' && previous.crm_account) ||
+      undefined;
+
+    // Escalation: open task for the account owner.
+    //
+    // ⚠️ `owner_id` is the platform ownership anchor, and planting a record
+    // under ANOTHER user is a transfer: the #3004 guard denies it unless the
+    // caller holds `allowTransfer`. This insert runs on `ctx.api`, which
+    // carries the CALLER's context (not a system one), so the guard applies —
+    // hence the `crm_task.allowTransfer` grant on `service_agent` (see
+    // `src/sales/profiles/service-agent.profile.ts`, and the canonical note in
+    // `src/sales/profiles/index.ts`). One ownership column means one answer, and the
+    // answer is the person who must act.
+    //
+    // The CASE itself has already changed hands by the time this runs, on the
+    // `beforeUpdate` seam of this very update (`case_escalation_reassign`) — so
+    // this hook still writes no `crm_case.owner_id` and needs no
+    // `crm_case.allowTransfer`. The task and the case are two different
+    // hand-offs: the task goes to the ACCOUNT owner (commercial follow-up), the
+    // case to a service manager (the work itself).
+    if (input.status === 'escalated' && previous.status !== 'escalated' && accountId) {
+      const account = await api.object('crm_account').findOne({ where: { id: accountId } });
+      const ownerId = (account as { owner_id?: string } | null)?.owner_id ?? ctx.user?.id;
+      // UTC calendar for the step, matching the `toISOString()` render below
+      // (same shape as `lead.hook.ts` / `opportunity.hook.ts`): a local
+      // `setDate` step preserves wall-clock time, so a one-day follow-up filed
+      // across a spring-forward lands on the day of the escalation itself.
+      const due = new Date();
+      due.setUTCDate(due.getUTCDate() + 1);
+      // Title the task with what the reader already knows the case by (#1208).
+      // Title the task with what the reader already knows the case by. The
+      // PRIMARY KEY is not that: every case surface in this app (record pages,
+      // list views, breadcrumbs, the stored `display_title` on `crm_case`)
+      // names a case `CASE-00039`, so a queue of urgent rows differing only in
+      // a 16-character opaque id is a queue nobody can triage. The id is not
+      // lost — it travels in `related_to_case` below, where a relationship
+      // belongs.
+      //
+      // Both parts are read off `previous`, not fetched: an `afterUpdate`
+      // pre-image is the WHOLE stored row (`driver.findOne` with no
+      // projection), so `case_number` — an engine-issued autonumber, never
+      // present on an update payload — and `subject` are both already in hand.
+      // `subject` still prefers `input`, since an update may be changing it in
+      // this very write.
+      //
+      // ⚠️ The 255 cap is not cosmetic. `crm_task.subject` declares
+      // `maxLength: 255` and the engine ENFORCES it, while `crm_case.subject`
+      // allows the same 255 — so `Escalated: ` + number + separator + a
+      // max-length case subject is 279 characters and the insert is REJECTED.
+      // This hook is `async: true` + `onError: 'log'`, so that rejection
+      // surfaces nowhere: the escalation task would simply never exist.
+      // Truncating the TAIL keeps the identifier — the discriminating half —
+      // intact in a column that visibly truncates anyway.
+      //
+      // ⚠️ Composed INLINE rather than in a shared helper: hook bodies ship
+      // body-only through QuickJS, and a module-scope reference makes
+      // `extractHookBody` throw — which the CLI build CATCHES, silently
+      // bundling the closure instead, with no gate going red. The pin runs this
+      // out of the LOWERED body for exactly that reason
+      // (`test/escalation-task-subject.test.ts`).
+      //
+      // ⚠️ `case_close_escalation_task` below finds this task again by these
+      // two title shapes; change one and change the other
+      // (`test/escalation-task-on-close.test.ts` drives both).
+      const caseNumber = typeof previous.case_number === 'string' ? previous.case_number.trim() : '';
+      const caseSubject =
+        (typeof input.subject === 'string' && input.subject.trim()) ||
+        (typeof previous.subject === 'string' && previous.subject.trim()) ||
+        '';
+      const label = [caseNumber, caseSubject].filter(Boolean).join(' · ');
+      const titled = label ? `Escalated: ${label}` : 'Escalated case needs attention';
+      await api.object('crm_task').insert({
+        subject: titled.length > 255 ? `${titled.slice(0, 254)}…` : titled,
+        status: 'not_started',
+        priority: 'urgent',
+        type: 'follow_up',
+        due_date: due.toISOString().slice(0, 10),
+        owner_id: ownerId,
+        related_to_type: 'crm_case',
+        related_to_case: caseId,
+        related_to_account: accountId,
+      });
+    }
+  },
+};
+
+/**
+ * Resolution rollup: a case reaching `resolved` bumps its account's
+ * `last_activity_date`.
+ *
+ * ⛔ No date is stamped on the CASE — `closed_date` belongs exclusively to the
+ * `closed` transition (stamped by `case_sla_defaults`). Writing it as a proxy
+ * for a resolved-date both corrupts resolution metrics (a resolved-then-closed
+ * case keeps its resolve time as its close time) and re-enters the
+ * record-change trigger surface.
+ *
+ * ## `runAs: 'system'`, and why this is its own hook (#2014)
+ *
+ * Cases are resolved by service agents, and an agent holds no edit right on
+ * accounts — so as the caller the bump was refused, `onError: 'log'` swallowed
+ * it, and an agent's resolve never reached the account's activity clock. The
+ * clock is the account's derived fact, not the agent's edit, so the write is
+ * elevated. It is split out of `case_status_side_effects` because `runAs` is
+ * per hook and that hook's other write — the escalation task — needs no
+ * elevation: the agent's narrow `crm_task.allowTransfer` grant exists for it
+ * (`service-agent.profile.ts`). Elevating as little as possible (AGENTS.md rule
+ * 9) means this one write. Elevation is not anonymity: the account's
+ * `updated_by` still names the agent. Organization (rule 10): it writes only
+ * the account the triggering case names, and the elevated `ctx.api` keeps the
+ * trigger's tenant.
+ */
+const caseResolutionAccountActivity: Hook = {
+  name: 'case_resolution_account_activity',
+  object: 'crm_case',
+  events: ['afterUpdate'],
+  priority: 800,
+  async: true,
+  onError: 'log',
+  runAs: 'system',
+  description: 'Bump the account’s last activity date when a case is resolved.',
+  handler: async (ctx: HookContext) => {
+    const { input } = ctx;
+    const previous = ctx.previous;
+    if (!previous) return;
+    if (input.status !== 'resolved' || previous.status === 'resolved') return;
+    const api = ctx.api as HookApi | undefined;
+    if (!api) return;
+    const accountId =
+      (typeof input.crm_account === 'string' && input.crm_account) ||
+      (typeof previous.crm_account === 'string' && previous.crm_account) ||
+      undefined;
+    if (!accountId) return;
+    await api.object('crm_account').update(
+      { id: accountId, last_activity_date: new Date().toISOString().slice(0, 10) },
+      { where: { id: accountId } },
+    );
+  },
+};
+
+/**
+ * Closing a case completes its open escalation follow-up task(s) (#2073).
+ *
+ * `case_status_side_effects` opens an urgent "Escalated: …" task for the
+ * account owner on every escalation, and nothing ever closed it: a closed case
+ * left an urgent task in the owner's **My Open Tasks**, one per escalation.
+ *
+ * ## Why `completed`
+ *
+ * `crm_task.status` declares one terminal value. `deferred` is an OPEN state
+ * to every reader in this app: `is_completed` stays false (`task_completion`
+ * derives it from `completed` alone), so the task stays in My Open Tasks, the
+ * board and the overdue list, and Mark Complete is still offered on it. The
+ * escalation the task followed up is over when its case closes, so the task is
+ * completed. Who completed it stays on the record: `updated_by` and the status
+ * history name the person who closed the case, not the task's owner.
+ *
+ * ## Which tasks
+ *
+ * Only this case's, only open ones, and only the ones the escalation opened:
+ * `related_to_case` is the case, the status is not `completed`, and the subject
+ * has one of the two shapes the insert above writes. Any other task on the
+ * case is the owner's own work and is left alone. A case escalated twice has
+ * two tasks, and both are completed.
+ *
+ * ## `runAs: 'system'` (AGENTS.md rule 9)
+ *
+ * The task belongs to the account owner, and the closer is usually a service
+ * manager or agent whose `crm_task` read is `own`. Measured as the caller: a
+ * manager's own close of the case (`PATCH`) found no task, so it completed
+ * nothing. Elevation is this one write, on its own hook, as for
+ * `case_resolution_account_activity`. Organization (rule 10): the read is
+ * pinned to the case's own organization when it carries one, and every write
+ * is by the id that read returned.
+ */
+const caseCloseEscalationTask: Hook = {
+  name: 'case_close_escalation_task',
+  object: 'crm_case',
+  events: ['afterUpdate'],
+  priority: 800,
+  async: true,
+  onError: 'log',
+  runAs: 'system',
+  description: 'Complete the case’s open escalation follow-up task(s) when the case is closed.',
+  handler: async (ctx: HookContext) => {
+    const { input } = ctx;
+    const previous = ctx.previous;
+    if (!previous) return;
+    if (input.status !== 'closed' || previous.status === 'closed') return;
+    const api = ctx.api as HookApi | undefined;
+    if (!api) return;
+    const caseId =
+      (typeof input.id === 'string' && input.id) ||
+      (typeof previous.id === 'string' ? (previous.id as string) : undefined);
+    if (!caseId) return;
+    const org = typeof previous.organization_id === 'string' && previous.organization_id ? previous.organization_id : undefined;
+    const inOrg: Record<string, string> = org ? { organization_id: org } : {};
+    const open = await api.object('crm_task').find({
+      where: { related_to_case: caseId, status: { $ne: 'completed' }, ...inOrg },
+      fields: ['id', 'subject'],
+      top: 100,
+    });
+    for (const task of open ?? []) {
+      const subject = typeof task.subject === 'string' ? task.subject : '';
+      if (!subject.startsWith('Escalated: ') && subject !== 'Escalated case needs attention') continue;
+      const id = String(task.id);
+      await api.object('crm_task').update({ id, status: 'completed' }, { where: { id } });
+    }
+  },
+};
+
+/**
+ * Escalation hand-off to the `service_manager` pool, composed from
+ * `_case-assignment.ts`.
+ *
+ * Runs on `beforeUpdate` and mutates the escalation write itself — it issues no
+ * operation of its own, which is what keeps it off the record-change trigger
+ * surface.
+ */
+const caseEscalationReassign: Hook = createCaseEscalationReassign();
+
+/**
+ * Normalise a BLANK `resolved_by_article` to NULL.
+ *
+ * Additive and deliberately independent of everything above: it touches no
+ * ownership column and issues no operation of its own.
+ *
+ * ### Why it has to exist
+ *
+ * `resolved_by_article` is the column the deflection ratio on `case_metrics`
+ * counts (`kb_resolved_count` = `count(resolved_by_article)` over closed cases).
+ *
+ * ⚠️ Platform behaviour, measured against the real automation engine: an
+ * optional SCREEN field the agent leaves empty does not arrive as "absent" —
+ * the resume carries `''`, and `update_record` writes that empty string into
+ * the column:
+ *
+ *   supplied `'ka1'` → `resolved_by_article: "ka1"`
+ *   left blank       → `resolved_by_article: ""`      ← counted by count(col)
+ *   key omitted      → column not written at all      ← correct
+ *
+ * SQL `count(column)` counts every NON-NULL value, and `''` is not NULL. So
+ * without this hook every case closed WITHOUT an article lands in the numerator
+ * and the deflection rate reads 100% on a dashboard that raises no error while
+ * doing it — a wrong ratio indistinguishable from a right one.
+ *
+ * Fixing it here rather than in the measure is deliberate: an empty string in a
+ * lookup column is wrong for the record form, the list views, the reports and
+ * any future reader too, so it is the STORED value that is corrected. Teaching
+ * one measure to discount `''` is a lenient consumer papering over bad data,
+ * and the next reader would not know to copy it.
+ * `test/knowledge-deflection.test.ts` pins both halves.
+ *
+ * ⚠️ The blank test is spelled inline rather than lifted into a shared helper:
+ * hook handlers lower to a metadata-only body and a free identifier would push
+ * this one into the legacy runtime bundle instead
+ * (`pnpm lint` refuses it as `hook-body/not-lowerable`).
+ */
+const caseResolutionArticleNormalize: Hook = {
+  name: 'case_resolution_article_normalize',
+  object: 'crm_case',
+  events: ['beforeInsert', 'beforeUpdate'],
+  priority: 150,
+  description: 'Normalise a blank resolved_by_article to null so the deflection measure counts only real links.',
+  handler: async (ctx: HookContext) => {
+    const { input } = ctx;
+    // Only a write that CARRIES the key is normalised. An update that never
+    // mentions the column must not clear a link somebody else set.
+    if (!('resolved_by_article' in input)) return;
+    const value = input.resolved_by_article;
+    if (value === '' || value === undefined) {
+      input.resolved_by_article = null;
+      return;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      input.resolved_by_article = null;
+    }
+  },
+};
+
+export default [
+  caseValidation,
+  caseEscalationReassign,
+  caseResolutionArticleNormalize,
+  caseSideEffects,
+  caseResolutionAccountActivity,
+  caseCloseEscalationTask,
+];

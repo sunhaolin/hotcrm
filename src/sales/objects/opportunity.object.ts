@@ -1,0 +1,794 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { ObjectSchema, Field } from '@objectstack/spec/data';
+import { BUSINESS_CATEGORY_OPTIONS } from './_psa-picklists';
+import { F, P } from '@objectstack/spec';
+
+export const Opportunity = ObjectSchema.create({
+  name: 'crm_opportunity',
+  label: 'Opportunity',
+  pluralLabel: 'Opportunities',
+  icon: 'dollar-sign',
+  description: 'Sales opportunities and deals in the pipeline',
+
+  // ADR-0090 D1/D7: OWD is an authored decision. Owner + high-value management sharing rule.
+  sharingModel: 'private',
+  // ⚠️ ADR-0079 `nameField` is a FIELD, not a render template, and a FORMULA
+  // sees the stored select VALUE rather than its translated label — so a
+  // `'{name} - {stage}'` title renders every deal "Enterprise Deal -
+  // closed_won" in lookups, related lists and search, in every locale. The
+  // formula language has no option-label lookup, so the title is the plain
+  // `name` column; `stage` still leads the highlight strip below, translated.
+  nameField: 'name',
+  // Explicit search targets (ADR-0061). `name` is a real indexed column, so
+  // $search resolves on its own here; the list is kept explicit to pin the
+  // intent, as on the objects whose stored title composes several columns.
+  searchableFields: ['name', 'opportunity_number'],
+  highlightFields: ['opportunity_number', 'name', 'crm_account', 'amount', 'stage', 'owner_id'],
+
+  fieldGroups: [
+    { key: 'basic',       label: 'Basic Information',   icon: 'dollar-sign' },
+    { key: 'financials',  label: 'Financials',          icon: 'trending-up' },
+    { key: 'sales_process', label: 'Sales Process',     icon: 'target' },
+    { key: 'qualification', label: 'Qualification',     icon: 'filter' },
+    { key: 'narrative',   label: 'Deal Narrative',      icon: 'book-open' },
+    { key: 'classification', label: 'Classification',   icon: 'tag' },
+    { key: 'campaign', label: 'Campaigns', icon: 'flag', collapse: 'collapsed' },
+    { key: 'notes',       label: 'Notes & Next Steps',  icon: 'file-text' },
+    { key: 'crm_forecast',    label: 'Forecast & Metrics',  icon: 'bar-chart', collapse: 'collapsed' },
+    { key: 'team',        label: 'Deal Team',           icon: 'users' },
+    { key: 'bid',         label: 'Bid & Contracting Entity', icon: 'briefcase' },
+  ],
+
+  fields: {
+    // Platform ownership anchor — canonical note in `account.object.ts` (#548).
+    owner_id: Field.lookup('sys_user', {
+      label: 'Opportunity Owner',
+      group: 'basic',
+      system: true,
+      readonly: false,
+      trackHistory: true,
+    }),
+
+    // Basic Information
+    name: Field.text({
+      label: 'Opportunity Name',
+      required: true,
+      storage: { notNull: true },
+      searchable: true,
+      group: 'basic',
+    }),
+
+    // (No `display_title` formula — see `nameField` above: composing the title
+    // from `stage` leaked the raw select value into every rendered title.)
+
+    // Relationships
+    crm_account: Field.lookup('crm_account', {
+      label: 'Account',
+      required: true,
+      storage: { notNull: true },
+      group: 'basic',
+    }),
+
+    primary_contact: Field.lookup('crm_contact', {
+      label: 'Primary Contact',
+      // @objectstack 12: string[] `referenceFilters` is dead (not read by the
+      // picker); `dependsOn` is the live cascading form — scopes contacts to the
+      // opportunity's `crm_account` (ADR-0049).
+      dependsOn: ['crm_account'],
+      group: 'basic',
+    }),
+
+
+    // Financial Information
+    amount: Field.currency({
+      label: 'Amount',
+      required: true,
+      storage: { notNull: true },
+      min: 0,
+      group: 'financials',
+      trackHistory: true,
+    }),
+
+    expected_revenue: Field.currency({
+      label: 'Expected Revenue',
+      readonly: true,  // Calculated field
+      group: 'financials',
+    }),
+
+    // ─── Qualification (REQ-0006 step 8) ───────────────────────────────
+    //
+    // The standard triage vocabulary of a seller that cannot pursue every
+    // deal. `forecast_category` answers a different question — it is the
+    // forecast roll-up bucket, derived from `stage` — so none of this is
+    // folded into it. GENERIC values only: a customer's own grading scale is
+    // overlay configuration (REQ-0006 acceptance 5).
+    //
+    // ⚠️ `pnpm validate` reports the fields in this block, in the narrative
+    // block below, and the customer-side dates as "carrier-only — declared
+    // but nothing in this stack reads or displays it", and that reading is
+    // EXPECTED here rather than a defect to tidy away. The liveness
+    // diagnostic counts view columns, form sections, page bindings, flow
+    // nodes, formulas, hooks and actions as sites; it does NOT count
+    // `fieldGroups` membership, which is precisely the DERIVED layout
+    // REQ-0006 acceptance 1 asks for. ⛔ Do NOT answer the warning by
+    // authoring a `record:details` section — that is the escape hatch
+    // AGENTS.md reserves for a named customer demand, and it would trade
+    // acceptance 1 for a quieter log. `crm_account`'s business-profile block
+    // carries the same verdict on `main` for the same reason (#1948).
+    will_bid: Field.boolean({
+      label: 'Will Bid',
+      description: 'Whether we intend to bid. Unset means the decision is open.',
+      group: 'qualification',
+    }),
+
+    controllability: Field.select({
+      label: 'Controllability',
+      group: 'qualification',
+      options: [
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' },
+      ],
+    }),
+
+    priority: Field.select({
+      label: 'Priority',
+      group: 'qualification',
+      options: [
+        { label: 'High', value: 'high' },
+        { label: 'Medium', value: 'medium' },
+        { label: 'Low', value: 'low' },
+      ],
+    }),
+
+    deal_level: Field.select({
+      label: 'Deal Level',
+      group: 'qualification',
+      options: [
+        { label: 'Strategic', value: 'strategic' },
+        { label: 'Key', value: 'key' },
+        { label: 'Standard', value: 'standard' },
+      ],
+    }),
+
+    // The FACT of subcontracting is generic and belongs in core; the
+    // customer's supplier list is not and is not proposed here.
+    is_subcontracted: Field.boolean({
+      label: 'Involves Subcontracting',
+      defaultValue: false,
+      group: 'qualification',
+    }),
+
+    subcontracting_note: Field.textarea({
+      label: 'Subcontracting Note',
+      group: 'qualification',
+    }),
+
+    // ─── The 立项 (qualification) gate: the rep's request ─────────────
+    //
+    // REQ-0006 step 11: 「销售立项需走审批流程；新增商机可跟进，立项通过后方可更新阶段、
+    // 投标、赢丢单操作。」 The rep ASKS for 立项 by ticking this box, and
+    // `opportunity_qualification_approval` opens one approval when it turns on
+    // (the TRANSITION, not the current value). A rejection clears it, so
+    // ticking it again is a fresh request — the role `requested_status` plays
+    // for the status-change gate, as a boolean because 立项 asks for one thing.
+    //
+    // `defaultValue: false` is load-bearing for the start condition: every deal
+    // born after this column then STORES the key, so `has(previous.…)` holds
+    // on every driver and the off→on transition is visible. Not readonly: this
+    // is the one half of the gate a person writes. Inert while the gate is
+    // off — nothing reads it unless an install arms the verdict below.
+    qualification_requested: Field.boolean({
+      label: 'Request Qualification Approval',
+      description: 'Tick to send this deal for qualification approval. A rejection clears it; tick it again to ask again.',
+      defaultValue: false,
+      group: 'qualification',
+    }),
+
+    // ─── The 立项 gate's switch AND its verdict column ─────────────────
+    //
+    // ⚠️ This `defaultValue` IS the switch, exactly as on
+    // `status_change_approval_status` below, and shipped it is `not_required`:
+    // the gate is OFF by default (REQ-0006 *Disposition*: "Both gates must be
+    // configurable — off by default"). No deal is born `pending`, the flow's
+    // start condition and the `opportunity_lifecycle` refusal are false for
+    // every record that has ever existed, and a stage move, Will Bid and a
+    // direct close work exactly as they do without it. An install ARMS the gate
+    // by changing this one value to `'pending'`; deals that already exist keep
+    // `not_required`, so arming it invalidates no record. ⛔ Not the flow's
+    // `status` — `lead-conversion-approval.flow.ts` records why.
+    //
+    // ⚠️ Its OWN column — ⛔ never `approval_status` (the amount-tiered
+    // flow's; its entry keys on `not_required`, so sharing would re-arm it) and
+    // ⛔ never `status_change_approval_status` (one gate's verdict would erase
+    // the other's, and the step-14 hook reads that column input-first).
+    //
+    // `readonly: true` on the #1666 grounds: the only writers are the gate's
+    // own `runAs: 'system'` flow and the insert default, and both survive the
+    // readonly strip. A user-supplied verdict is stripped BEFORE the
+    // `beforeUpdate` hooks run — measured on 17.6.0 with a real ObjectQL: a
+    // user update of `{ stage, qualification_approval_status: 'approved' }`
+    // reached the hooks as `{ id, stage }` and was refused 409 — so the
+    // input-first read in `opportunity_lifecycle` cannot be fed an `approved`
+    // by hand.
+    qualification_approval_status: Field.select({
+      label: 'Qualification Approval',
+      group: 'qualification',
+      readonly: true,
+      defaultValue: 'not_required',
+      options: [
+        { label: 'Not Required', value: 'not_required', default: true },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+
+    // Sales Process
+    stage: Field.select({
+      label: 'Stage',
+      required: true,
+      storage: { notNull: true },
+      group: 'sales_process',
+      // ADR-0052 §5b.1 — the platform auto-renders each stage change on the
+      // activity timeline as "Stage: Proposal → Negotiation" (no hook code).
+      trackHistory: true,
+      // The one stage list. The mass_update_stage action
+      // (`src/sales/actions/opportunity.actions.ts`) renders this field's own
+      // options rather than a copy, projected to bare `{ label, value }` pairs
+      // — colors and the default mean something only here. A single field
+      // owns it, so it is inline rather than a shared `picklist` (#2000).
+      options: [
+        { label: 'Prospecting', value: 'prospecting', color: '#808080', kind: 'open', default: true },
+        { label: 'Qualification', value: 'qualification', color: '#FFA500', kind: 'open' },
+        { label: 'Needs Analysis', value: 'needs_analysis', color: '#FFD700', kind: 'open' },
+        { label: 'Proposal', value: 'proposal', color: '#4169E1', kind: 'open' },
+        { label: 'Negotiation', value: 'negotiation', color: '#9370DB', kind: 'open' },
+        { label: 'Closed Won', value: 'closed_won', color: '#00AA00', kind: 'won' },
+        { label: 'Closed Lost', value: 'closed_lost', color: '#FF0000', kind: 'lost' },
+      ],
+    }),
+
+    probability: Field.percent({
+      label: 'Probability (%)',
+      min: 0,
+      max: 100,
+      defaultValue: 10,
+      group: 'sales_process',
+    }),
+
+    // Important Dates
+    close_date: Field.date({
+      label: 'Close Date',
+      required: true,
+      storage: { notNull: true },
+      group: 'sales_process',
+      trackHistory: true,
+    }),
+
+    // NO `created_date` here: the platform already injects `created_at` on
+    // every object, and this duplicate had no writer at all — not the seed
+    // data, not a hook, not a flow — so it was permanently null while
+    // `created_at` carried the real value (#575 B2). Surfaces that need the
+    // creation instant read `created_at`.
+    //
+    // Stage-age clock (#489). This is the STORED half of the pair: a real,
+    // indexed date column, so it is what automation and views may filter and
+    // sort on. `days_in_stage` below is a formula derived from it.
+    // `opportunity_lifecycle` stamps it on insert and re-stamps it on every
+    // stage change; readonly because nothing but that hook should move it
+    // (before-hook writes survive readonly stripping — only caller-supplied
+    // keys are dropped).
+    stage_entry_date: Field.date({
+      label: 'Stage Entry Date',
+      description: 'Date this opportunity entered its current stage.',
+      readonly: true,
+      group: 'sales_process',
+    }),
+
+    // ─── The customer's own procurement calendar (REQ-0006 step 8) ─────
+    //
+    // ⛔ Never folded into `close_date`: that is a single date and it is OUR
+    // expected close. These are three distinct BUYER-side events, and
+    // REQ-0006 acceptance 2 requires them to be reportable independently of
+    // the forecast close date — see the `tender_this_quarter` list view,
+    // which predicates on `expected_tender_date` alone.
+    customer_initiation_date: Field.date({
+      label: 'Customer Initiation Date',
+      group: 'sales_process',
+    }),
+
+    expected_tender_date: Field.date({
+      label: 'Expected Tender Date',
+      group: 'sales_process',
+    }),
+
+    expected_signing_date: Field.date({
+      label: 'Expected Signing Date',
+      group: 'sales_process',
+    }),
+
+    expected_tender_amount: Field.currency({
+      label: 'Expected Tender Amount',
+      min: 0,
+      group: 'sales_process',
+    }),
+
+    expected_signing_amount: Field.currency({
+      label: 'Expected Signing Amount',
+      min: 0,
+      group: 'sales_process',
+    }),
+
+    // Additional Classification
+    type: Field.select({
+      label: 'Opportunity Type',
+      group: 'classification',
+      options: [
+        { label: 'New Business', value: 'new_business' },
+        { label: 'Existing Customer - Upgrade', value: 'existing_upgrade' },
+        { label: 'Existing Customer - Renewal', value: 'existing_renewal' },
+        { label: 'Existing Customer - Expansion', value: 'existing_expansion' },
+      ]
+    }),
+
+    // ⛔ BESIDE `type`, never replacing or overloading it: `type`'s four
+    // values are a RELATIONSHIP taxonomy that `opportunity.hook.ts` and
+    // reporting read. Generic delivery-model values only — the customer's own
+    // line-of-business list is overlay (REQ-0006 acceptance 5).
+    business_line: Field.select({
+      label: 'Business Line',
+      group: 'classification',
+      options: [
+        { label: 'Product', value: 'product' },
+        { label: 'Professional Services', value: 'services' },
+        { label: 'Consulting', value: 'consulting' },
+        { label: 'Support & Maintenance', value: 'support' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+
+    lead_source: Field.select({
+      label: 'Lead Source',
+      group: 'classification',
+      // The list shared with Lead + Contact (#490): lead_conversion copies
+      // `leadRecord.lead_source` onto the opportunity it creates, so this must
+      // accept every Lead value — one list, referenced by name.
+      picklist: 'lead_source',
+    }),
+
+
+    // Campaign tracking
+    crm_campaign: Field.lookup('crm_campaign', {
+      label: 'Campaign',
+      description: 'Marketing campaign that generated this opportunity',
+      group: 'campaign',
+    }),
+
+    // Sales cycle metrics
+    //
+    // ⚠️ FORMULA, not a stored counter. As a plain number column nothing ever
+    // raises it: the hook resets it to 0 on a stage change and no sweep
+    // increments it, so `days_in_stage > 14` matches only rows a seed hardcoded
+    // and the `opportunity_stagnation` flow never fires on real data. Deriving
+    // it from `stage_entry_date` is correct on every read and costs no nightly
+    // full-table pass.
+    //
+    // ⚠️ The trade-off: formulas are evaluated AFTER the query (the engine's
+    // `applyFormulaPlan` walks the returned rows), so this is not a real column
+    // and CANNOT appear in a filter or a sort. Anything that needs to *select*
+    // stalled deals predicates on `stage_entry_date` instead — see
+    // `opportunity-stagnation.flow.ts` and the `stale_opportunities` view.
+    //
+    // ⚠️ `has()` + null guard: `daysBetween(null, …)` faults and the whole field
+    // silently evaluates to null, so an unstamped row is spelled out as null
+    // rather than arriving there by accident.
+    days_in_stage: Field.formula({
+      label: 'Days in Current Stage',
+      expression: F`has(record.stage_entry_date) && record.stage_entry_date != null ? daysBetween(record.stage_entry_date, today()) : null`,
+      returnType: 'number',
+      group: 'crm_forecast',
+    }),
+
+    // Additional information
+    description: Field.markdown({
+      label: 'Description',
+      group: 'notes',
+    }),
+
+    next_step: Field.textarea({
+      label: 'Next Steps',
+      group: 'notes',
+    }),
+
+    // ─── Deal narrative (REQ-0006 step 10) ─────────────────────────────
+    //
+    // The standard deal-review narrative, split out of `description` so each
+    // part is reviewable, templatable and (later) reportable on its own —
+    // ⛔ not more prose crammed into one markdown field.
+    //
+    // ⚠️ `payment_terms` is PROSE here and a select on `crm_quote` /
+    // `crm_contract`: what a rep records mid-pursuit is the shape of a term
+    // still being negotiated, not the net-terms ladder a signed document
+    // carries. ⛔ Do not "unify" it onto the `payment_terms` picklist — that
+    // would force a half-agreed term into a closed vocabulary.
+    //
+    // All four are `Field.textarea` (REQ-0006 names markdown OR textarea per
+    // field). Measured on the 17.6.0 console, the Details tab's edit mode —
+    // the surface these fields render on — has no markdown editor, so a
+    // markdown field here could be read but never written. The maintainer
+    // ruled textarea for the three that were markdown (2026-10-03, on #1950:
+    // 「改成 textarea(推荐)」).
+    customer_background: Field.textarea({
+      label: 'Customer Background',
+      group: 'narrative',
+    }),
+
+    project_background: Field.textarea({
+      label: 'Project Background',
+      group: 'narrative',
+    }),
+
+    risk_analysis: Field.textarea({
+      label: 'Risk Analysis',
+      group: 'narrative',
+    }),
+
+    payment_terms: Field.textarea({
+      label: 'Payment Terms',
+      group: 'narrative',
+    }),
+
+    // Flags
+    is_private: Field.boolean({
+      label: 'Private',
+      defaultValue: false,
+      group: 'crm_forecast',
+    }),
+
+    forecast_category: Field.select({
+      label: 'Forecast Category',
+      group: 'crm_forecast',
+      options: [
+        { label: 'Pipeline', value: 'pipeline' },
+        { label: 'Best Case', value: 'best_case' },
+        { label: 'Commit', value: 'commit' },
+        { label: 'Omitted', value: 'omitted' },
+        { label: 'Closed', value: 'closed' },
+      ]
+    }),
+
+    // Approval workflow tracking.
+    // ⭐ `readonly: true` — DECLARED, and the declaration is the honest one
+    // rather than a hopeful one. Audited per writer (#1666): every writer of
+    // this column and of `approved_date` is elevated or an insert.
+    // `opportunity_approval` declares `runAs: 'system'`, and
+    // `opportunity_approval_on_create` inherits it by spreading that flow, so
+    // `resolveRunDataContext` hands the engine `isSystem: true` and the
+    // `if (!opCtx.context?.isSystem)` strip branch is skipped outright; the
+    // `approval` node's own `approvalStatusField` write runs inside those same
+    // system runs; seeds write on INSERT, which the strip never touches. No
+    // view, page or action writes either column. ⇒ No writer loses its write.
+    // Ruled #1666 (director seat, decision batch #74, 2026-09-07): "Declared =
+    // enforced" applies to the audit surface too. ⛔ The hand-edit escape hatch
+    // — an admin clearing a stuck approval by typing over the stamp — is given
+    // up ON PURPOSE: a stuck approval is a platform or flow defect to be fixed
+    // as one, not a reason to keep an audit stamp hand-editable. ⛔ Do not
+    // reintroduce a bypass, and do not soften either column back to editable
+    // without a new ruling. Both halves are pinned in
+    // `test/audit-stamp-readonly.test.ts`: the system path still lands both
+    // stamps, and a plain user-context UPDATE of either is stripped.
+    // ⚠️ `defaultValue` at FIELD level: option-level `default: true`
+    // only preselects in UI forms — API and flow inserts land null without it,
+    // and a null `approval_status` never matches the flow's entry condition.
+    approval_status: Field.select({
+      label: 'Approval Status',
+      group: 'sales_process',
+      readonly: true,
+      defaultValue: 'not_required',
+      options: [
+        { label: 'Not Required', value: 'not_required', default: true },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+
+    approved_date: Field.datetime({
+      label: 'Approved Date',
+      group: 'sales_process',
+      readonly: true,
+    }),
+
+    // ─── The status-change gate's switch AND its verdict column ────────
+    //
+    // ⚠️ This `defaultValue` IS the switch, and shipped it is `not_required`,
+    // so the gate is OFF by default — REQ-0006 acceptance 3: "with it off
+    // (the default), the existing amount-tiered behaviour of
+    // `opportunity-approval.flow.ts` is bit-for-bit what it is today". No
+    // record is ever born `pending`, `opportunity_status_change_approval`'s
+    // start condition is false for every row that has ever existed, and
+    // nothing about the amount-tiered flow changes. An install ARMS the gate
+    // by changing this one value to `'pending'`.
+    //
+    // ⛔ Not the flow's `status`, for the reason
+    // `lead-conversion-approval.flow.ts` records and measured: `draft` still
+    // fires its triggers, and `obsolete` composes with the installation's
+    // activation ledger into a gate no install can ever turn ON.
+    //
+    // ⚠️ Deliberately NOT `approval_status`. That column is the amount-tiered
+    // flow's, and sharing it would make either gate's verdict erase the
+    // other's — and re-trigger the amount flow, whose entry condition keys on
+    // `approval_status == "not_required"`.
+    //
+    // `readonly: true` on the same audited grounds as `approval_status`
+    // (#1666): the only writers are the gate's own `runAs: 'system'` flow and
+    // the insert default, and both survive the readonly strip.
+    // What the rep is ASKING for, ⛔ never the stage itself: REQ-0006
+    // acceptance 3 requires the stage not to move until the request is
+    // decided, and a `record_change` flow binds an AFTER hook — by the time it
+    // runs, a stage the rep wrote has already moved. So the rep writes the
+    // request here (with the win/loss reason), and the approved decision
+    // writes `stage` — the customer's own step 14, 「通过后商机状态正式生效」.
+    //
+    // Values ARE the two stage values, so the flow's approve branch can apply
+    // it with `stage: '{oppRecord.requested_status}'` and no mapping table can
+    // drift. Not readonly: this is the one half of the gate a person writes.
+    // Inert while the gate is off — nothing reads it unless the install arms
+    // `status_change_approval_status`.
+    requested_status: Field.select({
+      label: 'Requested Status',
+      group: 'sales_process',
+      options: [
+        { label: 'Won', value: 'closed_won' },
+        { label: 'Lost', value: 'closed_lost' },
+      ],
+    }),
+
+    status_change_approval_status: Field.select({
+      label: 'Status Change Approval',
+      group: 'sales_process',
+      readonly: true,
+      defaultValue: 'not_required',
+      options: [
+        { label: 'Not Required', value: 'not_required', default: true },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+
+    // ─── Win / Loss analysis ───────────────────────────────────────────
+    //
+    // ⛔ The reason is captured AT CLOSE, and that is enforced, not requested.
+    // Leaving both fields optional means every seeded and user-closed deal
+    // lands with them empty and the win/loss widgets below have nothing to draw.
+    //
+    // `requiredWhen`, not a script validation, for the same reason
+    // `crm_lead.duplicate_of_lead` uses it (ADR-0113): "this field must hold a
+    // value when the record looks like X" is exactly a conditional write
+    // contract, the engine evaluates it on insert AND update inside
+    // `evaluateValidationRules`, and it reports against the FIELD — so the form
+    // marks the empty picklist instead of showing a record-level banner. It is
+    // ALSO the only shape the freeze below leaves usable: once a deal is closed,
+    // `opportunity.hook.ts` refuses every user edit outside the narrative
+    // fields, so a reason not captured in the closing write can never be added
+    // afterwards. Close time is the only chance.
+    // `test/win-loss-capture.test.ts` drives both predicates through a real
+    // ObjectQL over a real driver, on insert and on update.
+    //
+    // ⚠️ `has(...)` is load-bearing. A bare `record.stage == "closed_lost"`
+    // aborts with `No such key` on any merged record that omits the column, and
+    // the engine's answer to a predicate that cannot evaluate is to SKIP it
+    // ("requiredWhen for 'loss_reason' failed to evaluate — skipped"), which
+    // would make this read as enforced while requiring nothing at all.
+    //
+    // Both reasons are in `sales_process`, the group that holds `stage`, so
+    // every derived surface files the reason with the stage it depends on; the
+    // Edit form places them beside Stage itself (`opportunity.view.ts`, #2238).
+    win_reason: Field.select({
+      label: 'Win Reason',
+      description: 'Why this deal was won. Required to close an opportunity as Won.',
+      group: 'sales_process',
+      requiredWhen: P`has(record.stage) && record.stage == "closed_won"`,
+      options: [
+        { label: 'Better Product', value: 'better_product' },
+        { label: 'Better Price', value: 'better_price' },
+        { label: 'Existing Relationship', value: 'relationship' },
+        { label: 'Better Support', value: 'better_support' },
+        { label: 'Best Fit / Features', value: 'best_fit' },
+        // Written by the machine, not chosen by a rep: `quote_on_accepted`
+        // (quote.hook.ts) wins the deal the moment a customer accepts the
+        // quote, and no human is in that write to attribute it. Naming the
+        // automated path is this repo's existing idiom for exactly that split
+        // (`crm_lead.duplicate_status` = machine `suspected` vs human
+        // `confirmed`) and it keeps the rule exception-free: every closed_won
+        // row carries a reason, and an analyst can still tell a CPQ close from
+        // a rep's attribution instead of reading a fabricated "Better Product".
+        { label: 'Quote Accepted', value: 'quote_accepted' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+
+    loss_reason: Field.select({
+      label: 'Loss Reason',
+      description: 'Why this deal was lost. Required to close an opportunity as Lost.',
+      group: 'sales_process',
+      requiredWhen: P`has(record.stage) && record.stage == "closed_lost"`,
+      options: [
+        { label: 'Price Too High', value: 'price' },
+        { label: 'Lost to Competitor', value: 'competitor' },
+        { label: 'No Budget', value: 'no_budget' },
+        { label: 'No Decision', value: 'no_decision' },
+        { label: 'Bad Timing', value: 'timing' },
+        { label: 'Missing Features', value: 'features' },
+        { label: 'Other', value: 'other' },
+      ],
+    }),
+
+    loss_details: Field.textarea({
+      label: 'Loss/Win Details',
+      description: 'Free-text context behind the win or loss reason.',
+      group: 'classification',
+    }),
+    // ── Demo (epic #2 / T1): bid/initiation fields + 铁三角 ──
+    opportunity_number: Field.autonumber({
+      label: 'Opportunity Number',
+      format: 'OPP-{0000}',
+      group: 'basic',
+    }),
+    is_bid: Field.boolean({ label: 'Bid Required', group: 'classification', defaultValue: false }),
+    level: Field.select({
+      label: 'Opportunity Level',
+      group: 'classification',
+      options: [
+        { label: 'A — strategic', value: 'level_a', color: '#FF0000' },
+        { label: 'B — important', value: 'level_b', color: '#FFA500' },
+        { label: 'C — routine', value: 'level_c', color: '#999999' },
+      ],
+    }),
+    initiation_status: Field.select({
+      label: 'Initiation Status',
+      group: 'sales_process',
+      // Demo (epic #2): set to `submitted` by the 发起立项审批 button
+      // (`psa-approval.actions.ts`); distinct from the amount-tiered
+      // `approval_status` above, which is left untouched. readonly — rendered
+      // on forms, never typed.
+      readonly: true,
+      defaultValue: 'draft',
+      trackHistory: true,
+      options: [
+        { label: 'Not Initiated', value: 'draft', default: true },
+        { label: 'Submitted', value: 'submitted', color: '#4169E1' },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Initiated', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+    initiated_date: Field.datetime({ label: 'Initiated Date', group: 'sales_process', readonly: true }),
+    account_manager: Field.lookup('sys_user', { label: 'Account Manager (AR)', group: 'team' }),
+    solution_manager: Field.lookup('sys_user', { label: 'Solution Manager (SR)', group: 'team' }),
+    delivery_manager: Field.lookup('sys_user', { label: 'Delivery Manager (FR)', group: 'team' }),
+    // Round 2 (steps 8 / 9): the bid facts and the contracting entity.
+    expected_bid_date: Field.date({ label: 'Expected Bid Date', group: 'bid' }),
+    subcontract_info: Field.textarea({ label: 'Subcontract Information', group: 'bid' }),
+    crm_legal_entity: Field.lookup('crm_legal_entity', { label: 'Contracting Entity', group: 'bid' }),
+    business_category: Field.select({ label: 'Business Category', group: 'bid', options: [...BUSINESS_CATEGORY_OPTIONS] }),
+    revenue_recognition_type: Field.select({
+      label: 'Revenue Recognition',
+      group: 'bid',
+      options: [
+        { label: 'By milestone', value: 'milestone' },
+        { label: 'Time & material', value: 'time_and_material' },
+        { label: 'On acceptance', value: 'acceptance' },
+        { label: 'Over the period', value: 'periodic' },
+      ],
+    }),
+  },
+  
+  // Database indexes for performance
+  indexes: [
+    { fields: ['name'] },
+    { fields: ['crm_account'] },
+    { fields: ['owner_id'] },
+    { fields: ['stage'] },
+    { fields: ['close_date'] },
+    // The stagnation sweep filters on this every morning.
+    { fields: ['stage_entry_date'] },
+  ],
+  
+  // Enable advanced features
+  //
+  // Stage/amount history is tracked per-field via `Field.trackHistory`
+  // (ADR-0052). ⚠️ Ownership is NOT: it lives on the platform's injected
+  // `owner_id`, which carries no `trackHistory` flag — a transfer is recorded
+  // in the compliance audit log (`sys_audit_log`, unconditional) rather than on
+  // the activity feed.
+  enable: {
+    apiEnabled: true,
+    apiMethods: ['get', 'list', 'create', 'update', 'delete'], // Whitelist allowed API operations
+    // #602 — proposals, redlines and signed orders belong on the deal.
+    // See the canonical capability note in `src/sales/objects/index.ts`.
+    files: true,
+  },
+
+  // ADR-0052 §5b.2 — declarative milestone activity. When `stage` enters these
+  // values the platform emits a semantic timeline entry (no hook code).
+  // Combined with the field-level `trackHistory` above (stage-change rows) this
+  // replaces any hand-coded activity hook.
+  activityMilestones: [
+    { field: 'stage', value: 'closed_won', summary: 'Deal won — {name}', type: 'completed' },
+    { field: 'stage', value: 'closed_lost', summary: 'Deal lost — {name}', type: 'completed' },
+  ],
+
+  // Removed: list_views and form_views belong in UI configuration, not object definition
+  
+  // Lifecycle transitions are enforced via a `state_machine` validation rule
+  // (see validations[] below). ⚠️ There is no top-level `stateMachines` key on
+  // the platform — status state machines live in the validation union.
+
+  // Validation Rules
+  //
+  // Predicates below are TOTAL: every `record.x` read is `has()`-guarded, so the
+  // rule returns a verdict even when the merged record has no such key. See
+  // AGENTS.md "Validation predicates must be TOTAL" and
+  // test/object-validation-predicates.test.ts, which fails the build otherwise.
+  validations: [
+    {
+      name: 'close_date_future',
+      type: 'script',
+      severity: 'warning',
+      message: 'Close date should not be in the past unless opportunity is closed',
+      // An absent `stage` key means "no stage recorded", which is not a closed
+      // stage — hence `!has(record.stage) || (…)` rather than a leading
+      // `has(record.stage) &&`, which would suppress the warning instead.
+      condition: P`has(record.close_date) && record.close_date != null && record.close_date < today() && (!has(record.stage) || (record.stage != "closed_won" && record.stage != "closed_lost"))`,
+    },
+    {
+      name: 'amount_positive',
+      type: 'script',
+      severity: 'error',
+      message: 'Amount must be greater than zero',
+      condition: P`has(record.amount) && record.amount != null && record.amount <= 0`,
+    },
+    {
+      name: 'opportunity_stage_progression',
+      type: 'state_machine',
+      severity: 'warning',
+      message: 'Invalid opportunity stage transition',
+      field: 'stage',
+      transitions: {
+        // `→ proposal` is legal from every pre-proposal stage: the
+        // quote_generation flow fast-forwards the deal to `proposal` when a
+        // quote is generated, which can happen at any open stage.
+        //
+        // `→ closed_won` is legal from every open stage too (#2371 row 3): a
+        // rep who wins a deal early used to get a "Saved — with warnings"
+        // toast on top of the save toast for a move the business accepts.
+        // `→ closed_lost` was already legal from every open stage; the
+        // warning still catches skipping forward within the open stages.
+        prospecting: ['qualification', 'proposal', 'closed_won', 'closed_lost'],
+        qualification: ['needs_analysis', 'proposal', 'closed_won', 'closed_lost'],
+        needs_analysis: ['proposal', 'closed_won', 'closed_lost'],
+        // `proposal → closed_won` is legal: the quote_on_accepted hook closes
+        // the linked deal directly from the CPQ path (quote_generation parks
+        // the opportunity at `proposal`; an accepted quote wins it without a
+        // separate negotiation step).
+        proposal: ['negotiation', 'closed_won', 'closed_lost'],
+        negotiation: ['closed_won', 'closed_lost'],
+        closed_won: [],
+        closed_lost: [],
+      },
+    },
+  ],
+  
+  // ⚠️ `probability` and `expected_revenue` are NOT computed declaratively.
+  // They are derived in `opportunity.hook.ts` (single source of truth =
+  // stage → STAGE_PROBABILITY); keeping the math in one place avoids drift
+  // between a declarative CASE() table and the hook's lookup table.
+  //
+  // ⚠️ No `workflows[]` here, and none is possible: object `workflows[]` were
+  // removed from the platform. Field updates live in this object's `*.hook.ts`;
+  // scheduled status flips and notifications live in `src/*/flows/*.flow.ts`.
+});

@@ -1,0 +1,194 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { defineView } from '@objectstack/spec/ui';
+
+/**
+ * Contact Views
+ *
+ *   • grid    — primary roster with avatar
+ *   • gallery — people directory cards (avatar as cover)
+ */
+export const ContactViews = defineView({
+  list: {
+    type: 'grid',
+    name: 'all_contacts',
+    label: 'All Contacts',
+    userActions: { editInline: true },
+    data: { provider: 'object', object: 'crm_contact' },
+    columns: [
+      { field: 'avatar', width: 64, align: 'center' },
+      // Demo (epic #2): 姓 before 名 — the Chinese order.
+      { field: 'last_name', width: 140, sortable: true, link: true },
+      { field: 'first_name', width: 140, sortable: true },
+      { field: 'crm_account', width: 200 },
+      { field: 'title', width: 180 },
+      { field: 'department', width: 140 },
+      // REQ-0004 acceptance 2: the three buying-centre attributes are columns
+      // on the landing roster, which is already grouped by account — so one
+      // account's group reads as a MAP (who decides, who is on our side)
+      // instead of a directory. Columns are also what the list's own filter
+      // and grouping controls offer.
+      { field: 'buying_function', width: 160 },
+      { field: 'attitude', width: 140 },
+      { field: 'relationship_strength', width: 180 },
+      { field: 'email', width: 220 },
+      { field: 'phone', width: 150 },
+      { field: 'owner_id', width: 150 },
+    ],
+    sort: [{ field: 'last_name', order: 'asc' }],
+    // Groups start OPEN (#2290). Collapsed groups left the landing screen with
+    // account headers and not one contact row: an org with one or two
+    // contacts per account (the demo seed has one) had to expand every group
+    // to find a person. Open groups keep the per-account map and still let a
+    // reader fold the accounts they are not working.
+    grouping: { fields: [{ field: 'crm_account', order: 'asc', collapsed: false }] },
+    selection: { type: 'multiple' },
+    // The selection-bar entry point for campaigning at existing customers
+    // (#597), mirroring `bulkActions: ['create_campaign']` on the lead grid.
+    // The bare-string form fans the action out once per selected row; do not
+    // add strings for `mark_primary` / `send_email`, which declare
+    // `locations: ['list_item']` and are auto-injected into the row menu.
+    bulkActions: ['add_contact_to_campaign'],
+    pagination: { pageSize: 50, pageSizeOptions: [25, 50, 100] },
+    exportOptions: { formats: ['csv', 'xlsx'] },
+    appearance: {
+      showDescription: true,
+      allowedVisualizations: ['grid', 'gallery'],
+    },
+  },
+
+  listViews: {
+    /** People directory */
+    contact_directory: {
+      name: 'contact_directory',
+      type: 'gallery',
+      label: 'People Directory',
+      data: { provider: 'object', object: 'crm_contact' },
+      columns: ['last_name', 'first_name', 'title', 'email'],
+      gallery: {
+        coverField: 'avatar',
+        coverFit: 'cover',
+        cardSize: 'small',
+        titleField: 'last_name',
+        visibleFields: ['first_name', 'title', 'department', 'email', 'phone', 'crm_account'],
+      },
+    },
+
+    primary_contacts: {
+      name: 'primary_contacts',
+      type: 'grid',
+      label: 'Primary Contacts',
+      userActions: { editInline: true },
+      data: { provider: 'object', object: 'crm_contact' },
+      columns: ['last_name', 'first_name', 'crm_account', 'title', 'email', 'phone'],
+      filter: [{ field: 'is_primary', operator: 'equals', value: true }],
+      sort: [{ field: 'crm_account', order: 'asc' }],
+    },
+  },
+
+  form: {
+    type: 'tabbed',
+    sections: [
+      {
+        // The first tab holds everything Create requires (#2369 row 1).
+        // `email` is required on the object, and on the Contact Info tab
+        // Create jumped there with "Email is required" after the rep had
+        // filled this one. Three columns put the three name parts on one row
+        // (Last Name used to take a whole row of its own), then the account,
+        // then how to reach the person.
+        name: 'identity',
+        label: 'Identity',
+        columns: 3,
+        fields: [
+          'salutation',
+          { field: 'last_name', required: true },
+          { field: 'first_name', required: true, span: 'full' },
+          { field: 'crm_account', required: true },
+          'title',
+          'department',
+          'email',
+          'phone',
+          'owner_id',
+          // Round 2 (step 2): the customer's four relationship facts.
+          'gender',
+          'buying_influence',
+          'attitude',
+          'relationship_strength',
+        ],
+      },
+      {
+        // REQ-0004 acceptance 1: the buying-centre group is rendered FROM
+        // `fieldGroups`, with no per-field enumeration authored anywhere.
+        //
+        // This form authors `sections`, and an authored `sections` array wins
+        // outright over the renderer's `fieldGroups` auto-derivation (the
+        // mechanism is written up at length in `case.view.ts`), so a group
+        // declared on the object alone would reach the SYNTHESIZED detail
+        // page and never this form — which is also the create dialog. The
+        // group-reference form is rung 2 of the AGENTS.md ladder, for exactly
+        // this "partial arrangement is genuinely needed" case: `group:`
+        // inherits the object's `buying_centre` members (every field pointing
+        // at it, in declaration order) and its presentation, so adding a
+        // fourth attribute to the group later reaches this form by itself.
+        //
+        // ⛔ `group:` is mutually exclusive with `fields:` and with every key
+        // the group itself declares (`name`, `label`, `description`,
+        // `visibleWhen`, `collapsible`/`collapsed: true`) — `columns` is not
+        // one of those, because the group declares nothing about layout.
+        group: 'buying_centre',
+        columns: 2,
+      },
+      {
+        // Named `contact_details`, not `contact_info` — `contact_info` is
+        // already a distinct fieldGroup key on `crm_contact` ("Contact
+        // Information"), and reusing it here would make this section's
+        // translated heading follow that group's wording instead of its own
+        // "Contact Info".
+        name: 'contact_details',
+        label: 'Contact Info',
+        columns: 2,
+        fields: ['mobile', 'avatar'],
+      },
+      {
+        // Named `mailing_address` — deliberately the SAME key as the
+        // `mailing_address` fieldGroup on `crm_contact`, which is the opposite
+        // call from the two sections either side of it and for the same
+        // reason. Reusing a group key makes the section's translated heading
+        // follow that group's wording; `contact_details` and
+        // `comm_preferences` wanted their own shorter wording, so they had to
+        // avoid the collision. This section wants exactly the group's wording
+        // ("Mailing Address"), which every locale already carries under
+        // `objects.crm_contact._sections.mailing_address`, so the collision is
+        // the feature: one heading, one translation, four locales, no new row.
+        //
+        // Why the section exists at all: an authored `sections` array wins
+        // outright over the renderer's `fieldGroups` auto-derivation (the
+        // mechanism is written up at length in `case.view.ts`), and this form
+        // is also the CREATE dialog. Without this section the address was
+        // readable on the SYNTHESIZED detail page — which does derive from
+        // `fieldGroups` — while no form in the app could enter or edit it,
+        // even though `contact_import.mapping.ts` writes it from the shipped
+        // CSV template. This tab is the authoring half of the import path.
+        name: 'mailing_address',
+        label: 'Mailing Address',
+        columns: 2,
+        fields: [
+          // One structured `address` field; full width, so its parts lay out
+          // as a unit rather than in half a grid column.
+          { field: 'mailing_address', span: 'full' },
+        ],
+      },
+      {
+        // Named `comm_preferences`, not `preferences` — `preferences` is
+        // already a distinct fieldGroup key on `crm_contact` ("Communication
+        // Preferences"), and reusing it here would make this section's
+        // translated heading follow that group's wording instead of its own
+        // "Preferences".
+        name: 'comm_preferences',
+        label: 'Preferences',
+        columns: 2,
+        fields: ['lead_source', 'is_primary', 'do_not_call', 'email_opt_out'],
+      },
+    ],
+  },
+});

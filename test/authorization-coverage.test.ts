@@ -6,7 +6,7 @@ import {
   isApiOperationAllowed,
   resolveEffectiveApiMethods,
 } from '@objectstack/spec/data';
-import stack from '../objectstack.config';
+import stack, { servedApps } from './helpers/composed-stack';
 
 /**
  * Authorization-coverage guards (#488).
@@ -26,15 +26,17 @@ import stack from '../objectstack.config';
  * `crm_campaign_member` rows that action inserts.
  *
  * These tests resolve the whole authorization surface (grants ↔ objects ↔
- * navigation ↔ pages ↔ sharing rules ↔ positions) so the next uncovered object
+ * navigation ↔ sharing rules ↔ positions) so the next uncovered object
  * fails in CI instead of at a customer's first click.
  */
 
 type AnyRec = Record<string, any>;
 
 const objects: AnyRec[] = (stack as any).objects ?? [];
-const pages: AnyRec[] = (stack as any).pages ?? [];
-const apps: AnyRec[] = (stack as any).apps ?? [];
+// The SERVED apps — a module's `navigationContributions` folded in — so an
+// object a module puts into the menu is held to the same bar as one the app
+// lists itself.
+const apps: AnyRec[] = servedApps();
 const permissionSets: AnyRec[] = (stack as any).permissions ?? [];
 const sharingRules: AnyRec[] = (stack as any).sharingRules ?? [];
 const positions: AnyRec[] = (stack as any).positions ?? [];
@@ -151,27 +153,6 @@ describe('reachable UI is reachable for someone', () => {
     expect(bad, `dead navigation (permission-denied for every user):\n  ${bad.join('\n  ')}`)
       .toEqual([]);
   });
-
-  it('every related list is readable by every profile its page is assigned to', () => {
-    const bad: string[] = [];
-    for (const page of pages) {
-      const assigned: string[] = page.assignedProfiles ?? [];
-      if (assigned.length === 0) continue;
-      for (const c of [...walk(page.regions), ...walk(page.slots)]) {
-        if (c.type !== 'record:related_list') continue;
-        const objectName = c.properties?.objectName as string;
-        if (!objectName || objectName.startsWith('sys_')) continue;
-        const readers = new Set(setsGranting(objectName, 'read'));
-        for (const profile of assigned) {
-          if (!readers.has(profile)) {
-            bad.push(`${page.name} / ${c.id}: "${objectName}" is not readable by "${profile}"`);
-          }
-        }
-      }
-    }
-    expect(bad, `related lists denied to their own page audience:\n  ${bad.join('\n  ')}`)
-      .toEqual([]);
-  });
 });
 
 describe('record-level scope is authored, not implied', () => {
@@ -283,21 +264,21 @@ describe('field-level security resolves', () => {
     ),
   );
 
-  it('every FLS key is object-qualified and names a real field', () => {
+  // ⚰️ RETIRED (#1586, #1805), two of this assertion's three branches: "every
+  // FLS key is object-qualified" and "names a real field". `objectstack lint
+  // --strict` reports a bare key as `security-fls-unqualified-key` and an
+  // unknown or empty field part as `security-fls-unknown-field`, and `pnpm lint`
+  // fails on both. The unknown-OBJECT branch stays below: lint judges an
+  // undeclared object at bind/install time by design (objectstack PR #16998),
+  // so it is silent on it.
+  it('every object-qualified FLS key names a real object', () => {
     const bad: string[] = [];
     for (const { set, key } of flsEntries) {
-      // A bare key is silently ignored at runtime (the mask never enforces).
-      if (!key.includes('.')) {
-        bad.push(`${set}: "${key}" is not object-qualified`);
-        continue;
-      }
-      const [objectName, fieldName] = key.split('.');
+      // A bare key is `security-fls-unqualified-key`'s (see above).
+      if (!key.includes('.')) continue;
+      const [objectName] = key.split('.');
       if (!objectByName.has(objectName)) {
         bad.push(`${set}: "${key}" names unknown object "${objectName}"`);
-        continue;
-      }
-      if (!fieldsOf(objectName).has(fieldName)) {
-        bad.push(`${set}: "${key}" names unknown field "${fieldName}"`);
       }
     }
     expect(bad, `dangling field permissions:\n  ${bad.join('\n  ')}`).toEqual([]);
@@ -360,15 +341,6 @@ describe('row-level security policies are enforceable', () => {
     ((ps.rowLevelSecurity ?? []) as AnyRec[]).map((policy) => ({ set: ps.name as string, policy })),
   );
 
-  /**
-   * The RLS compiler pre-resolves exactly these `current_user.*` variables; an
-   * unknown one compiles to nothing and the policy fails CLOSED — every holder
-   * of the set loses the object entirely.
-   */
-  const USER_VARS = new Set(['id', 'organization_id', 'positions', 'org_user_ids', 'email']);
-  /** Operators the CEL → FilterCondition pushdown supports. */
-  const CLAUSE = /^\s*([a-z_][a-z0-9_]*)\s*(==|!=|>=|<=|>|<|in)\s+(.+?)\s*$/;
-
   it('every policy targets an object the same set grants', () => {
     const bad = policies
       .filter(({ set, policy }) => !setsGranting(policy.object as string).includes(set))
@@ -376,51 +348,14 @@ describe('row-level security policies are enforceable', () => {
     expect(bad, `orphan RLS policies:\n  ${bad.join('\n  ')}`).toEqual([]);
   });
 
-  it('every predicate is pushdownable and names real fields', () => {
-    const bad: string[] = [];
-    for (const { set, policy } of policies) {
-      const objectName = policy.object as string;
-      if (!objectByName.has(objectName)) {
-        bad.push(`${set}/${policy.name}: unknown object "${objectName}"`);
-        continue;
-      }
-      const known = fieldsOf(objectName);
-      for (const raw of [policy.using, policy.check]) {
-        if (!raw) continue;
-        for (const clause of String(raw).split(/&&|\|\|/)) {
-          const m = clause.trim().replace(/^\(+|\)+$/g, '').match(CLAUSE);
-          if (!m) {
-            bad.push(`${set}/${policy.name}: clause "${clause.trim()}" is not a pushdownable comparison`);
-            continue;
-          }
-          const [, field, , rhs] = m;
-          if (!known.has(field)) {
-            bad.push(`${set}/${policy.name}: "${objectName}" has no field "${field}"`);
-          }
-          const userRef = rhs.match(/current_user\.([a-z_]+)/);
-          if (userRef && !USER_VARS.has(userRef[1])) {
-            bad.push(`${set}/${policy.name}: current_user.${userRef[1]} is not pre-resolved — fails closed`);
-          }
-        }
-      }
-    }
-    expect(bad, `uncompilable RLS predicates (these DENY, they do not warn):\n  ${bad.join('\n  ')}`)
-      .toEqual([]);
-  });
-
-  it('the first field of a `using` predicate exists (the engine drops the policy otherwise)', () => {
-    // `extractTargetField` reads the leading `field ==|in` token; a field it
-    // cannot find on the object drops the policy and the layer denies all rows.
-    const bad: string[] = [];
-    for (const { set, policy } of policies) {
-      const target = String(policy.using ?? '').match(/^\s*([a-z_][a-z0-9_]*)\s*(?:==|=|IN|in)(?=\s|\()/);
-      if (!target) continue;
-      if (!fieldsOf(policy.object as string).has(target[1])) {
-        bad.push(`${set}/${policy.name}: leading field "${target[1]}" is not on "${policy.object}"`);
-      }
-    }
-    expect(bad, `policies the engine would drop (→ deny-all):\n  ${bad.join('\n  ')}`).toEqual([]);
-  });
+  // ⚰️ RETIRED (#1586): "every predicate is pushdownable and names real fields"
+  // and "the first field of a `using` predicate exists". `objectstack lint
+  // --strict` reports, in `using` and in `check` alike, a non-pushdownable
+  // clause as `rls-predicate-unenforceable`, an unknown field (leading or not)
+  // as `rls-predicate-unknown-field` and an unknown `current_user.*` as
+  // `rls-predicate-unknown-user-variable`; `pnpm lint` fails on each. Lint is
+  // silent on a policy whose `object` is unknown — the assertion above, which
+  // stays, is what goes red on that.
 });
 
 describe('sharing rules and positions line up', () => {
@@ -466,82 +401,33 @@ describe('sharing rules and positions line up', () => {
   });
 
   /**
-   * The triage grant is AUTHORED, not implied (#1096).
+   * Unowned cases reach the agents who triage them through the platform's
+   * ownership queue, not through an app sharing rule (#1096 → #2395).
    *
    * `service_agent` holds `crm_case` with `readScope: 'own'`, and an unowned row
-   * matches nobody's own-scope — so the `Unassigned — triage` view #596 pinned
-   * in every Cases list returned zero rows for the persona it was built for.
-   * `case_unassigned_triage_sharing` is the ruled fix, and this block is the
-   * reason the widening cannot be lost silently: a permission grant nobody
-   * asserts is a grant nobody notices losing.
-   *
-   * What is pinned here is the DECLARED shape — the object, the criteria, the
-   * access level and the recipient. What it delivers on a running engine, on
-   * both the sparse (absent-key) and column-complete (NULL) row shapes, is
-   * measured in `test/unassigned-case-triage-reach.test.ts`; that it survives
-   * `plugin-sharing`'s CEL→filter compiler at all is pinned in
-   * `test/sharing-seeding.test.ts`.
+   * matches nobody's own-scope. Since @objectstack 18.3.0 a case nobody owns
+   * SITS in a queue (ADR-0142 D3), and the queue's members read and edit what
+   * sits in it through `current_user.queues`. So the reach is the DECLARED
+   * queue's membership, pinned here, and the former criteria rule
+   * `case_unassigned_triage_sharing` must not come back beside it — two
+   * answers to one question is the shape #2395 deleted. What it delivers on a
+   * running engine is measured in `test/ownership-queues.test.ts`.
    */
-  describe('#1096: unowned open cases reach the agents who triage them', () => {
-    const rule = () => sharingRules.find((r) => r.name === 'case_unassigned_triage_sharing');
-
-    it('the rule exists, on crm_case, granting edit to the service_agent position', () => {
-      const r = rule();
-      expect(
-        r,
-        'case_unassigned_triage_sharing is gone — the Unassigned — triage tab is empty again ' +
-          'for the only persona it is pinned for (#1096)',
-      ).toBeDefined();
-      expect(r!.object).toBe('crm_case');
-      expect(r!.type).toBe('criteria');
-      // `edit`, not `read`: triage is a pull queue, and an agent who cannot
-      // write the row cannot work it.
-      expect(r!.accessLevel).toBe('edit');
-      expect(r!.sharedWith).toEqual({ type: 'position', value: 'service_agent' });
+  describe('#2395: unowned cases reach the agents who triage them through the intake queue', () => {
+    it('the case_intake queue exists and its members are exactly the service_agent position', () => {
+      const queue = (((stack as any).queues ?? []) as AnyRec[]).find((q) => q.name === 'case_intake');
+      expect(queue, 'the case_intake queue is gone — ownerless cases have nowhere to sit').toBeDefined();
+      expect(queue!.members).toEqual([{ type: 'position', value: 'service_agent' }]);
     });
 
-    it('its criteria is exactly "unowned AND live work" — both halves, and nothing wider', () => {
-      // Asserted verbatim, because every token is load-bearing and each fails
-      // differently: drop `owner_id == null` and the rule shares the whole case
-      // table with every agent (option C by accident); drop the status clause
-      // and finished work joins the backlog, so the tab's row count stops
-      // meaning "work waiting for a human"; and `!= null` in place of
-      // `== null` inverts the grant into precisely the leak acceptance #2
-      // forbids.
-      //
-      // ⚠️ The second half is `status`, not `is_closed` (#1145), and that made
-      // this grant NARROWER: `is_closed` is derived as `status === 'closed'`
-      // and never flips on `resolved`, so the old spelling handed every agent
-      // `edit` on every resolved ownerless case forever. The set is
-      // `CLOSED_CASE_STATUSES`, shared with the load-balancing hooks and
-      // `case_sla_monitor`; `test/live-work-predicate-parity.test.ts` holds all
-      // five consumers to it by name.
-      //
-      // The `!=` chain rather than `!(record.status in [...])` is measured, not
-      // stylistic — the membership form lowers to a top-level `$not` wrapping
-      // an `$in`, which is not in the operator matrix at the head of
-      // `test/sharing-seeding.test.ts`, and an uncompilable or unexecutable
-      // sharing condition is DROPPED silently rather than failing loudly.
-      expect(String(rule()!.condition?.source ?? '')).toBe(
-        'record.owner_id == null && record.status != "resolved" && record.status != "closed"',
-      );
+    it('no sharing rule re-implements the queue — the triage rule stays deleted', () => {
+      expect(sharingRules.map((r) => r.name)).not.toContain('case_unassigned_triage_sharing');
     });
 
-    it('carries NO has() guard — one would make it untranslatable and silently unseeded', () => {
-      // ⚠️ The inverse of the house rule, and deliberate. AGENTS.md's totality
-      // rule (#630) governs the INTERPRETED CEL surfaces; a sharing condition is
-      // compiled to a pushdown filter instead, and `compileCelToFilter` rejects
-      // the whole function-call class — so a guard here would make the rule
-      // undeployable rather than safe (#621's defect, reintroduced). Totality is
-      // answered by the operator: `== null` lowers to `{ $null: true }`, which
-      // reads an absent key and a NULL column alike.
-      expect(String(rule()!.condition?.source ?? '')).not.toMatch(/\bhas\s*\(/);
-    });
-
-    it('the widening is a SHARING rule — the profile stays own-scoped', () => {
-      // The other half of "authored, not implied": option C (`viewAllRecords`
-      // on the profile) was rejected on sight and stays rejected, so if it ever
-      // arrives this fails rather than passing quietly alongside the rule.
+    it('the reach is the queue — the profile stays own-scoped', () => {
+      // `viewAllRecords` on the profile (#1096 option C) was rejected on sight
+      // and stays rejected, so if it ever arrives this fails rather than
+      // passing quietly alongside the queue.
       const perm = (setByName.get('service_agent')?.objects ?? {}).crm_case ?? {};
       expect(perm.readScope, 'service_agent.crm_case stopped being own-scoped').toBe('own');
       expect(
@@ -563,8 +449,11 @@ describe('sharing rules and positions line up', () => {
       for (const policy of (ps.rowLevelSecurity ?? []) as AnyRec[]) {
         for (const p of policy.positions ?? []) referenced.add(p);
       }
-      // A set whose name matches a position is bound to it at install time.
-      if (positionNames.has(ps.name)) referenced.add(ps.name);
+    }
+    // A position grants the permission sets its own definition declares
+    // (`permissionSets`, ADR-0131 D3/D4), each a set this app ships (#2200).
+    for (const position of positions) {
+      if (((position.permissionSets ?? []) as string[]).some((name) => setByName.has(name))) referenced.add(position.name);
     }
     const orphans = [...positionNames].filter((p) => !referenced.has(p));
     expect(

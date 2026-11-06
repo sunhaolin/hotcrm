@@ -1,0 +1,256 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { ObjectSchema, Field } from '@objectstack/spec/data';
+import { F, P } from '@objectstack/spec';
+
+/**
+ * Opportunity Line Item
+ *
+ * Individual product/service entry on an Opportunity. Together, all line items
+ * roll up to the Opportunity amount. Required for any realistic sales process
+ * where the deal value comes from a configured set of products rather than
+ * a single typed-in total.
+ */
+export const OpportunityLineItem = ObjectSchema.create({
+  name: 'crm_opportunity_line_item',
+  label: 'Opportunity Line Item',
+  pluralLabel: 'Opportunity Line Items',
+  icon: 'package',
+  description: 'A single product line on an Opportunity',
+
+  // ADR-0090 D1/D7: OWD is an authored decision. A line item has no meaning
+  // apart from its deal, so its record access DERIVES from the opportunity
+  // (ADR-0055), and as of 17.0.0-rc.4 that derivation means what it says.
+  //
+  // ⚠️ Reads ARE filtered to line items whose `crm_opportunity` the caller can
+  // read, and master accessibility resolves through the same paths a direct
+  // read of the opportunity takes — ownership and `sys_record_share` grants
+  // included, NOT the master's row-level security policies alone. So a rep
+  // reads the lines of the deals in their own book plus anything shared to
+  // them, and the private-deal RLS filter carried by the `sales_manager` and
+  // `marketing_user` sets narrows on top of that rather than being the only
+  // thing that narrows. The parent-write gate derives the same way: a line
+  // whose opportunity the caller cannot edit is refused.
+  //
+  // `test/parent-derived-reach.test.ts` pins the narrow semantics and was
+  // written to go red the day the platform widens them: with the master set
+  // resolved from RLS policies alone, any caller without the private-deal
+  // policy — `sales_rep` included — reaches EVERY opportunity's lines.
+  // The master is `crm_opportunity`, this object's one required
+  // `master_detail`: since 18.0.0-next.1 the only shape ADR-0055's relation
+  // resolver derives a master from (a required lookup no longer counts).
+  //
+  // ⛔ Not `private`: this object has no owner of its own, so `private` falls
+  // back to the platform's auto-stamped `owner_id` (whoever inserted the row) —
+  // and the rep who owns the deal then cannot see a line the quote-generation
+  // flow or their manager added to it.
+  sharingModel: 'controlled_by_parent',
+
+  // Per-field history is opt-in via `Field.trackHistory` (ADR-0052), set on
+  // quantity/unit_price/discount below. Master-detail children still inherit
+  // the master's sharing automatically.
+
+  // A line is named after the product it sells (#2086, ADR-0079 D1). With no
+  // `nameField` the platform derived `description`, so a line added through the
+  // Products picker, which writes no description, was named by its record id
+  // in the opportunity's rail and in its own record header.
+  //
+  // ⛔ Not a formula over `record.crm_product`. On 18.0.0-next.3 a formula read
+  // only this record's own columns, where a reference holds the product's bare
+  // id: `record.crm_product.name` read null on every row (measured). Since
+  // 18.0.0-next.4 a formula reads one hop through a reference, but its value is
+  // stored nowhere, so it can be neither searched nor sorted by (changeset
+  // `24197-objectql-formula-one-hop`), and this title is the line's search
+  // target. The title is therefore a STORED mirror of the product's title, the
+  // one shape `skills/objectstack-data/SKILL.md` prescribes for a related
+  // record's title ("mirror the value, always"). It has three writers:
+  // `opportunity_line_item_product_title` (insert, a product change, and any
+  // update of a row that has none), `product_title_mirror` on `crm_product`
+  // (a rename), and `scripts/backfill-line-product-title.ts` (rows older than
+  // this field). It is a real column, so search scans it directly.
+  nameField: 'product_title',
+  searchableFields: ['product_title', 'description'],
+
+  highlightFields: ['crm_product', 'quantity', 'unit_price', 'total_price'],
+
+  // Two groups, derived from the ten fields this object actually declares
+  // rather than copied off a neighbour (#1453). The split is the one the
+  // arithmetic already makes: everything `total_price` multiplies together is
+  // `pricing`, everything that says WHICH line this is is `basic`.
+  //
+  // `quantity` is a pricing field here, not an identity one — it is a factor in
+  // `total_price`, and separating it from the price it multiplies would put the
+  // two halves of one product on two sections. `crm_quote_line_item` takes the
+  // same split over its ten fields, and the parents agree: `crm_quote` and
+  // `crm_product` both keep every money field in `pricing` — `crm_quote`'s
+  // `tax` included — and both keep `description` in `basic`.
+  //
+  // ⚠️ Neither group may be a subset of the highlight strip: a synthesized
+  // detail page hoists the title plus the first four `highlightFields` out of
+  // the body, so an all-hoisted group renders on forms and nowhere else
+  // (`field-group-shadowed`; `pnpm lint` — `os lint --strict` — fails on it).
+  // `basic` keeps crm_opportunity/description/line_number and `pricing` keeps
+  // list_price/discount outside that strip, so both survive the hoist.
+  fieldGroups: [
+    { key: 'basic',   label: 'Line Item', icon: 'package' },
+    { key: 'pricing', label: 'Pricing',   icon: 'dollar-sign' },
+  ],
+
+  fields: {
+    // The parent link, and the ONE field on this object that decides whether the
+    // deal it belongs to can be deleted at all (#727).
+    //
+    // Declaring nothing here does not mean "no opinion": `Field.lookup` resolves
+    // `deleteBehavior` to the spec default `set_null`, and the engine's
+    // `cascadeDeleteRelations` escalates a `set_null` default on a REQUIRED
+    // lookup to `restrict` — a NOT NULL column cannot be cleared. So the silent
+    // default made every itemised opportunity undeletable, with a message that
+    // told the API caller to `set deleteBehavior:'cascade'` on this very field:
+    //
+    //     DELETE /api/v1/data/crm_opportunity/<id>
+    //     → 409 DELETE_RESTRICTED "…1 dependent crm_opportunity_line_item
+    //       record(s) reference it via crm_opportunity…"
+    //
+    // `cascade` is the semantics this object already claims twice over: the
+    // header comment says a line has no meaning apart from its deal, and
+    // `opportunity_line_item.hook.ts` derives `crm_opportunity.amount` FROM the
+    // line set. A record whose parent is gone denotes nothing and would keep a
+    // dead deal's revenue in the line-level reports.
+    //
+    // This is deliberately NOT the campaign/event answer (#696, #711 kept
+    // `crm_campaign_member.crm_campaign` and `crm_event_attendee.crm_event` on
+    // the restricting default): a member list is a campaign's historical record
+    // and survives on its own terms. A price line does not.
+    crm_opportunity: Field.masterDetail('crm_opportunity', {
+      label: 'Opportunity',
+      group: 'basic',
+      required: true,
+      storage: { notNull: true },
+      deleteBehavior: 'cascade',
+    }),
+
+    // Deliberately left on the default, which the same escalation turns into
+    // `restrict`: deleting a catalog product must NOT shred the priced history
+    // of deals that sold it. `product.hook.ts`'s own `beforeDelete` says the
+    // same thing in words ("To retire it instead, turn off Active.").
+    crm_product: Field.lookup('crm_product', {
+      label: 'Product',
+      group: 'basic',
+      required: true,
+      storage: { notNull: true },
+    }),
+
+    description: Field.text({
+      label: 'Description',
+      group: 'basic',
+      maxLength: 500,
+    }),
+
+    // The line's title, which is the product's title: its `name` (#2369 row 10).
+    // `readonly`: the hooks named on `nameField` above are its only writers.
+    // 300 was sized for the name plus its code, which the title carried until
+    // #2369 row 10; the name alone is at most 255.
+    product_title: Field.text({
+      label: 'Product Title',
+      group: 'basic',
+      readonly: true,
+      maxLength: 300,
+      description: "The product's title, kept in step with the product. It names this line.",
+    }),
+
+    // A count of units, so a whole number (#2370 row 8; the convention is
+    // `docs/developers/number-formats.md`): `scale: 0` makes it read "4", not
+    // "4.00", on every face, and the engine refuses a fractional quantity.
+    quantity: Field.number({
+      label: 'Quantity',
+      group: 'pricing',
+      required: true,
+      storage: { notNull: true },
+      scale: 0,
+      min: 0,
+      defaultValue: 1,
+      trackHistory: true,
+    }),
+
+    list_price: Field.currency({
+      label: 'List Price',
+      group: 'pricing',
+      readonly: true,
+      description: "Auto-populated from the product's List Price.",
+    }),
+
+    // A NOT NULL column the server fills, ⛔ not `required` (#2060 item 7, A-21).
+    // `opportunity_line_item_price_fill` (`_line-item-price-fill.ts`) defaults
+    // a blank price to the product's list price on insert, and
+    // `crm_product.list_price` is itself required, so every insert that runs
+    // the app's hooks stores one. `required` is the WRITER's contract, and the
+    // console form reads it as "the user must type this": measured on
+    // 18.0.0-next.3, the create form refused "Please check the highlighted
+    // fields: Sales Price" and sent nothing, while the same insert over REST
+    // stored the list price. A cross-record default has no declared form
+    // (`defaultValue` reads this record only), so the hook stays the producer
+    // and `storage.notNull` keeps the column whole: an import with automations
+    // off, or an update that clears the price, is still refused (400
+    // `VALIDATION_FAILED`). This is the spec's "engine-populated column"
+    // posture (`storage.notNull` without `required`, ADR-0113).
+    unit_price: Field.currency({
+      label: 'Sales Price',
+      group: 'pricing',
+      storage: { notNull: true },
+      description: 'Negotiated unit price (may differ from list price)',
+      trackHistory: true,
+    }),
+
+    discount: Field.percent({
+      label: 'Discount %',
+      group: 'pricing',
+      scale: 2,
+      min: 0,
+      max: 100,
+      defaultValue: 0,
+      trackHistory: true,
+    }),
+
+    total_price: Field.formula({
+      label: 'Total',
+      group: 'pricing',
+      // An amount of money, declared as one (#2370 row 8): the spec's money
+      // formula, in the tenant currency like every amount here. Measured on
+      // 18.2.0: the console's formula cell does not read it yet and draws
+      // "24,000" beside "$6,000.00" (reported upstream with the card).
+      returnType: 'currency',
+      expression: F`record.quantity * record.unit_price * (1 - record.discount / 100)`,
+    }),
+
+    line_number: Field.number({
+      label: 'Line #',
+      group: 'basic',
+      scale: 0,
+      readonly: true,
+    }),
+  },
+
+  // Predicates below are TOTAL: every `record.x` read is `has()`-guarded, so the
+  // rule returns a verdict even when the merged record has no such key. See
+  // AGENTS.md "Validation predicates must be TOTAL" and
+  // test/object-validation-predicates.test.ts, which fails the build otherwise.
+  validations: [
+    {
+      name: 'unit_price_positive',
+      type: 'script',
+      severity: 'error',
+      message: 'Sales price cannot be negative',
+      // Both guards are load-bearing, not defensive noise. `has(...)` answers
+      // "is the key present at all": on update the predicate sees
+      // `{...previous, ...data}`, and a driver that stores only written columns
+      // returns no key, which aborts the whole predicate and silently skips the
+      // rule (#630). `!= null` answers "does it hold a value": strict CEL
+      // ABORTS on `null < 0` instead of evaluating it false, so the unguarded
+      // form left this rule inert on a blank price — it never fired at all,
+      // which is the opposite of what a validation is for. The `null` hazard is
+      // written up at `account.object.ts:244-245`; the same-named rule in
+      // `quote_line_item.object.ts` has carried that guard all along.
+      condition: P`has(record.unit_price) && record.unit_price != null && record.unit_price < 0`,
+    },
+  ],
+});

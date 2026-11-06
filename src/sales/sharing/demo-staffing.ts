@@ -1,0 +1,477 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { Territory } from '../objects/_territory';
+
+/**
+ * Demo-org staffing — WHO HOLDS THE POSITIONS `positions.ts` DECLARES (#640).
+ *
+ * ### ⛔ A row exists to make a MECHANISM visible. This is NOT an org chart.
+ *
+ * Every person below is the minimum needed to turn one dark mechanism on. A
+ * position with no mechanism behind it stays EMPTY however tidy filling it in
+ * would look, and `test/demo-staffing.test.ts` fails the build when one is
+ * filled without a decision behind it. #640's principle, unchanged and quoted
+ * verbatim where that guard enforces it: staffing a position is **a decision,
+ * not a tidy-up**.
+ *
+ * Exactly two rows have ever crossed that fence — `service_agent` and
+ * `service_manager`, on the maintainer ruling of 2026-08-31 — and the bar they
+ * cleared is the only one that opens it: a shipped hook PICKS AN OWNER out of
+ * that pool, so an empty pool is not a bench nobody sits on but a code path
+ * that never runs on a demo box at all. "It looks unstaffed" is not the bar.
+ * The other six leadership positions do not clear it and are still empty.
+ *
+ * ### The gap this table closes
+ *
+ * The app ships three layers of position-based access and, until now, only two
+ * of them were real on a fresh install:
+ *
+ *   1. the rules install  — #621 (`sys_sharing_rule`: 9 seeded, 0 skipped)
+ *   2. records match them — #638 (`crm_account.billing_country`: NA 6 / EU 2 / neither 1)
+ *   3. someone holds the position — **nobody did** (`sys_user_position`: 0 rows)
+ *
+ * With layer 3 empty, a matching account materialises no grant: measured on a
+ * fresh 17.0.0-rc.1 install, `sys_record_share` had 0 rows and every
+ * position-based rule this app ships granted nobody anything. The same hole ran
+ * through `opportunity_approval` — its `manager_review` node routes to the
+ * `sales_manager` position, so submitting a deal opened a request with an empty
+ * approver slate while `lockRecord: true` held the record hostage.
+ *
+ * ### Why this is a TABLE and not code
+ *
+ * Adding a person to the demo org is adding a ROW here. Nothing else changes:
+ * `scripts/demo-staff.ts` walks this array, and `test/demo-staffing.test.ts`
+ * checks each row against the declared positions, the sharing rules and the
+ * approval nodes. A row that names a position no rule names and that declares
+ * no permission set is a row that grants nothing (#488) — the test says so by
+ * name.
+ *
+ * ### Why this file is NOT metadata, and MUST NOT become metadata
+ *
+ * It is deliberately not exported from `./index.ts` and not registered in
+ * `objectstack.config.ts`, so it is not in the published artifact. That is the
+ * hard constraint of #640, not a stylistic choice: **a real deployment must
+ * install none of these people.** Shipping synthetic users into a customer org
+ * would be worse than shipping no staffing at all, and the only way to make
+ * that impossible rather than unlikely is for the artifact to contain no
+ * mechanism that can create a user. `test/demo-staffing.test.ts` pins exactly
+ * that: no seed dataset and no flow node in this app targets `sys_user`,
+ * `sys_member`, `sys_user_position` or `sys_record_share`.
+ *
+ * Staffing therefore happens on the demo path only — `pnpm demo:staff`, run by
+ * a developer against their own local dev server, through the platform's own
+ * admin surfaces (`/api/v1/auth/admin/create-user`, the `sys_user_position`
+ * data API, `POST /api/v1/sharing/rules/:id/evaluate`). Those users are REAL,
+ * loginable accounts created by better-auth, not raw `sys_user` rows: identity
+ * tables are `managedBy: 'better-auth'` and direct data-API inserts are refused
+ * by the ADR-0092 write guard, which is also why a seed cannot do this and why
+ * the "A seed can't name a user" note in `objectstack.composition.ts` says a
+ * seed can never name a user.
+ *
+ * ### Why exactly these five people
+ *
+ * Not an org chart — the smallest set that makes each dark mechanism visible:
+ *
+ *   - the two reps make TERRITORY SHARING observable for the first time. They
+ *     must be users who do NOT own the accounts: `crm_account` is `private`, so
+ *     the OWD baseline already admits a record's owner and a share to the owner
+ *     proves nothing. The platform's seed-ownership claim hands every seeded
+ *     record to the first administrator (the dev admin, #622, #1892) and
+ *     staffing deliberately does not touch that — the reps stay non-owners,
+ *     which is the whole point.
+ *   - the sales manager makes `opportunity_approval`'s `manager_review` resolve
+ *     to a non-empty slate for the first time.
+ *   - the service AGENT is the case INTAKE POOL. `case_intake_assignment`
+ *     (`src/service/assignment-rules/case.assignment-rule.ts`, the platform's
+ *     assignment rule) hands an ownerless case — a web-to-case submission, an
+ *     email import — to the least-loaded member of the `case_intake` queue,
+ *     whose members are the holders of `service_agent`. With nobody holding it
+ *     every such case parks in the queue and the `unassigned_triage` tab is the
+ *     entire story. The same row makes her the queue's first member, so she
+ *     sees the parked cases and can claim them.
+ *   - the service MANAGER is the ESCALATION POOL. `case_escalation_reassign`
+ *     hands a case being escalated to the least-loaded `service_manager`, and
+ *     `case_escalation_sharing` grants that position edit on open critical
+ *     cases. Both had zero holders, so escalating a case moved nothing and
+ *     granted nobody anything.
+ *
+ * ⚠️ Measured, and written down because the card that authorised those two
+ * rows over-counted: staffing them does NOT light `case_director_sharing`. That
+ * rule's recipient is `service_director`, which the same ruling leaves empty.
+ * The fourth mechanism these two rows actually reach is the `case_intake`
+ * queue's membership, not the director rule.
+ *
+ * The other six positions (`sales_director`, `executive`, `service_director`,
+ * `marketing_manager`, `marketing_director`, `marketing_user`) stay UNSTAFFED
+ * on purpose: a real deployment staffs its own people, and an empty bench is
+ * the honest depiction of that. None of them is an assignment POOL — each only
+ * RECEIVES a share or an approval, a mechanism the staffed reps and sales
+ * manager already demonstrate — and the approval nodes that route to them
+ * declare `onEmptyApprovers: 'admin_rescue'`, so an empty bench holds for admin
+ * takeover instead of stranding the record.
+ *
+ * ### Why a rep holds TWO positions — and what actually bounds the territory
+ *
+ * `na_sales_team` / `eu_sales_team` are territory groupings: no permission set
+ * carries either name, so holding one says nothing about what a user may DO.
+ * ⚠️ RE-MEASURED on 17.3.0 (#1779), and the reading INVERTED — the sentence
+ * that stood here said `member_default` opened the object door and that
+ * `sales_rep` therefore added no read at all. That was measured on
+ * 17.0.0-rc.1. Same principal shape, same box, `POST /api/v1/security/explain`
+ * for a user holding ONLY `eu_sales_team`:
+ *
+ *     principal        positions [org_member, eu_sales_team, everyone]
+ *                      → permission set(s) [member_default]
+ *     object_crud      DENIES — No resolved permission set grants read on
+ *                      'crm_account'.
+ *     owd_baseline     narrows — Record baseline (OWD) is private: rows are
+ *                      owner-visible only; sharing can only WIDEN from here.
+ *     depth            Effective read depth: 'org' (ADR-0057 D1 — widest
+ *                      across granting sets)
+ *
+ * That user reads NOTHING: `POST /api/v1/data/crm_account/query` answers
+ * `403 PERMISSION_DENIED`, not the 2 EU accounts. So read the layer stack the
+ * other way round from how this note used to read it:
+ *
+ *   - the OBJECT-LEVEL door on `crm_account` is opened by `sales_rep` — the
+ *     permission set the rep POSITION declares in its `permissionSets` — and
+ *     by nothing else. `member_default`, the platform's additive baseline
+ *     (ADR-0090 D5), opens no CRM object at all on 17.3.0: measured for the same principal,
+ *     `object_crud grants — read on 'crm_account' is granted by [sales_rep]`
+ *     once the functional position is held, and `denies` when it is not.
+ *   - the ROW SET is decided one layer down and is still the whole ballgame:
+ *     `crm_account` is `sharingModel: 'private'`, so the OWD baseline admits
+ *     only rows the caller OWNS, and `sys_record_share` can only widen it. The
+ *     reps own nothing (the seed-ownership claim gave every seeded record to
+ *     the dev admin), so their row set is exactly the grants their territory rule
+ *     materialised — 6 for NA, 2 for EU, and the SG account for nobody.
+ *
+ * So `sales_rep` is what makes a rep a READER at all, and the territory rule is
+ * what bounds WHICH rows — two different layers, both required, neither
+ * substituting for the other. Adding `sales_rep` still widens no ROWS: its
+ * `crm_account` grant is `viewAllRecords: false, readScope: 'own'`, so the row
+ * set stays exactly the territory shares. What it adds on top is what the
+ * persona may DO — create/edit, the `health_score` / `annual_revenue` field
+ * grants, export.
+ *
+ * ⚠️ The same correction retires the idea that a declared position is enough on
+ * its own. It is not, and #1779 is the tombstone: `service_manager` was a
+ * declared position that a sharing rule named and that `case_escalation_reassign`
+ * routed cases to, and its holder was refused every CRM object until a
+ * permission set reached it. A position grants a set only through its
+ * `permissionSets` (`src/sales/sharing/positions.ts`, #2200): `service_manager`
+ * declares `service_agent` there, and a position that declares no set grants no
+ * object at all.
+ *
+ * The falsifiable part, and the reason `test/demo-staffing.test.ts` pins it: a
+ * set bound to a position a territory rep holds MUST NOT grant `viewAllRecords`
+ * on `crm_account`. That would widen the depth to all-rows and the rep would
+ * read all nine accounts, so the territory grant would stop proving anything
+ * while still looking staffed. This is not hypothetical — it is exactly what
+ * the sales manager does: `SalesManagerProfile` declares `viewAllRecords: true`
+ * and she reads all 9 (measured), which is correct for a manager and would be
+ * silent death for a territory demo.
+ */
+
+/** One person in the demo org. Add a person = add a row. */
+export type DemoStaffMember = {
+  /** Stable key used in logs and test failures. Never stored. */
+  readonly key: string;
+  /** Display name on the account. */
+  readonly name: string;
+  /** Login. `@objectos.ai` matches the platform's own dev-admin convention. */
+  readonly email: string;
+  /**
+   * Dev-only password. Same class of secret as the platform's `admin123`
+   * dev-admin seed: it only ever reaches a local demo box, because nothing in
+   * the published artifact reads this file. Minimum 8 chars (better-auth's
+   * `minPasswordLength`).
+   */
+  readonly password: string;
+  /**
+   * Positions this person holds, by machine name. Every entry must exist in
+   * `CrmPositions` — a position the app does not declare grants nothing and
+   * cannot be granted anything.
+   */
+  readonly positions: readonly string[];
+  /** What staffing this person makes observable. Asserted to be non-empty. */
+  readonly demonstrates: string;
+};
+
+export const DemoOrgStaffing: readonly DemoStaffMember[] = [
+  {
+    key: 'na_rep',
+    name: 'Nina Reyes',
+    email: 'na.rep@objectos.ai',
+    password: 'demo1234',
+    positions: ['sales_rep', 'na_sales_team'],
+    demonstrates:
+      'north_america_territory: reads the 6 US/CA/MX accounts she does not own, and neither ' +
+      'the 2 EU accounts nor the 1 account in no territory.',
+  },
+  {
+    key: 'eu_rep',
+    name: 'Emil Roth',
+    email: 'eu.rep@objectos.ai',
+    password: 'demo1234',
+    positions: ['sales_rep', 'eu_sales_team'],
+    demonstrates:
+      'europe_territory: reads the 2 UK/DE accounts he does not own, and neither the 6 NA ' +
+      'accounts nor the 1 account in no territory.',
+  },
+  {
+    key: 'sales_manager',
+    name: 'Marta Quinn',
+    email: 'sales.manager@objectos.ai',
+    password: 'demo1234',
+    positions: ['sales_manager'],
+    demonstrates:
+      "opportunity_approval's manager_review node resolves to a non-empty approver slate, and " +
+      'account_team_sharing hands her the active customer accounts.',
+  },
+  {
+    key: 'service_agent',
+    name: 'Priya Raman',
+    email: 'service.agent@objectos.ai',
+    password: 'demo1234',
+    positions: ['service_agent'],
+    demonstrates:
+      'case_intake_assignment: an ownerless case is handed to her as the least-loaded member of ' +
+      'the case_intake queue, and as a member she sees the cases parked in it and can claim them.',
+  },
+  {
+    key: 'service_manager',
+    name: 'Tomas Okafor',
+    email: 'service.manager@objectos.ai',
+    password: 'demo1234',
+    positions: ['service_manager'],
+    demonstrates:
+      'case_escalation_reassign: a case moves to him on the escalation transition as the ' +
+      'least-loaded holder of the service_manager pool, and case_escalation_sharing grants him ' +
+      'edit on the open critical cases he does not own.',
+  },
+];
+
+// ───────────────────────── what the DEV ADMIN holds (#2061) ──────────────
+
+/**
+ * The permission sets `pnpm demo:staff` grants the DEV ADMIN, the HotCRM
+ * administrator on a demo box. Add a set = add a row.
+ *
+ * ### Why the administrator needs a HotCRM set at all
+ *
+ * Since 18.0.0 the platform's administrator sets carry no export: the
+ * maintainer's 2026-08-15 ruling removed the `allowExport` wildcard from them
+ * (migration `admin-export-wildcard-removed`), so an administrator exports
+ * exactly what an APP set grants. Measured on 18.0.0, fresh `pnpm dev`: the dev
+ * admin holds the positions `platform_admin`, `org_owner` and `everyone`, which
+ * resolve to `admin_full_access`, `organization_admin_no_bypass` and
+ * `member_default`, none of them HotCRM's. `GET /api/v1/data/crm_account/export`
+ * answered 403 `EXPORT_NOT_PERMITTED`, as did the other four exportable
+ * objects, and the list's Display panel offered no Export entry.
+ *
+ * ### Why a runtime grant, and why this script makes it
+ *
+ * Nothing in the artifact can bind a set to that principal. A permission set
+ * names no holder, the positions the dev admin holds are the platform's
+ * built-in identities rather than HotCRM's, and a seed cannot name a user (and
+ * must not write a grant row: see "Why this file is NOT metadata" above). So
+ * the binding is a `sys_user_permission_set` row that an administrator writes,
+ * which is what an operator does for their own administrators in Setup. On a
+ * demo box this script writes it: the dev admin grants itself `system_admin`,
+ * the set the app already authors for its administrator, whose export grants
+ * `test/authorization-coverage.test.ts` pins.
+ *
+ * ⛔ No other set's grants change, and no wildcard comes back. With the row in
+ * place the dev admin exports the five objects `system_admin` grants export on,
+ * and nothing else.
+ */
+export type DemoAdminGrant = {
+  /** A permission set the app ships, by name. */
+  readonly permissionSet: string;
+  /** What holding it makes observable for the dev admin. Asserted to be non-empty. */
+  readonly demonstrates: string;
+};
+
+export const DemoAdminPermissionSets: readonly DemoAdminGrant[] = [
+  {
+    permissionSet: 'system_admin',
+    demonstrates:
+      'export: on the five objects whose list view declares exportOptions, the Display panel offers ' +
+      'Export as CSV / XLSX and GET /api/v1/data/OBJECT/export answers with the rows.',
+  },
+];
+
+// ───────────────────────── who OWNS the demo book (#1759) ────────────────
+
+/**
+ * Which demo person owns each seeded row — the third thing staffing settles,
+ * after "who exists" and "which positions they hold".
+ *
+ * ### The defect
+ *
+ * The platform's seed-ownership claim (`@objectstack/plugin-security`, re-run
+ * on `app:seeded`) hands every ownerless seeded row to the FIRST administrator,
+ * the dev admin; until #1892 the app's own `demo_bootstrap` sweep did the same.
+ * Nothing in the ARTIFACT may do it any other way: a seed cannot name a user,
+ * and the artifact must not know these people — `test/demo-staffing.test.ts`
+ * fails the build if any staffing email reaches the manifest. Correct as far
+ * as it goes (an ownerless row under a `private` OWD is editable by nobody at
+ * all), and it leaves the entire demo book on one identity.
+ *
+ * Which is invisible on the API-key path and fatal on the OAuth one. Measured
+ * 2026-09-07 on hotcrm `789a7324` / objectstack 17.3.0 as
+ * `sales.manager@objectos.ai`: `crm_opportunity` **0**, `crm_task` **0**,
+ * `crm_account` 5 — where the same objects answer 23 / 59 / 9 over an API key.
+ * An API key runs as the human, so `viewAllRecords` applies; an agent session
+ * does not get that. The agent ceiling (objectstack#16549) admits the rows the
+ * user OWNS or holds a SHARE on, and `viewAllRecords` deliberately does not
+ * lift it. So the accounts survived — the territory rules materialise real
+ * `sys_record_share` rows — and everything nobody had shared came back empty.
+ *
+ * ⛔ That ceiling is the platform working, and nothing here is allowed to
+ * argue with it. No profile, permission set or sharing rule is touched to
+ * raise those numbers: the fix is that the demo book has OWNERS, which is what
+ * a real org's data has. Widening a grant instead would turn a demo-fidelity
+ * defect into a security-shaped one.
+ *
+ * ### ⛔ Why `crm_account` is NOT in this table
+ *
+ * Because the reps must not own the accounts — that is the whole territory
+ * demonstration, and it is stated twice above (see "Why exactly these five
+ * people", and the `verify()` assertion in `scripts/demo-staff.ts` that fails
+ * when a demo user owns a seeded account). `crm_account` is `private`, so the
+ * OWD baseline already admits an owner: a share to the owner proves nothing.
+ * The accounts are also the one object that already answered non-zero over
+ * OAuth, precisely because a share — not ownership — was carrying them. Moving
+ * that to ownership would delete the only working demonstration in the
+ * measurement above.
+ *
+ * ### Routing: by the account's TERRITORY, so each identity holds a SUBSET
+ *
+ * Handing everything to one demo user would replace "sees 0" with "sees all"
+ * and lose the demonstration that row-level security is on at all. So a row
+ * goes to the territory that owns its account, and a row whose account cannot
+ * be resolved — no lookup, or an account outside both staffed territories —
+ * goes to the manager. The territory VALUES are spelled through
+ * {@link TERRITORY}, so a renamed territory cannot be half-applied here.
+ *
+ * ### Cases route by DESK, not by territory (#2206)
+ *
+ * The service positions are not territorial: `service_agent` and
+ * `service_manager` are the two case pools, and a case's owner is whichever
+ * desk the app's own routing would have put it on. See {@link CASE_DESK}.
+ */
+export type DemoOwnershipRoute =
+  | {
+      /** The object whose seeded rows get re-stamped. */
+      readonly object: string;
+      /** Routed by the territory of the row's account ({@link TERRITORY_OWNER}). */
+      readonly by: 'territory';
+      /**
+       * Lookup field resolving this row's `crm_account`, or `null` when the object
+       * has none — those rows all fall to the `other` bucket.
+       */
+      readonly accountField: string | null;
+      /** Why this object is routed. Asserted non-empty, like `demonstrates`. */
+      readonly why: string;
+    }
+  | {
+      readonly object: string;
+      /** Routed to the service desk the case belongs on ({@link CASE_DESK}). */
+      readonly by: 'case_desk';
+      readonly why: string;
+    };
+
+/**
+ * Case desk → the demo staff `key` that owns the cases on it (#2206).
+ *
+ * Before this row existed no seeded case was routed at all, so which persona
+ * owned the demo's 38 cases depended on timing. Measured on 18.0.0, fresh
+ * `pnpm dev`: run `demo:staff` while the seed was still writing and
+ * `case_auto_assign` (the app's intake round-robin hook then; the platform's
+ * `case_intake_assignment` rule since #2395) round-robined all 38 onto the
+ * service agent (the only
+ * holder of the intake pool, so the manager got none, escalated ones
+ * included); run it after the seed settled and all 38 stayed with the dev
+ * admin, so the agent landed on a Customer Service page of zeros.
+ *
+ * The escalation desk takes what the app's own escalation hands it: a case
+ * already escalated, and a case at Critical priority, which the Case
+ * Escalation flow hands to the least-loaded `service_manager` (on a never
+ * escalated open one, on the hand-over's own save). The intake desk takes
+ * everything else.
+ */
+export const CASE_DESK = {
+  escalation: 'service_manager',
+  intake: 'service_agent',
+} as const;
+
+/** Which desk a case belongs on. `is_escalated` may come back as `1` from SQLite, so it is read for truthiness. */
+export function caseDeskOf(row: { readonly priority?: unknown; readonly is_escalated?: unknown }): keyof typeof CASE_DESK {
+  return row.priority === 'critical' || row.is_escalated === true || row.is_escalated === 1
+    ? 'escalation'
+    : 'intake';
+}
+
+/** The `crm_case` fields {@link caseDeskOf} reads, for the script's query. */
+export const CASE_DESK_FIELDS = ['priority', 'is_escalated'] as const;
+
+/**
+ * Territory → the demo staff `key` that owns rows in it.
+ *
+ * The `Record<Territory, …>` annotation is what keeps this in step with the one
+ * authored domain: rename or add a territory in `src/sales/objects/_territory.ts` and
+ * this object stops compiling — a missing key on one side, an excess one on the
+ * other. A renamed territory therefore cannot be half-applied here, the same
+ * property the sharing-rule conditions get from interpolating `TERRITORY`.
+ */
+export const TERRITORY_OWNER: Readonly<Record<Territory, string>> = {
+  na: 'na_rep',
+  emea: 'eu_rep',
+  other: 'sales_manager',
+};
+
+/**
+ * The objects `pnpm demo:staff` re-stamps. Adding one is adding a ROW here.
+ *
+ * ⚠️ Checked at RUN time, not at build time — there is no static suite behind
+ * this table, so read what the script does and does not catch before adding a
+ * row. An `object` no org declares fails the run outright, on the query. An
+ * `accountField` that does not resolve does NOT: the row simply falls to the
+ * declared fallback bucket and lands on the manager, which looks like a routing
+ * decision rather than a typo. What the run does prove is the outcome — the
+ * ownership census re-reads every routed row from the server afterwards and
+ * fails on any that did not land where this table sent it.
+ */
+export const DemoPipelineOwnership: readonly DemoOwnershipRoute[] = [
+  {
+    object: 'crm_opportunity',
+    by: 'territory',
+    accountField: 'crm_account',
+    why: 'the pipeline the OAuth measurement read as 0; every deal hangs off an account',
+  },
+  {
+    object: 'crm_lead',
+    by: 'territory',
+    accountField: null,
+    why: 'a lead has no account yet, so the whole top of funnel sits with the manager',
+  },
+  {
+    object: 'crm_task',
+    by: 'territory',
+    accountField: 'related_to_account',
+    why: '"last follow-up" is derived from tasks, so an unowned one reads as no follow-up',
+  },
+  {
+    object: 'crm_event',
+    by: 'territory',
+    accountField: 'related_to_account',
+    why: 'the other half of last-follow-up, and the owner axis of the Activity by Rep bar',
+  },
+  {
+    object: 'crm_case',
+    by: 'case_desk',
+    why: 'the service journey: the agent works the intake desk, the manager the escalated and critical cases',
+  },
+];

@@ -1,0 +1,281 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { ObjectSchema, Field } from '@objectstack/spec/data';
+import { F, P } from '@objectstack/spec';
+import { QUOTE_DISCOUNT_CEILING } from '../../sales/objects/_thresholds';
+
+/**
+ * Quote Line Item
+ *
+ * Individual line on a Quote. Quotes generated from an Opportunity typically
+ * clone its OpportunityLineItems into QuoteLineItems so pricing can diverge
+ * after the quote is sent without affecting the underlying opportunity.
+ */
+export const QuoteLineItem = ObjectSchema.create({
+  name: 'crm_quote_line_item',
+  label: 'Quote Line Item',
+  pluralLabel: 'Quote Line Items',
+  icon: 'package',
+  description: 'A single product line on a Quote',
+
+  // OWD is an authored decision (ADR-0090 D1/D7). Record access DERIVES from
+  // the quote (ADR-0055).
+  //
+  // ⚠️ Reads ARE filtered to lines whose `crm_quote` the caller can read, and
+  // "can read" resolves through the same paths a direct read of the quote takes
+  // — owner scope and `sys_record_share` grants included, NOT the master's
+  // row-level security policies alone. A rep who owns one quote reads that
+  // quote's lines and no others. The parent-write gate derives the same way: a
+  // line whose quote the caller cannot edit is refused with a
+  // `PermissionDeniedError` naming the master.
+  //
+  // `test/parent-derived-reach.test.ts` pins those semantics with positive
+  // controls, so a regression is caught in either direction — it was written to
+  // go red the day the platform widens them: with the derivation consulting
+  // master RLS policies only, under a SYSTEM context, and no policy authored on
+  // `crm_quote`, the master set is EVERY quote and a line item is readable —
+  // and writable — by every holder of object-level read on this object. The
+  // master is `crm_quote`, this object's one required `master_detail`: since
+  // 18.0.0-next.1 the only shape the relation resolver derives a master from.
+  //
+  // ⛔ Not `private`: with no owner field on this object that resolves to the
+  // platform's auto-stamped `owner_id` — the row's inserter — so lines cloned
+  // onto a quote by the `quote_generation` flow are invisible to the rep who
+  // owns the quote.
+  sharingModel: 'controlled_by_parent',
+
+  // Per-field history is opt-in via `Field.trackHistory` (ADR-0052), set on
+  // quantity/unit_price/discount below. Master-detail children still inherit
+  // the master's sharing automatically.
+
+  // Named after the product it sells (#2086). This is the same stored mirror
+  // as `crm_opportunity_line_item`, for the same reason: a formula cannot read
+  // through `crm_product`. Read the long note on the twin. Its writers are
+  // `quote_line_item_product_title`, `product_title_mirror` and
+  // `scripts/backfill-line-product-title.ts`.
+  // No New on a settled quote's line items (#2366 row 2). A related list's
+  // create toolbar evaluates this against the HOST record, the quote, so the
+  // predicate is `crm_quote.userActions.edit`'s, verbatim: `quote_workflow`
+  // refuses a user's line added to an Accepted, Rejected or Expired quote, and
+  // the button only led to that refusal. On a list with no quote in scope the
+  // predicate cannot bind and the platform hides New (fail-closed); HotCRM
+  // ships no such list — a line is added from its quote. Pinned in
+  // `test/quote-settled-actions.test.ts`.
+  userActions: {
+    create: {
+      visibleWhen: P`!(has(record.status) && (record.status == "accepted" || record.status == "rejected" || record.status == "expired"))`,
+    },
+  },
+  nameField: 'product_title',
+  searchableFields: ['product_title', 'description'],
+
+  highlightFields: ['crm_product', 'quantity', 'unit_price', 'total_price'],
+
+  // The same two-group split as `crm_opportunity_line_item` (#1453), derived
+  // from the eleven fields declared here: every factor `total_price` multiplies
+  // is `pricing`, everything that says WHICH line this is is `basic`.
+  //
+  // ⚠️ Neither group may be a subset of the highlight strip — see the twin
+  // object for the hoisting rule this satisfies.
+  fieldGroups: [
+    { key: 'basic',   label: 'Line Item', icon: 'package' },
+    { key: 'pricing', label: 'Pricing',   icon: 'dollar-sign' },
+  ],
+
+  fields: {
+    // The parent link — same decision, same reasoning, as
+    // `opportunity_line_item.crm_opportunity` (#727); read the long note there.
+    // In short: declaring nothing resolves to the spec default `set_null`, which
+    // the engine escalates to `restrict` on a REQUIRED lookup, so every quote
+    // that had been itemised refused to delete with a 409 quoting this field.
+    // A quote line is subordinate to its quote (`quote_line_item.hook.ts` rolls
+    // the quote's subtotal/total UP from these rows), so it goes with it.
+    crm_quote: Field.masterDetail('crm_quote', {
+      label: 'Quote',
+      group: 'basic',
+      required: true,
+      storage: { notNull: true },
+      deleteBehavior: 'cascade',
+
+      // Curates the line-items panel on a quote's detail page (#1199) — the
+      // mechanism that panel reads first (#944; the long note is on
+      // `crm_campaign_member.crm_campaign`). A SUPERSET of the fallback it
+      // replaces (`highlightFields` minus this lookup: Product / Quantity /
+      // Sales Price / Total) plus the line's own discount.
+      //
+      // `discount`, not `subtotal` (#2370 row 8): `subtotal` was added here as
+      // "the line's price after its own discount", but a line carries no tax,
+      // so its expression is `total_price`'s and the panel showed one amount
+      // twice. What the panel lacked is the discount that turns Sales Price
+      // into Total, so that column takes the slot.
+      //
+      // ⛔ Not added to `highlightFields`: the detail page hoists the first
+      // four of that strip, so a fifth entry never reaches the strip, and
+      // reordering it would evict `total_price` from the record's header.
+      relatedListColumns: ['crm_product', 'quantity', 'unit_price', 'discount', 'total_price'],
+    }),
+
+    // Left on the restricting default on purpose — see the twin object: a
+    // product's catalog entry must not take priced quote history with it.
+    crm_product: Field.lookup('crm_product', {
+      label: 'Product',
+      group: 'basic',
+      required: true,
+      storage: { notNull: true },
+    }),
+
+    description: Field.text({
+      label: 'Description',
+      group: 'basic',
+      maxLength: 500,
+    }),
+
+    // The line's title. The twin object declares the same field; read the note there.
+    product_title: Field.text({
+      label: 'Product Title',
+      group: 'basic',
+      readonly: true,
+      maxLength: 300,
+      description: "The product's title, kept in step with the product. It names this line.",
+    }),
+
+    // A count of units, so a whole number (#2370 row 8; the convention is
+    // `docs/developers/number-formats.md`): `scale: 0` makes it read "4", not
+    // "4.00", on every face, and the engine refuses a fractional quantity.
+    quantity: Field.number({
+      label: 'Quantity',
+      group: 'pricing',
+      required: true,
+      storage: { notNull: true },
+      scale: 0,
+      min: 0,
+      defaultValue: 1,
+      trackHistory: true,
+    }),
+
+    // Written by `quote_line_item_price_fill` from the quote's price book
+    // (#2318, `_line-item-price-fill.ts`); a person never types it.
+    list_price: Field.currency({
+      label: 'List Price',
+      group: 'pricing',
+      readonly: true,
+      description: "This product's price in the quote's price book.",
+    }),
+
+    // A NOT NULL column the server fills, ⛔ not `required` (#2060 item 7b),
+    // the twin's A-21 change; read the note on the twin. `quote_line_item_price_fill`
+    // (`_line-item-price-fill.ts`) defaults a blank price to the product's list
+    // price on insert. Measured on 18.0.0-next.5 while it was `required`: the
+    // New Quote Line Item form refused "Please check the highlighted fields:
+    // Sales Price" and sent nothing, while the same insert stored the list price.
+    unit_price: Field.currency({
+      label: 'Sales Price',
+      group: 'pricing',
+      storage: { notNull: true },
+      trackHistory: true,
+    }),
+
+    discount: Field.percent({
+      label: 'Discount %',
+      group: 'pricing',
+      scale: 2,
+      min: 0,
+      max: 100,
+      defaultValue: 0,
+      trackHistory: true,
+    }),
+
+    subtotal: Field.formula({
+      label: 'Subtotal',
+      group: 'pricing',
+      returnType: 'currency', // money, as `total_price` below
+      expression: F`record.quantity * record.unit_price * (1 - record.discount / 100)`,
+    }),
+
+    // A line carries no tax: tax is the quote's own amount (#2069), so Total is
+    // `subtotal`'s expression, not a read of `subtotal` — a formula reading a
+    // formula depends on hydration order (`lead.object.ts:61-64`).
+    total_price: Field.formula({
+      label: 'Total',
+      group: 'pricing',
+      // An amount of money, declared as one (#2370 row 8): the spec's money
+      // formula, in the tenant currency like every amount here. Measured on
+      // 18.2.0: the console's formula cell does not read it yet and draws
+      // "24,000" beside "$6,000.00" (reported upstream with the card).
+      returnType: 'currency',
+      expression: F`record.quantity * record.unit_price * (1 - record.discount / 100)`,
+    }),
+
+    line_number: Field.number({
+      label: 'Line #',
+      group: 'basic',
+      scale: 0,
+      readonly: true,
+    }),
+  },
+
+  // Predicates below are TOTAL: every `record.x` read is `has()`-guarded, so the
+  // rule returns a verdict even when the merged record has no such key. See
+  // AGENTS.md "Validation predicates must be TOTAL" and
+  // test/object-validation-predicates.test.ts, which fails the build otherwise.
+  validations: [
+    {
+      name: 'unit_price_positive',
+      type: 'script',
+      severity: 'error',
+      message: 'Sales price cannot be negative',
+      condition: P`has(record.unit_price) && record.unit_price != null && record.unit_price < 0`,
+    },
+    {
+      // #1086. The other half of #599's ceiling, and the reason that card's own
+      // acceptance criterion — "a quote with a 90% line discount cannot reach
+      // `presented`" — was not met by the quote-level rule alone.
+      //
+      // ### The walk-around this closes
+      //
+      // A quote's total has TWO independent discount multipliers, applied by
+      // two hooks — `quote_total_rollup` the first, `quote_workflow` the second:
+      //
+      //   subtotal        = Σ line (quantity × unit_price × (1 − LINE discount/100))
+      //   discount_amount = subtotal × QUOTE discount%
+      //
+      // #599 put a ceiling on the second one only. So a quote at
+      // `discount: 0` — which clears `discount_within_ceiling` on `crm_quote`
+      // outright — with every line at `discount: 90` prices 90% below list, and
+      // nothing objected: this object's only discount constraint was the
+      // field's own `max: 100`, the arithmetic domain of a percentage. An
+      // invariant with a documented walk-around is worse than no invariant,
+      // because a reader (human or AI) cites the rule as the guarantee.
+      //
+      // ### Same constant, same instrument, deliberately
+      //
+      // The number is `QUOTE_DISCOUNT_CEILING` — imported, never retyped, so the
+      // two ceilings are one policy and cannot drift into two. The instrument is
+      // a `type: 'script'` validation for the reason #599 measured on the quote
+      // (and this card re-measured on this object, in
+      // `test/quote-discount-ceiling.test.ts`): a field-level `max` validates
+      // only the value being WRITTEN, so a line stored above the ceiling before
+      // the rule existed keeps accepting edits forever, while a script
+      // validation is evaluated against the MERGED record on every write and is
+      // therefore a true invariant. `max: 100` stays on the field as the domain
+      // of a percentage; the policy line lives here.
+      //
+      // ### What this rule does NOT decide
+      //
+      // 60% per line AND 60% on the quote still compounds to ~84% EFFECTIVE.
+      // Whether the ceiling should be read against the effective discount is a
+      // business-policy question with no answer in this codebase, and it is
+      // open as #1109 — deliberately not guessed here. A per-line ceiling is
+      // correct under either answer: it is the whole policy if the answer is
+      // per-line, and a component of it if the answer is effective.
+      name: 'discount_within_ceiling',
+      type: 'script',
+      severity: 'error',
+      // Names the LINE, because the quote carries a same-named rule with its
+      // own message: on a refused save the rep must be able to tell which of
+      // the two numbers the platform is objecting to.
+      message: `Line discount cannot exceed ${QUOTE_DISCOUNT_CEILING}%`,
+      condition: P`has(record.discount) && record.discount != null && record.discount > ${QUOTE_DISCOUNT_CEILING}`,
+    },
+  ],
+});

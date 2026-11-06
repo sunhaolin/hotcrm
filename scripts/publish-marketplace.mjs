@@ -11,9 +11,15 @@
  * Flow:
  *   1. Read `package.json`               → version
  *   2. Read `objectstack.manifest.json`  → marketplace meta
- *   3. Read `dist/objectstack.json`      → compiled bundle (run `pnpm build` first)
- *   4. POST {OS_CLOUD_URL}/api/v1/cloud/packages          → idempotent upsert of sys_package
- *   5. POST {OS_CLOUD_URL}/api/v1/cloud/packages/:id/versions
+ *   3. Read `dist/objectstack.json`      → compiled artifact (run `pnpm build` first)
+ *   4. Flatten it to the bundle the marketplace reads, and refuse — before any
+ *      HTTP call, DRY_RUN included — a bundle missing any object the build
+ *      carries (`scripts/lib/marketplace-bundle.mjs`, #2053)
+ *   5. Resolve the manifest's per-locale listing `translations` (readme paths
+ *      read from disk) and refuse, DRY_RUN included, a map that does not parse
+ *      as `PackageTranslationsSchema` (`scripts/lib/marketplace-listing.mjs`, #2392)
+ *   6. POST {OS_CLOUD_URL}/api/v1/cloud/packages          → idempotent upsert of sys_package
+ *   7. POST {OS_CLOUD_URL}/api/v1/cloud/packages/:id/versions
  *      → creates sys_package_version. 409 (duplicate) is treated as a no-op so
  *        re-running is safe when nothing changed.
  *
@@ -32,6 +38,18 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  BundleError,
+  assertBundleCarriesEveryObject,
+  describeBundle,
+  flattenArtifact,
+} from './lib/marketplace-bundle.mjs';
+import {
+  ListingError,
+  describeTranslations,
+  packageUpsertBody,
+  resolveListingTranslations,
+} from './lib/marketplace-listing.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -181,33 +199,50 @@ async function main() {
 
   const distPath = join(ROOT, 'dist', 'objectstack.json');
   if (!existsSync(distPath)) die(`missing ${distPath} — did you run "pnpm build"?`);
-  const bundle = await readJson(distPath);
+  const artifact = await readJson(distPath);
+
+  // The bundle cloud stores is the bundle posted here, so it is built and
+  // checked before the first request: v4.0.0 posted the composed artifact as
+  // built, cloud kept none of its objects, and the POST still answered 201.
+  let bundle;
+  try {
+    bundle = flattenArtifact(artifact);
+    assertBundleCarriesEveryObject(bundle, artifact);
+  } catch (err) {
+    if (err instanceof BundleError) die(`refusing to publish: ${err.message}`);
+    throw err;
+  }
 
   const manifestId = mp.manifestId ?? bundle?.manifest?.id;
   if (!manifestId) die('no manifestId (set manifestId in objectstack.manifest.json or bundle.manifest.id)');
 
   log(`── ${mp.displayName ?? pkg.name} (${manifestId}) @ ${ver}`);
   if (DRY_RUN) log('DRY_RUN=1 — no HTTP calls will be made.');
+  log(
+    `  bundle${bundle === artifact ? '' : ` (flattened from ${artifact.packages.length} packages)`}: ` +
+      describeBundle(bundle).join(' · '),
+  );
 
   const readme = existsSync(join(ROOT, mp.readmePath ?? 'README.md'))
     ? await readFile(join(ROOT, mp.readmePath ?? 'README.md'), 'utf8')
     : undefined;
 
+  // Per-locale listing copy (zh-CN description, tagline and readme, #2392),
+  // checked before the first request like the bundle above.
+  let translations;
+  try {
+    translations = resolveListingTranslations(mp.translations, dirname(manifestPath));
+  } catch (err) {
+    if (err instanceof ListingError) die(`refusing to publish: ${err.message}`);
+    throw err;
+  }
+  for (const line of describeTranslations(translations)) log(`  ${line}`);
+
   // Step 1 — upsert sys_package (marketplace visibility).
-  const upsertRes = await postJson('/api/v1/cloud/packages', {
-    manifest_id: manifestId,
-    visibility: 'marketplace',
-    display_name: mp.displayName,
-    description: mp.description,
-    category: mp.category,
-    tags: mp.tags,
-    is_starter: mp.isStarter ?? false,
-    publisher: mp.publisher,
-    icon_url: mp.iconUrl,
-    homepage_url: mp.homepageUrl,
-    license: mp.license ?? pkg.license,
-    readme,
-  });
+  const upsertRes = await postJson(
+    '/api/v1/cloud/packages',
+    packageUpsertBody({ manifestId, manifest: mp, license: mp.license ?? pkg.license, readme, translations }),
+  );
   if (!upsertRes.ok) die(`upsert failed (${upsertRes.status}): ${JSON.stringify(upsertRes.json).slice(0, 400)}`);
   const pkgId = upsertRes.json?.data?.id;
   log(`  ${upsertRes.json?.data?.created ? '✓ created' : '✓ patched'} sys_package id=${pkgId}`);

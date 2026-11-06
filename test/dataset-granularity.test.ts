@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 
 /**
  * Date-bucket guard for the analytics semantic layer (#523).
@@ -73,7 +73,7 @@ type Granularity = 'day' | 'week' | 'month' | 'quarter' | 'year';
  */
 const INTENDED_BUCKET: Record<string, Granularity> = {
   'lead_metrics.last_contacted_date': 'month',
-  'case_metrics.created_date': 'day',
+  'case_metrics.created_at': 'day',
   'account_metrics.created_at': 'month',
   'opportunity_metrics.close_date': 'month',
   'opportunity_metrics.close_quarter': 'quarter',

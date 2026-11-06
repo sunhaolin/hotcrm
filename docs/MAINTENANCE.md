@@ -18,7 +18,7 @@ management surface. Know which file owns which fact:
 | --- | --- |
 | Conventions for humans + AI agents | [`AGENTS.md`](../AGENTS.md) |
 | Customer requirements → product disposition | [`docs/requirements/`](requirements/README.md) |
-| App identity (id, namespace, version) | [`objectstack.config.ts`](../objectstack.config.ts) + [`objectstack.manifest.json`](../objectstack.manifest.json) |
+| App identity (id, namespace, version) | the package manifests — [`src/sales/index.ts`](../src/sales/index.ts) (the app, the artifact's identity) and [`src/service/index.ts`](../src/service/index.ts) (the service module) — + [`objectstack.manifest.json`](../objectstack.manifest.json) |
 | What metadata exists (live counts) | [`docs/STATUS.md`](STATUS.md) — regenerated from `pnpm validate` |
 | How it ships | [`docs/RELEASE_STRATEGY.md`](RELEASE_STRATEGY.md) |
 | What changed, per release | [`CHANGELOG.md`](../CHANGELOG.md) + `.changeset/` |
@@ -28,7 +28,7 @@ management surface. Know which file owns which fact:
 ## 2. Everyday change loop (per PR)
 
 1. Author metadata under the correct `src/{type}/` folder (see `AGENTS.md`).
-2. Keep the locale bundles in sync — `src/translations/` is the source of truth for
+2. Keep the locale bundles in sync — `src/sales/translations/` is the source of truth for
    which locales ship. *Supersedes the hand-copied count and locale enumeration that
    stood here — 2026-08-31 ruling, item 5.*
 3. Add the matching user doc under `content/docs/` if behaviour changed.
@@ -56,8 +56,9 @@ can silently invalidate existing metadata or **seed data** (see §4). Treat ever
    they are released in lockstep, so keep them on one version line.
 2. Update `specVersion` in [`objectstack.manifest.json`](../objectstack.manifest.json)
    to match the installed `@objectstack/spec` (e.g. `^10.0.0`), and the
-   `engines.protocol` range declared in both
-   [`objectstack.config.ts`](../objectstack.config.ts) and the manifest to the
+   `engines.protocol` range declared in every package manifest
+   ([`src/sales/index.ts`](../src/sales/index.ts),
+   [`src/service/index.ts`](../src/service/index.ts)) and the manifest to the
    new protocol major (ADR-0087; the runtime refuses to load the app under a
    protocol major outside this range).
 3. `pnpm install`.
@@ -119,7 +120,7 @@ and this app declares none — every line-item and member object reaches its
 parent through a `lookup`. The four aggregates HotCRM does show
 (`crm_opportunity.amount`, `crm_quote` totals, the campaign metrics, the case
 activity stamp) are ordinary number fields written by the hooks in
-`src/objects/*.hook.ts`, so no platform code has ever seeded or recomputed
+`src/*/objects/*.hook.ts`, so no platform code has ever seeded or recomputed
 them. Re-check this if a future change converts a line-item lookup to
 `master_detail` — the lint rule `relationship/line-item-should-be-master-detail`
 suggests exactly that on four fields today.
@@ -221,18 +222,17 @@ worth knowing apart when triaging:
   nothing and creates a *second* account for a company that already has one —
   silently. This is the failure that makes the backfill non-optional: it is
   more duplicates than the behaviour the change replaced.
-- **A lead with no key stops the conversion.** The filter value resolves to
-  nothing, and `get_record` refuses to run rather than widen the query:
-  *"refusing to run — 1 filter condition(s) resolved to nothing and were dropped
-  from the query: `{leadRecord.company_normalized}` (at name_normalized)"*. The
-  run is recorded failed and the lead stays unconverted. Loud, and the message
-  names the missing key — re-save that lead and convert again.
+- **A lead with no key is refused at conversion.** **Convert** opens a
+  "Conversion refused" dialog before the conversion form, and nothing is
+  written. (Before hotcrm#2017 a `NULL` key silently matched an unrelated
+  key-less account, and an absent key failed the run in `get_record`.) Re-save
+  that lead's `company` and convert again.
 
 > [!NOTE]
 > **This section is a contingency, not a step in any current upgrade.** HotCRM's
 > deployment shape today is **fresh installs only**, which is the whole reason
 > the procedure below is documented rather than automated, and the reason
-> `name_normalized` carries no unique index (see `src/objects/account.object.ts`).
+> `name_normalized` carries no unique index (see `src/sales/objects/account.object.ts`).
 > Both conclusions are conditional on that premise. If HotCRM ever acquires
 > long-lived installs that upgrade in place, re-read this section and the index
 > decision together — neither is a universal judgement.
@@ -265,13 +265,64 @@ repeat or to run over every row rather than hunting for the empty ones.
    existing account only in case or spacing, and confirm it **reuses** that
    account instead of creating a second one.
 
+### 3.4 Backfilling the stored record titles (#2230)
+
+Four objects title their records with a stored field the engine computes from
+the row's own columns (`display_title`; `full_name` on `crm_contact`): contact,
+lead, forecast and case. Nine did until #2369 row 10 moved five of them to their
+name (§3.5). They were formulas before #2230, computed on read and stored
+nowhere, so the import could not match a lookup cell against them
+(objectstack#24981 ruling A).
+
+A **fresh install needs nothing**: every insert stores the title, the seed's
+included.
+
+An **in-place upgrade does**. The migration adds the column, and every row
+written before it holds `NULL` until it is next updated by id. Until then its
+record header, lookup chip and search hit fall back to the record id, and a
+lookup cell naming it by title does not import. Measured on a dev database
+created on the formula titles and served on the stored ones: all 134 seeded
+rows came up untitled.
+
+`scripts/backfill-record-titles.ts` is the writer. It is report-only without
+`--apply`, touches only rows with no title, and is rerunnable. For each such
+row it re-sends one of the row's own fields unchanged, so the update recomputes
+the title; the field it re-sends per object is its `TITLES` table. On that
+database it titled 134 of 134 rows with exactly the value the formula had
+answered, including an accepted and an expired quote (their freeze then let the
+engine's own title through, `quote.hook.ts`; the converted-lead freeze in
+`lead.hook.ts` does the same). The re-save is an ordinary update, so the
+script's header names the one automation that can act on it.
+
+### 3.5 Titles that became the name (#2369 row 10)
+
+Account, product, quote, campaign and knowledge article are titled by their
+name alone (`title` on the article); the stored `display_title` field is gone
+from all five. Their title needs no backfill: every row already stores its name.
+
+**The old column stays in the database.** Measured on ObjectStack 18.3.0, a
+database created before this change and served after it: boot is not refused,
+and the boot log names each of the five `display_title` columns as
+`[schema-drift] … column exists in the database but not in metadata
+(orphaned)`. Reads no longer return it and writes no longer touch it. Dropping
+it is an operator's choice, never automatic:
+`os migrate apply --allow-destructive`.
+
+**Line items catch up on their own.** Each opportunity and quote line stores a
+copy of its product's title (`product_title`). On the same database the lines
+still held the old `PRD-0001 - Name` copies after boot; the first reads of the
+line lists re-sent each product's name and the mirror re-stamped every line to
+the name (`line_item_product_title_backfill`, `src/revenue/objects/product.hook.ts`).
+To finish them in one go instead, run `scripts/backfill-line-product-title.ts`,
+which now compares each line against the product's name.
+
 ## 4. Seed-data staleness — the #1 HotCRM pitfall
 
 Stale seed data is the most common cause of "Studio shows a red
 'metadata is invalid' banner" or "the home page lists pending issues." It is
 **almost always the seed, not a designer bug**: a platform contract changed
 (a validation rule was retired, a dashboard now requires a `dataset` + values),
-and the fixtures in `src/data/` were never updated to match.
+and the fixtures in `src/*/data/` were never updated to match.
 
 After any platform upgrade, or whenever Studio shows validation banners:
 
@@ -280,14 +331,14 @@ After any platform upgrade, or whenever Studio shows validation banners:
 3. Open the Console and visually verify the seeded records, dashboards, and
    views render. For dashboards, **wait for the lazy-loaded chart bundle** before
    judging an empty card (see `AGENTS.md` → "Verifying UI in the browser").
-4. If a banner persists, fix the offending fixture in `src/data/`, not the
+4. If a banner persists, fix the offending fixture in `src/*/data/`, not the
    designer or the platform.
 
 ### 4.1 Staffing the demo org (`pnpm demo:staff`)
 
 A reseeded org has records but no PEOPLE. On a fresh install exactly one user
-exists (the dev admin), `demo_bootstrap` claims every seeded record for them,
-and `sys_user_position` is empty — so every position-based sharing rule this app
+exists (the dev admin), the platform hands every seeded record to them when
+the seed settles (its seed-ownership claim; no HotCRM flow is involved), and `sys_user_position` is empty — so every position-based sharing rule this app
 ships grants nobody anything, and `opportunity_approval`'s `manager_review` node
 opens with an empty approver slate while `lockRecord` holds the record ([#640]).
 
@@ -296,10 +347,15 @@ pnpm dev          # terminal 1 — leave running
 pnpm demo:staff   # terminal 2 — once, after the server is up
 ```
 
+It can be started as soon as the server answers: a fresh database keeps loading
+its seed for a while after that, and the script waits for the seed to finish
+(up to 180 s, `--seed-wait SECONDS`) before it hands anything over ([#2206]).
+
 That creates the non-admin demo users the table declares (`na.rep@` /
 `eu.rep@` / `sales.manager@` / `service.agent@` / `service.manager@objectos.ai`,
 all `demo1234`), assigns their positions, hands them the demo book by
-re-stamping `owner_id` on the routed objects, and re-evaluates every sharing
+re-stamping `owner_id` on the routed objects (each seeded case goes to the
+service manager when it is escalated or critical, to the service agent otherwise), and re-evaluates every sharing
 rule so the already-seeded accounts materialise grants. It is idempotent,
 self-verifying (non-zero exit if the layers do not connect) and prints both what
 each user can see and what each user owns:
@@ -316,7 +372,7 @@ eu.rep@objectos.ai sees 2 account(s) · countries: [DE, UK]
 ```
 
 Who exists and which positions they hold is a table —
-[`src/sharing/demo-staffing.ts`](../src/sharing/demo-staffing.ts). Adding a
+[`src/sales/sharing/demo-staffing.ts`](../src/sales/sharing/demo-staffing.ts). Adding a
 person is adding a row.
 
 Three things worth knowing before changing any of it:
@@ -333,15 +389,15 @@ Three things worth knowing before changing any of it:
 - **The reps must not own the ACCOUNTS — but they must own their pipeline.**
   `crm_account` is `private`, so the OWD baseline already admits a record's
   owner: a share to the owner demonstrates nothing, and account ownership
-  therefore stays with `demo_bootstrap`'s first user. The script still exits
+  therefore stays with the dev admin the platform's claim gave it to. The script still exits
   non-zero if a demo user turns out to own a seeded account.
-  Every OTHER routed object is the opposite case ([#1759]). `demo_bootstrap`
-  claims them all for the dev admin, which an API key never notices — it runs as
+  Every OTHER routed object is the opposite case ([#1759]). The platform's
+  seed-ownership claim gives them all to the dev admin, which an API key never notices — it runs as
   the human, so `viewAllRecords` applies — while an agent connecting over OAuth
   sees only what its user owns or holds a share on (the ceiling in
   [objectstack#16549], which `viewAllRecords` deliberately does not lift). So a
   demo salesperson asking their agent about the pipeline got **0** opportunities
-  and **0** tasks. The routes in `src/sharing/demo-staffing.ts` fix that by
+  and **0** tasks. The routes in `src/sales/sharing/demo-staffing.ts` fix that by
   ownership alone — no profile, permission set or sharing rule is touched — and
   they hand each identity a SUBSET (NA rows to the NA rep, EMEA to the EU rep,
   everything with no resolvable territory to the manager), because putting the
@@ -350,14 +406,16 @@ Three things worth knowing before changing any of it:
 
 [#640]: https://github.com/objectstack-ai/hotcrm/issues/640
 [#1759]: https://github.com/objectstack-ai/hotcrm/issues/1759
+[#2206]: https://github.com/objectstack-ai/hotcrm/issues/2206
 [objectstack#16549]: https://github.com/objectstack-ai/objectstack/issues/16549
 
 ## 5. Releasing
 
-HotCRM ships as **one** app package (`hotcrm` / `app.objectstack.hotcrm`).
-`changeset version` writes `package.json` and `CHANGELOG.md`; the
-`objectstack.config.ts` manifest `version` and the marketplace publish note are
-matched to it by hand, and `pnpm verify` fails if the config drifts from
+HotCRM ships as **one** release artifact (`hotcrm` / `app.objectstack.hotcrm`)
+carrying the app package and its service module. `changeset version` writes
+`package.json` and `CHANGELOG.md`; the package manifests' `version`
+(`src/sales/index.ts`, `src/service/index.ts`) and the marketplace publish note
+are matched to it by hand, and `pnpm verify` fails if a manifest drifts from
 `package.json`.
 
 Which file each of those is, and the full procedure (cut the version, build the

@@ -1,12 +1,17 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
+import type { VerifyStack } from '@objectstack/verify';
 import { AutomationEngine } from '@objectstack/service-automation';
 import { ExpressionEngine } from '@objectstack/formula';
-import { LeadConversionFlow } from '../src/flows/lead-conversion.flow';
-import { makeFlowHarness, type FlowHarness, type Rec } from './helpers/flow-harness';
-import { type AnyRec, localePacks, objects, packFor, pages } from './helpers/metadata-fixtures';
-import stack from '../objectstack.config';
+import { LeadConversionFlow } from '../src/sales/flows/lead-conversion.flow';
+import stack, { type AnyRec, localePacks } from './helpers/composed-stack';
+import { hotcrmStack, signUpPerson, type Person } from './helpers/verify-stack';
+
+type Rec = Record<string, any>;
+
+const objects: AnyRec[] = (stack as AnyRec).objects ?? [];
+const pages: AnyRec[] = (stack as AnyRec).pages ?? [];
 
 /**
  * The suspected-duplicate flag reaches the two surfaces that can act on it (#1207).
@@ -29,7 +34,6 @@ import stack from '../objectstack.config';
  * | surface | carries | unevaluable predicate ⇒ |
  * | ------- | ------- | ----------------------- |
  * | `lead_detail_page` `record:alert` ×2 | `properties.visible`, client CEL | FAIL-SOFT: banner SHOWN |
- * |   (console 17.4.0 rejects `has()` / `in` — see the measurement below) | | |
  * | `lead_conversion` edges `e21`/`e22`/`e25` | flow condition, server CEL | RUN FAILS |
  *
  * They fail in opposite directions and both are ugly: a fail-soft banner cries
@@ -210,52 +214,10 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
    * the flow disagreed about the same row. Two verdict-scoped predicates make
    * the page agree with the flow: no banner, and conversion proceeds.
    */
-  /**
-   * ## The console cannot evaluate `has()` — measured, and the spelling follows
-   *
-   * Measured on 2026-09-15 against the installed `@objectstack/console` 17.4.0
-   * (`pnpm dev`, a clean lead on driver-sql, `duplicate_status` present and
-   * null). The renderer hands `properties.visible` to `useCondition`, and the
-   * console's field-predicate evaluator REJECTED both total spellings:
-   *
-   *     [ObjectUI] A visibility predicate could not be evaluated - node
-   *       "record:alert" (id: "lead_duplicate_alert_confirmed")
-   *       visible: "has(record.duplicate_status) && …"
-   *     [ObjectUI] A visibility predicate could not be evaluated - node
-   *       "record:alert" (id: "lead_duplicate_alert_suspected")
-   *       visible: "\"duplicate_status\" in record && …"
-   *
-   * and, this surface being FAIL-SOFT, both banners were SHOWN on every clean
-   * lead — the exact wolf-crying the header describes. The bare comparison,
-   * `record.duplicate_status == "suspected"`, the console evaluates: measured
-   * hidden on the null row, shown on a `suspected` row.
-   *
-   * So the two engines disagree, and the spelling has to pick a side. It picks
-   * the console's, because the console is what a rep sees and driver-sql —
-   * the only driver this app ships — always returns the column (present and
-   * null). The price is pinned below rather than hidden: on a KEYLESS row
-   * (driver-memory / driver-mongodb) the bare comparison faults, and a fault
-   * shows the banner — the same outcome the `has()` spelling produced on the
-   * console for every row, on every driver. The flow edges keep their `has()`
-   * guards: server CEL evaluates them, and a faulting flow edge fails the run.
-   *
-   * ⛔ Do not put `has()` (or `in`) back on this surface without re-measuring
-   * the console: the objectui `ExpressionEngine` this file evaluates with
-   * accepts both, which is exactly how the doctrine spelling went green here
-   * while every clean lead wore two banners.
-   */
-  const KEYED_SHAPES = RECORD_SHAPES.filter(([, record]) => 'duplicate_status' in record);
-  const KEYLESS_SHAPES = RECORD_SHAPES.filter(([, record]) => !('duplicate_status' in record));
-
-  it('measures both kinds of record shape', () => {
-    // Vacuity guard for the split below.
-    expect(KEYED_SHAPES.length).toBeGreaterThanOrEqual(4);
-    expect(KEYLESS_SHAPES.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it.each(VERDICTS)('the %s banner answers with a verdict on every driver-sql record shape', (verdict) => {
+  it.each(VERDICTS)('the %s banner answers with a verdict on every record shape', (verdict) => {
     const source: string = alertFor(verdict)!.properties.visible.source;
-    for (const [label, record] of KEYED_SHAPES) {
+
+    for (const [label, record] of RECORD_SHAPES) {
       const expected = record.duplicate_status === verdict;
       expect(
         evaluate(source, record),
@@ -264,21 +226,16 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
     }
   });
 
-  it.each(VERDICTS)('the %s banner faults on a keyless row — the price of a console-evaluable spelling, pinned', (verdict) => {
-    const source: string = alertFor(verdict)!.properties.visible.source;
-    for (const [label, record] of KEYLESS_SHAPES) {
-      expect(
-        evaluate(source, record).ok,
-        `the ${verdict} banner answered on ${label} — if the engine grew lenient, re-measure the console before celebrating`,
-      ).toBe(false);
-    }
-  });
-
-  it.each(KEYED_SHAPES)('at most one banner is ever shown — %s', (_label, record) => {
+  it.each(RECORD_SHAPES)('at most one banner is ever shown — %s', (_label, record) => {
+    // The record-page twin of the flow's "exactly one live edge" pin. Two
+    // banners on one row would stack two contradictory next steps on the same
+    // lead; nothing structural prevents that, so it is measured.
     const shown = VERDICTS.filter((v) => {
       const result = evaluate(alertFor(v)!.properties.visible.source, record);
       expect(result.ok, `the ${v} banner faulted — this surface is FAIL-SOFT, so it would SHOW`)
         .toBe(true);
+      // `expect` does not narrow the union for tsc, so the discriminant is
+      // re-read here rather than asserted away.
       return result.ok === true && result.value === true;
     });
     expect(
@@ -287,22 +244,43 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
     ).toBeLessThanOrEqual(1);
   });
 
-  it.each(VERDICTS)('the %s banner is spelled as the bare comparison the console evaluates (measured 2026-09-15)', (verdict) => {
-    const source: string = alertFor(verdict)!.properties.visible.source.trim();
-    expect(source).toBe(`record.duplicate_status == "${verdict}"`);
-    // The doctrine spelling is still what the objectui engine prefers — pinned
-    // so the divergence stays visible: the day the console evaluates `has()`,
-    // this is the assertion to flip back to a guard.
-    expect(evaluate(`has(record.duplicate_status) && ${source}`, {})).toEqual({ ok: true, value: false });
+  it.each(VERDICTS)('the %s banner\u2019s guard is load-bearing — the unguarded spelling really does fault', (verdict) => {
+    // Reverse verification of the premise, pinned rather than assumed: if a
+    // future engine starts answering `false` for an absent key, this flips and
+    // the next reader is told the premise changed instead of finding a guard
+    // that protects nothing.
+    //
+    // The unguarded text is still BUILT FROM the shipped predicate's own
+    // comparison (`split('&&').pop()`) so the two cannot drift apart — the
+    // property #1289 gave this pin. Splitting the banner changed what that
+    // tail SAYS: it used to be `!= null`, and is now `== "<this banner's
+    // verdict>"`. So the second leg has to ask for the banner's OWN verdict
+    // row rather than a fixed one — the unguarded `== "confirmed"` tail is
+    // correctly FALSE on a suspected lead, and asserting `true` there would
+    // pin the wrong claim.
+    const source: string = alertFor(verdict)!.properties.visible.source;
+    const unguarded = source.split('&&').pop()!.trim();
+    expect(unguarded, 'the shipped predicate no longer ends in the comparison')
+      .toContain('record.duplicate_status');
+    expect(unguarded, 'the shipped predicate no longer compares against its own verdict')
+      .toContain(`"${verdict}"`);
+
+    const faulted = evaluate(unguarded, {});
+    expect(faulted.ok, `\`${unguarded}\` answered on a keyless record — the guard is now decorative`)
+      .toBe(false);
+
+    // …and it is the ABSENT key that faults it, not the text: the same
+    // predicate answers cleanly the moment the column is present.
+    expect(evaluate(unguarded, { duplicate_status: verdict })).toEqual({ ok: true, value: true });
   });
 
   it.each(VERDICTS)('the %s banner carries its copy in all four shipped locales', (verdict) => {
     // `record:alert` resolves `title` / `body` through `pickLocalized(…,
     // language)`, so an inline `{ en, 'zh-CN', … }` map is a delivered
     // capability — and for `body` it is the ONLY channel: the i18n extractor's
-    // per-component copy keys are title/description/label/placeholder/
-    // emptyText/submitLabel, so a plain-string body would ship English to
-    // every locale with nothing reporting it.
+    // per-component copy keys (`PAGE_COMPONENT_COPY_KEYS`, read on 17.6.0) are
+    // title/description/label/placeholder/emptyText, so a plain-string body
+    // would ship English to every locale with nothing reporting it.
     const declared = (stack as AnyRec).i18n?.supportedLocales ?? [];
     expect([...declared].sort(), 'the app no longer ships these four locales')
       .toEqual([...LOCALES].sort());
@@ -378,28 +356,36 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
     // (`test/detail-section-dedup.test.ts` carries that measurement).
     const details = leadPageComponents.filter((c) => c.type === 'record:details');
     const sections: AnyRec[] = details.flatMap((d) => (d.properties?.sections ?? []) as AnyRec[]);
-    const duplicates = sections.find((s) => s.name === 'duplicates');
-    expect(duplicates, 'the Details tab has no `duplicates` section').toBeDefined();
+    const duplicates = sections.find((s) => s.group === 'duplicates');
+    expect(duplicates, 'the Details tab has no `{ group: \'duplicates\' }` section').toBeDefined();
+    // The section is a group reference (#806 ruling C): it names the group and
+    // the renderer derives the members from crm_lead's `fieldGroups`, so the
+    // members asserted below are the fields whose `group` is `duplicates`.
+    expect(duplicates!.fields, 'the duplicates section enumerates `fields` again').toBeUndefined();
+    const members = Object.entries(
+      (objects.find((o) => o.name === 'crm_lead')?.fields ?? {}) as Record<string, AnyRec>,
+    )
+      .filter(([, f]) => f?.group === 'duplicates' && f?.hidden !== true)
+      .map(([name]) => name);
 
     // BOTH survivor lookups, not just `duplicate_of_lead`: the intake hook
     // matches CONTACTS first and only then open leads, so a suspected lead's
     // survivor is a `crm_contact` at least as often as a `crm_lead`.
-    expect(duplicates!.fields).toEqual(
+    expect(members).toEqual(
       expect.arrayContaining([
         'duplicate_status', 'duplicate_of_type', 'duplicate_of_lead', 'duplicate_of_contact',
       ]),
     );
-    for (const field of duplicates!.fields as string[]) {
+    for (const field of members) {
       expect(leadFields, `crm_lead has no field \`${field}\``).toContain(field);
     }
 
     // The renderer drops any field the highlights strip already registered, so
-    // a field listed in both places renders in neither reliably. Keep them
-    // disjoint (the standing rule of `test/detail-section-dedup.test.ts`, which
-    // exempts this page only for the duplicates it already had).
+    // a field in both places renders only in the strip — and a duplicates
+    // group emptied that way would drop the link entirely. Keep them disjoint.
     const highlights = leadPageComponents.find((c) => c.type === 'record:highlights');
     const strip: string[] = highlights?.properties?.fields ?? [];
-    expect(strip.filter((f) => (duplicates!.fields as string[]).includes(f))).toEqual([]);
+    expect(strip.filter((f) => members.includes(f))).toEqual([]);
   });
 });
 
@@ -413,44 +399,68 @@ describe('lead record page — the duplicate banners, one per verdict', () => {
  * null result to `undefined` — which is how one authored line can be present on
  * a flagged lead and absent (not blank) on a clean one.
  */
-const SURVIVOR_LEAD_ID = 'dfSlnObNu0oXwRk-';
-const SURVIVOR_CONTACT_ID = '5B0nItHGRr768EfD';
-
-const fold = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+/*
+ * On the shipped app booted by `@objectstack/verify`: the converter starts the
+ * screen flow on a lead (`flows.run`) and submits the screen it stops on
+ * (`flows.resume`), and what the conversion wrote is read back off the engine.
+ * The converter is a sales MANAGER: a sales rep's conversion into a NEW
+ * account is refused on 17.7.0 (the flow writes `annual_revenue`, which
+ * `sales_rep` may not edit) — see `test/flow-conversion.test.ts`. The survivor
+ * records are real rows; every lead is a fixture of its own, with its own
+ * company and email, written as the system with the duplicate verdict a
+ * reviewer (or `lead_duplicate_check`) would have left on it.
+ */
+let verify: VerifyStack;
+let converter: Person;
+let survivorLeadId: string;
+let survivorContactId: string;
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  converter = await signUpPerson(verify, 'manager@lead-duplicate-visibility.test', {
+    name: 'Converting Manager', positions: ['sales_manager'], permissionSets: ['sales_manager'],
+  });
+  const [survivorLead] = await verify.seed('crm_lead', [{
+    first_name: 'Theo', last_name: 'Park', company: 'Skyline Media Survivor', email: 'survivor@skylinemedia.example.com',
+    status: 'contacted', owner_id: converter.id,
+  }]);
+  const [account] = await verify.seed('crm_account', [{ name: 'Skyline Media Customer', owner_id: converter.id }]);
+  const [survivorContact] = await verify.seed('crm_contact', [{
+    first_name: 'Theo', last_name: 'Park', email: 'survivor.contact@skylinemedia.example.com',
+    crm_account: account!.id, owner_id: converter.id,
+  }]);
+  survivorLeadId = String(survivorLead!.id);
+  survivorContactId = String(survivorContact!.id);
+}, 120_000);
 
 /**
- * A lead as the DRIVERS that omit absent columns hand it over — the duplicate
- * keys are genuinely missing unless a test adds them. That is the shape the
- * totality guards exist for, so it is the default here rather than a special
- * case.
+ * A qualified lead with `over` applied — its own company and email, so what
+ * its conversion creates is read over this lead alone. The duplicate keys are
+ * written only when a case adds them.
  */
-const seedLead = (over: Rec = {}): Rec => ({
-  id: 'lead_1',
-  first_name: 'Wei', last_name: 'Zhang',
-  company: 'Skyline Media', company_normalized: fold('Skyline Media'),
-  email: 'theo.park@skylinemedia.example.com',
-  phone: '555-0100', title: 'Buyer', lead_source: 'web',
-  status: 'qualified', is_converted: false,
-  ...over,
-});
+const seedLead = async (over: Rec = {}): Promise<Rec> => {
+  const n = ++k;
+  const [lead] = await verify.seed('crm_lead', [{
+    first_name: 'Wei', last_name: 'Zhang',
+    company: `Skyline Media ${n}`,
+    email: `theo.park.${n}@skylinemedia.example.com`,
+    phone: '555-0100', title: 'Buyer', lead_source: 'web',
+    status: 'qualified', is_converted: false, owner_id: converter.id,
+    ...over,
+  }]);
+  const [stored] = await verify.rows('crm_lead', { id: lead!.id });
+  for (const key of ['duplicate_status', 'duplicate_of_type', 'duplicate_of_lead', 'duplicate_of_contact']) {
+    if (key in over) expect(stored![key] ?? null, `the fixture lost ${key}`).toBe(over[key] ?? null);
+  }
+  return stored!;
+};
 
 async function startConversion(lead: Rec) {
-  const harness = makeFlowHarness({ lead_conversion: LeadConversionFlow }, { crm_lead: [lead] });
-  const started: AnyRec = await harness.engine.execute('lead_conversion', {
-    params: { recordId: lead.id }, userId: 'user_1', event: 'manual',
-  } as never);
+  const started: AnyRec = await verify.flows.run('lead_conversion', { recordId: lead.id }, { as: converter.token });
   const screen: AnyRec | null = started.screen ?? started.output?.screen ?? null;
-  return { harness, started, screen };
+  return { started, screen };
 }
 
-/**
- * Everything the flow WROTE, counted off the store.
- *
- * The three states of #1288 differ in exactly this, so every pin below reads
- * the same four numbers rather than asserting on the shape of a screen: "the
- * dialog said no" and "nothing was created" are two different claims, and only
- * the second one is the refusal.
- */
 /**
  * What the console posts for a field it prefilled.
  *
@@ -466,13 +476,26 @@ async function startConversion(lead: Rec) {
 const prefillOf = (screen: AnyRec | null, name: string): unknown =>
   ((screen?.fields ?? []) as AnyRec[]).find((f) => f.name === name)?.defaultValue;
 
-const productsOf = (harness: FlowHarness) => ({
-  accounts: harness.store.crm_account?.length ?? 0,
-  contacts: harness.store.crm_contact?.length ?? 0,
-  opportunities: harness.store.crm_opportunity?.length ?? 0,
-  isConverted: harness.store.crm_lead[0].is_converted === true,
-  leadStatus: harness.store.crm_lead[0].status,
-});
+/**
+ * Everything the conversion of `lead` WROTE, counted off the engine.
+ *
+ * The three states of #1288 differ in exactly this, so every pin below reads
+ * the same numbers rather than asserting on the shape of a screen: "the dialog
+ * said no" and "nothing was created" are two different claims, and only the
+ * second one is the refusal.
+ */
+const productsOf = async (lead: Rec) => {
+  const accounts = await verify.rows('crm_account', { name: lead.company });
+  const ids = accounts.map((a) => a.id);
+  const [after] = await verify.rows('crm_lead', { id: lead.id });
+  return {
+    accounts: accounts.length,
+    contacts: ids.length ? (await verify.rows('crm_contact', { crm_account: { $in: ids } })).length : 0,
+    opportunities: ids.length ? (await verify.rows('crm_opportunity', { crm_account: { $in: ids } })).length : 0,
+    isConverted: Boolean(after!.is_converted),
+    leadStatus: after!.status,
+  };
+};
 
 /** Nothing at all — the shape a refused conversion leaves behind. */
 const NOTHING_CONVERTED = {
@@ -494,38 +517,38 @@ const FULLY_CONVERTED = {
  * passing a single create/update node.
  */
 async function convert(lead: Rec) {
-  const { harness, started, screen } = await startConversion(lead);
-  const runId = started.runId ?? started.run?.id;
+  const { started, screen } = await startConversion(lead);
   expect(started.error ?? null, 'the run failed before it reached a screen').toBeNull();
   expect(started.status, 'the conversion never suspended on a screen').toBe('paused');
-  const done: AnyRec = (await harness.resume(runId, {
-    createOpportunity: true, opportunityName: 'Skyline Deal', opportunityAmount: 50_000,
+  const done: AnyRec = await verify.flows.resume(started as never, {
+    createOpportunity: true, opportunityName: `Skyline Deal ${lead.company}`, opportunityAmount: 50_000,
     closeDate: prefillOf(screen, 'closeDate'),
-  })) as AnyRec;
-  return { harness, screen, done, products: productsOf(harness) };
+  }, { as: converter.token });
+  return { screen, done, products: await productsOf(lead) };
 }
 
 describe('lead_conversion — the warning at the moment of conversion', () => {
   it('warns on a suspected duplicate, and names the record by its email', async () => {
-    const { screen } = await startConversion(seedLead({
+    const lead = await seedLead({
       duplicate_of_type: 'crm_lead',
-      duplicate_of_lead: SURVIVOR_LEAD_ID,
+      duplicate_of_lead: survivorLeadId,
       duplicate_status: 'suspected',
-    }));
+    });
+    const { screen } = await startConversion(lead);
 
     expect(screen, 'the conversion screen never suspended').toBeTruthy();
     const description = String(screen!.description ?? '');
     expect(description, 'the conversion screen says nothing about the duplicate')
-      .toContain('疑似重复');
+      .toContain('Suspected duplicate');
     expect(description, 'the warning does not name the record it repeats')
-      .toContain('theo.park@skylinemedia.example.com');
-    expect(description).toContain('再创建一套客户、联系人和商机');
+      .toContain(lead.email);
+    expect(description).toContain('second account, contact and opportunity');
 
     // #1243's house rule: a sentence a user reads names a record the way the UI
     // names it. The id belongs in `duplicate_of_lead` — the relationship field
     // that exists to carry it — and on the page, where it is a link.
     expect(description, 'a raw record id reached a human-readable warning')
-      .not.toContain(SURVIVOR_LEAD_ID);
+      .not.toContain(survivorLeadId);
   });
 
   it('warns just the same when the survivor is a CONTACT', async () => {
@@ -533,15 +556,15 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
     // suggested route (a `duplicate_of_lead` link) would have missed:
     // `lead_duplicate_check` scans `crm_contact` FIRST and only falls through
     // to open leads. A warning gated on the lead lookup would be silent here.
-    const { screen } = await startConversion(seedLead({
+    const { screen } = await startConversion(await seedLead({
       duplicate_of_type: 'crm_contact',
-      duplicate_of_contact: SURVIVOR_CONTACT_ID,
+      duplicate_of_contact: survivorContactId,
       duplicate_status: 'suspected',
     }));
 
     const description = String(screen!.description ?? '');
-    expect(description).toContain('疑似重复');
-    expect(description).not.toContain(SURVIVOR_CONTACT_ID);
+    expect(description).toContain('Suspected duplicate');
+    expect(description).not.toContain(survivorContactId);
   });
 
   it('says NOTHING on a clean lead, and still converts it', async () => {
@@ -551,22 +574,25 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
     // shape that omits the column — and take the whole conversion with it. A
     // green "no warning" assertion alone would not have noticed, because a
     // failed run has no screen at all.
-    const { harness, started, screen } = await startConversion(seedLead());
+    const lead = await seedLead();
+    const { started, screen } = await startConversion(lead);
 
     expect(started.error ?? null, 'the run failed before it could show the screen').toBeNull();
     expect(started.status).toBe('paused');
     expect(screen, 'the conversion screen never suspended').toBeTruthy();
-    expect(screen!.description, 'a clean lead was warned about being a duplicate')
-      .toBeUndefined();
+    // The body text carries the account notice on every conversion since
+    // #2073 item 8, so "says nothing" is read as the warning's absence.
+    expect(String(screen!.description ?? ''), 'a clean lead was warned about being a duplicate')
+      .not.toContain('Suspected duplicate');
 
-    const runId = started.runId ?? started.run?.id;
-    const done: AnyRec = (await harness.resume(runId, {
-      createOpportunity: true, opportunityName: 'Skyline Deal', opportunityAmount: 50_000,
+    const done: AnyRec = await verify.flows.resume(started as never, {
+      createOpportunity: true, opportunityName: `Skyline Deal ${lead.company}`, opportunityAmount: 50_000,
       closeDate: prefillOf(screen, 'closeDate'),
-    })) as AnyRec;
+    }, { as: converter.token });
     expect(done.error ?? null, 'the clean lead could no longer be converted').toBeNull();
-    expect(harness.store.crm_account?.length).toBe(1);
-    expect(harness.store.crm_lead[0].is_converted).toBe(true);
+    const products = await productsOf(lead);
+    expect(products.accounts).toBe(1);
+    expect(products.isConverted).toBe(true);
   });
 
   it('still collects the conversion inputs it always did', async () => {
@@ -586,7 +612,7 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
     // still EXACT and still ordered. It is not `toContain`, not a length
     // check, and not a subset: the next field added here has to be argued the
     // same way this one was.
-    const { screen } = await startConversion(seedLead());
+    const { screen } = await startConversion(await seedLead());
     const fields = (screen!.fields ?? []) as AnyRec[];
     expect(fields.map((f) => f.name)).toEqual([
       'createOpportunity', 'opportunityName', 'opportunityAmount', 'closeDate',
@@ -607,98 +633,104 @@ describe('lead_conversion — the warning at the moment of conversion', () => {
  * guess would need an override flag, and an override flag is the shape this
  * exhibit must not demonstrate.
  *
- * ## Why these pins resume the run instead of reading the screen
+ * ## Why these pins read the outcome AND the store
  *
- * A paused run has created nothing on ANY branch yet, so a pin that stopped at
- * the pause would be green against a flow with no refusal in it at all. Each
- * case below submits the screen it stopped on and then counts what the store
- * holds — the refusal is the four zeroes, not the dialog.
+ * The refusal is a refusing `end` (`outcome: 'refused'`): the run ends there,
+ * `refused` and never resumable, so there is no dialog to submit. Each case
+ * reads that outcome and counts what the store holds in ONE object — the
+ * refusal is the outcome and the four zeroes together, not the dialog. Until
+ * #2060 item 2c it was a message-only screen whose Submit completed the run,
+ * and the console toasted "Lead converted successfully!" over it.
  *
  * ## The before-picture these replace
  *
- * Measured on the parent commit, through this same harness: a `confirmed` lead
+ * Measured on the parent commit of #1288, on the flow harness of the time: a `confirmed` lead
  * suspended on `screen_1` with NO description (the #1207 warning is gated on
  * `suspected`) and then converted — one account, one contact, one opportunity,
  * `is_converted: true`. All three of `crm_lead` / `crm_contact` / `erased`
  * survivors did. That is the behaviour the changeset announces changing.
  */
 describe('lead_conversion — a confirmed duplicate is refused (#1288)', () => {
-  const CONFIRMED_SURVIVORS: Array<[string, Rec]> = [
-    ['a still-open lead', { duplicate_of_type: 'crm_lead', duplicate_of_lead: SURVIVOR_LEAD_ID }],
-    ['a contact the prospect already became', { duplicate_of_type: 'crm_contact', duplicate_of_contact: SURVIVOR_CONTACT_ID }],
+  const CONFIRMED_SURVIVORS: Array<[string, () => Rec]> = [
+    ['a still-open lead', () => ({ duplicate_of_type: 'crm_lead', duplicate_of_lead: survivorLeadId })],
+    ['a contact the prospect already became', () => ({ duplicate_of_type: 'crm_contact', duplicate_of_contact: survivorContactId })],
     // `erased` is not an exotic third case, it is the state `lead.hook.ts`
     // (job 1c) leaves behind when the survivor is deleted: the pointer goes,
     // the VERDICT stays `confirmed` on purpose. So the refusal has to hold for
     // a lead whose survivor no longer exists — and the copy has to stay true
     // for it, which is why it names the section rather than a record.
-    ['a survivor that has since been erased', { duplicate_of_type: 'erased' }],
+    ['a survivor that has since been erased', () => ({ duplicate_of_type: 'erased' })],
   ];
 
-  it.each(CONFIRMED_SURVIVORS)('refuses, and creates nothing — %s', async (_label, link) => {
-    const { screen, products } = await convert(seedLead({ ...link, duplicate_status: 'confirmed' }));
+  /** Start the conversion of `lead`; the run's outcome, its refusal and the store. */
+  const refusalOf = async (lead: Rec) => {
+    const { started } = await startConversion(lead);
+    return {
+      outcome: { success: started.success, status: started.status, runId: started.runId, screen: started.screen },
+      message: String(started.refusalMessage ?? ''),
+      products: await productsOf(lead),
+    };
+  };
 
-    expect(screen!.nodeId, 'the run did not stop on the refusal screen')
-      .toBe('refuse_confirmed_duplicate');
-    expect(products, 'a confirmed duplicate was converted anyway').toEqual(NOTHING_CONVERTED);
+  it.each(CONFIRMED_SURVIVORS)('refuses, and creates nothing — %s', async (_label, link) => {
+    const { outcome, message, products } = await refusalOf(await seedLead({ ...link(), duplicate_status: 'confirmed' }));
+
+    expect({ ...outcome, ...products }, 'the run did not end refused, or a confirmed duplicate was converted anyway').toEqual({
+      success: true, status: 'refused', runId: undefined, screen: undefined, ...NOTHING_CONVERTED,
+    });
+    expect(message, 'the rep is not told why').not.toBe('');
   });
 
   it('says why, naming the verdict and where the surviving record is', async () => {
-    const { screen } = await convert(seedLead({
-      duplicate_of_type: 'crm_lead', duplicate_of_lead: SURVIVOR_LEAD_ID,
+    const lead = await seedLead({
+      duplicate_of_type: 'crm_lead', duplicate_of_lead: survivorLeadId,
       duplicate_status: 'confirmed',
-    }));
-
-    const description = String(screen!.description ?? '');
-    expect(String(screen!.title ?? ''), 'the refusal dialog has no title of its own')
-      .toContain('拒绝');
+    });
+    const { message: description } = await refusalOf(lead);
+    expect(description, 'the refusal does not say the conversion was refused').toContain('refused');
 
     // The ruling's item 1, both halves. The VERDICT, in the vocabulary the
-    // record itself publishes. Demo branch: the flow copy is Chinese, so the
-    // vocabulary is the zh-CN pack's `duplicate_status` label and its
-    // `confirmed` option label — the words the rep sees on the field.
-    const zhLead = packFor('zh-CN')?.objects?.crm_lead as AnyRec | undefined;
-    const verdictField = zhLead?.fields?.duplicate_status as AnyRec | undefined;
-    expect(verdictField?.label, 'zh-CN no longer labels `duplicate_status`').toBeTruthy();
+    // record itself publishes: `duplicate_status`'s label is "Duplicate Status"
+    // and its `confirmed` option's label is "Confirmed" in every locale pack,
+    // so the sentence is readable against the field the rep can see.
     expect(description, 'the refusal never says which verdict stopped it')
-      .toContain(`${verdictField!.label}为「${verdictField!.options.confirmed}」`);
+      .toContain('Duplicate Status is Confirmed');
     expect(description, 'the refusal does not say a person recorded the verdict')
-      .toMatch(/审核人/);
+      .toMatch(/reviewer/);
 
     // The SURVIVOR, named through the fields that carry it. `duplicate_of_lead`
     // / `duplicate_of_contact` hold ids, and #1243's house rule keeps an id out
     // of any sentence a user reads — so the copy names the `duplicates` field
     // group by its shipped label and sends the rep to the links themselves.
-    expect(((objects.find((o) => o.name === 'crm_lead') as AnyRec)
-      ?.fieldGroups as AnyRec[] | undefined)?.some((g) => g.key === 'duplicates'),
-    'crm_lead no longer declares a `duplicates` field group').toBe(true);
-    const groupLabel = zhLead?._sections?.duplicates?.label;
-    expect(groupLabel, 'zh-CN no longer labels the `duplicates` field group').toBeTruthy();
+    const groupLabel = ((objects.find((o) => o.name === 'crm_lead') as AnyRec)
+      ?.fieldGroups as AnyRec[] | undefined)?.find((g) => g.key === 'duplicates')?.label;
+    expect(groupLabel, 'crm_lead no longer declares a `duplicates` field group').toBeTruthy();
     expect(description, 'the refusal does not point at the surviving record')
       .toContain(String(groupLabel));
-    expect(description).toContain('保留的记录');
+    expect(description).toContain('surviving record');
 
     // …and no id reached it, on either lookup.
-    expect(description).not.toContain(SURVIVOR_LEAD_ID);
-    expect(description).not.toContain(SURVIVOR_CONTACT_ID);
-    expect(description).not.toContain('lead_1');
+    expect(description).not.toContain(survivorLeadId);
+    expect(description).not.toContain(survivorContactId);
+    expect(description).not.toContain(lead.id);
 
     // ⛔ No override hatch is offered — AGENTS.md metadata rule 8. The way out
     // is revising the verdict itself, which is a reviewer's edit on a field
     // that carries `trackHistory: true`, not a flag on this dialog.
-    expect(description.toLowerCase()).not.toMatch(/convert anyway|override|ignore this|proceed anyway|仍然转化|强制转化|忽略/);
+    expect(description.toLowerCase()).not.toMatch(/convert anyway|override|ignore this|proceed anyway/);
   });
 
   it('leaves the machine\'s guess alone: suspected still warns AND converts', async () => {
     // The other half of the ruling, and the half a careless widening would
     // take with it. The warning's wording is pinned above; what this adds is
     // that the run still finishes.
-    const { screen, done, products } = await convert(seedLead({
-      duplicate_of_type: 'crm_lead', duplicate_of_lead: SURVIVOR_LEAD_ID,
+    const { screen, done, products } = await convert(await seedLead({
+      duplicate_of_type: 'crm_lead', duplicate_of_lead: survivorLeadId,
       duplicate_status: 'suspected',
     }));
 
     expect(screen!.nodeId, 'a suspected duplicate was routed to the refusal').toBe('screen_1');
-    expect(String(screen!.description ?? '')).toContain('疑似重复');
+    expect(String(screen!.description ?? '')).toContain('Suspected duplicate');
     expect(done.error ?? null, 'a suspected lead could no longer be converted').toBeNull();
     expect(products, 'the warn-and-allow branch stopped converting').toEqual(FULLY_CONVERTED);
   });
@@ -709,13 +741,16 @@ describe('lead_conversion — a confirmed duplicate is refused (#1288)', () => {
     // reading the verdict, not the presence of a duplicate link. (What a
     // reviewer has to write to get here, and the one spelling that does NOT,
     // is measured in `test/lead-duplicate-link-cleanup.test.ts`.)
-    const { screen, products } = await convert(seedLead({
-      duplicate_of_type: 'crm_lead', duplicate_of_lead: SURVIVOR_LEAD_ID,
+    const { screen, products } = await convert(await seedLead({
+      duplicate_of_type: 'crm_lead', duplicate_of_lead: survivorLeadId,
       duplicate_status: null,
     }));
 
     expect(screen!.nodeId, 'a lead with no verdict was still refused').toBe('screen_1');
-    expect(screen!.description, 'a lead with no verdict was warned about one').toBeUndefined();
+    // The body text carries the account notice on every conversion since
+    // #2073 item 8, so "no warning" is read as the warning's absence, not the
+    // description's.
+    expect(String(screen!.description ?? ''), 'a lead with no verdict was warned about one').not.toContain('Suspected duplicate');
     expect(products, 'clearing the verdict did not restore conversion').toEqual(FULLY_CONVERTED);
   });
 });

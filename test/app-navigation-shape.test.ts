@@ -1,7 +1,22 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import { CrmApp } from '../src/apps/crm.app';
+import { CrmApp } from '../src/sales/apps/crm.app';
+import { SalesRepProfile } from '../src/sales/profiles/sales-rep.profile';
+import { SalesManagerProfile } from '../src/sales/profiles/sales-manager.profile';
+import { ServiceAgentProfile } from '../src/sales/profiles/service-agent.profile';
+import { MarketingUserProfile } from '../src/sales/profiles/marketing-user.profile';
+import { CrmUserProfile } from '../src/sales/profiles/crm-user.profile';
+import { CrmPositions } from '../src/sales/sharing/positions';
+import { DemoOrgStaffing } from '../src/sales/sharing/demo-staffing';
+import composedStack, { servedApp, localePacks } from './helpers/composed-stack';
+
+/** The sets a persona's position declares (`permissionSets`, #2200): what a holder of it is granted. */
+const SETS: Record<string, AnyRec> = Object.fromEntries(
+  [SalesRepProfile, SalesManagerProfile, ServiceAgentProfile, MarketingUserProfile].map((s) => [s.name, s]),
+);
+const setsOf = (position: string): AnyRec[] =>
+  (CrmPositions.find((p) => p.name === position)?.permissionSets ?? []).map((name) => SETS[name]!);
 
 /**
  * The two standing constraints on `src/apps/crm.app.ts`'s shape (#1259).
@@ -19,10 +34,9 @@ import { CrmApp } from '../src/apps/crm.app';
  *
  *  1. **A FLOOR on variety.** HotCRM is the exemplar app: an author reading it
  *     is reading it to learn what each kind of nav item looks like. Nav items
- *     come in six kinds and every one of them must keep at least one entry —
- *     `page` and `component` are down to a single exemplar each, so the next
- *     slimming pass is one deletion away from removing a demonstration
- *     silently. That is the failure this half exists to make loud.
+ *     come in seven kinds and every one of them must keep at least one entry —
+ *     `component` is down to a single exemplar, so the next slimming pass is
+ *     one deletion away from removing a demonstration silently. That is the failure this half exists to make loud.
  *
  *  2. **A CEILING on duplication.** No two entries may open the same
  *     destination, and no object may hold more than one plain list entry.
@@ -42,6 +56,9 @@ import { CrmApp } from '../src/apps/crm.app';
 type AnyRec = Record<string, any>;
 
 const NAV = ((CrmApp as AnyRec).navigation ?? []) as AnyRec[];
+
+/** A `visible` gate's CEL source: `P\`…\`` authors an envelope, a literal stays itself. */
+const sourceOf = (v: unknown): unknown => (v && typeof v === 'object' ? (v as AnyRec).source : v);
 
 /** Every non-group node, depth-first. Groups are containers, not destinations. */
 const LEAVES: AnyRec[] = (() => {
@@ -63,8 +80,8 @@ const LEAVES: AnyRec[] = (() => {
 const kindOf = (n: AnyRec): string =>
   n.type === 'object' && n.viewName ? 'view' : String(n.type);
 
-/** The six kinds the app is meant to demonstrate. */
-const REQUIRED_KINDS = ['object', 'view', 'page', 'dashboard', 'report', 'component'] as const;
+/** The seven kinds the app is meant to demonstrate — `doc` since the Help manuals (#2327). */
+const REQUIRED_KINDS = ['object', 'view', 'page', 'dashboard', 'report', 'component', 'doc'] as const;
 
 describe('the app navigation keeps one exemplar of every nav-item kind (#1259)', () => {
   it('the walk finds a real navigation tree', () => {
@@ -117,6 +134,8 @@ describe('the app navigation opens each destination once (#1259)', () => {
         n.dashboardName ?? '',
         n.reportName ?? '',
         n.componentRef ?? '',
+        n.book ?? '',
+        n.doc ?? '',
       ].join('|');
       const owner = seen.get(target);
       if (owner) bad.push(`${n.id} opens the same destination as ${owner}`);
@@ -151,5 +170,235 @@ describe('the app navigation opens each destination once (#1259)', () => {
       (n) => n.id as string,
     );
     expect(bad, `object entries with an empty viewName:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+});
+
+describe('entries built on opportunities are gated on reading them (#2060 item 5)', () => {
+  // Measured on 18.0.0-next.1 (PR body has the per-persona tables): without the
+  // gate a service agent was offered all five and each answered "You don't have
+  // access", one 403 per opportunity query. `requiredPermissions` cannot say
+  // this — the server reads it as capability names, and `crm_opportunity:read`
+  // hid the entry from every user, the admin included (see `crm.app.ts`).
+  // Since #2268 the read question carries the two service positions (#2231
+  // let them through it): one gate, `OPPORTUNITY_AUDIENCE`, shared by Sales
+  // Home and the six entries below.
+  const GATE =
+    'current_user.can("crm_opportunity", "read") && !("service_agent" in current_user.positions) && !("service_manager" in current_user.positions)';
+  const GATED = [
+    'nav_sales_home',
+    'nav_sales_dashboard', 'nav_crm_dashboard',
+    'nav_report_opportunities_by_stage', 'nav_report_won_by_owner',
+    'nav_report_pipeline_coverage', 'nav_report_funnel_by_owner',
+  ];
+
+  it('exactly these entries carry the opportunity gate', () => {
+    const gated = LEAVES.filter((n) => sourceOf(n.visible) === GATE).map((n) => n.id);
+    expect(gated).toEqual(GATED);
+    // Home carries the same question, narrowed further by the rep position
+    // (below). Report entries each ask for their own object (the describe
+    // after this).
+    const other = LEAVES.filter(
+      (n) => n.type !== 'report' && n.visible !== undefined && sourceOf(n.visible) !== GATE,
+    ).map((n) => n.id);
+    // The two PSA dashboards (fork) each ask for their own object — cost
+    // plans and invoices — the way the report entries do, not for deals.
+    expect(other, 'entries gated on something else').toEqual([
+      'nav_home', 'nav_opportunity', 'nav_project_cost_dashboard', 'nav_project_finance_dashboard', 'nav_my_deals',
+    ]);
+    expect(String(sourceOf(NAV[0].visible)), 'nav_home').toMatch(/^current_user\.can\("crm_opportunity", "read"\) && /);
+    // The two opportunity OBJECT entries ask the position half alone (#2367
+    // row 6): the console prunes an object entry by read access already.
+    for (const id of ['nav_opportunity', 'nav_my_deals']) {
+      expect(String(sourceOf(LEAVES.find((n) => n.id === id)?.visible)), id).toBe(
+        '!("service_agent" in current_user.positions) && !("service_manager" in current_user.positions)',
+      );
+    }
+  });
+
+  it('the read question no longer parts the service personas: every member holds crm_user (#2231)', () => {
+    // A position's own sets read opportunities for sales and not for service,
+    // but `crm_user` is the package's `isDefault` set, held by every member
+    // beside them, and it reads opportunities. So every persona answers the
+    // read question yes, and a gate that must part the service personas asks
+    // their position (#2262). The booted answer is measured in
+    // `app-navigation-audience.test.ts`.
+    const own = (position: string) => setsOf(position).some((set) => set.objects?.crm_opportunity?.allowRead === true);
+    expect(['sales_rep', 'sales_manager', 'service_agent', 'service_manager'].map(own)).toEqual([true, true, false, false]);
+    expect(CrmUserProfile).toMatchObject({ isDefault: true, objects: { crm_opportunity: { allowRead: true } } });
+  });
+
+  it('Sales Home has a sidebar entry, second after Home', () => {
+    expect(NAV.slice(0, 2).map((n) => [n.id, n.dashboardName ?? n.pageName])).toEqual([
+      ['nav_home', 'executive_dashboard'],
+      ['nav_sales_home', 'sales_home_page'],
+    ]);
+  });
+});
+
+describe('every shipped report has one entry, under Reports, gated on reading what it reads (#2073 item 1)', () => {
+  // A report with no nav entry had no way in but its URL (7 of 10 on
+  // 0a8f73d), and ⌘K still finds a report only through a nav entry; the
+  // console's own report index (18.1.0) does not change that. The roster is what the two packages REGISTER, so a report added
+  // to either without an entry goes red here. The served tree carries the
+  // service module's contributed entries (`servedApp`).
+  const REPORTS = ((composedStack as AnyRec).reports ?? []) as AnyRec[];
+  const DATASETS = new Map(
+    (((composedStack as AnyRec).datasets ?? []) as AnyRec[]).map((d) => [d.name as string, d]),
+  );
+  const SERVED = (servedApp((CrmApp as AnyRec).name).navigation ?? []) as AnyRec[];
+  const walk = (nodes: AnyRec[], group?: string): Array<{ n: AnyRec; group?: string }> =>
+    nodes.flatMap((n) =>
+      n.type === 'group' ? walk((n.children ?? []) as AnyRec[], n.id as string) : [{ n, group }],
+    );
+  const REPORT_ENTRIES = walk(SERVED).filter(({ n }) => n.type === 'report');
+
+  /** The objects a report reads: its dataset's, or every block's for a joined report. */
+  const objectsOf = (r: AnyRec): string[] =>
+    [...new Set(
+      [r.dataset, ...((r.blocks ?? []) as AnyRec[]).map((b) => b.dataset)]
+        .filter(Boolean)
+        .map((name) => DATASETS.get(name as string)?.object as string),
+    )];
+
+  it('reads a real roster', () => {
+    expect(REPORTS.length, 'no reports registered').toBeGreaterThanOrEqual(10);
+    expect(REPORT_ENTRIES.length, 'no report entries in the served navigation').toBeGreaterThan(0);
+    for (const r of REPORTS) expect(objectsOf(r).filter(Boolean), r.name).not.toEqual([]);
+  });
+
+  it('each registered report is the target of exactly one entry', () => {
+    const bad = REPORTS.map((r) => [r.name, REPORT_ENTRIES.filter(({ n }) => n.reportName === r.name).length])
+      .filter(([, count]) => count !== 1)
+      .map(([name, count]) => `${name}: ${count} entries`);
+    expect(bad, `reports without exactly one nav entry:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  // One name per report (#2370 row 6): the sidebar said "Pipeline Coverage"
+  // and the report page "Pipeline Coverage by Forecast × Quarter". The entry's
+  // label is the report's own, in English and in every locale pack that
+  // carries either one.
+  it('each entry is labelled with its report\'s own name, in every locale', () => {
+    const bad: string[] = [];
+    for (const { n } of REPORT_ENTRIES) {
+      const report = REPORTS.find((r) => r.name === n.reportName);
+      if (n.label !== report?.label) bad.push(`en ${n.id}: "${n.label}" vs report "${report?.label}"`);
+    }
+    for (const [locale, pack] of localePacks) {
+      const nav = pack?.apps?.[(CrmApp as AnyRec).name]?.navigation ?? {};
+      for (const { n } of REPORT_ENTRIES) {
+        const entry = nav[n.id]?.label;
+        const report = pack?.reports?.[n.reportName]?.label;
+        if ((entry !== undefined || report !== undefined) && entry !== report) {
+          bad.push(`${locale} ${n.id}: "${entry}" vs report "${report}"`);
+        }
+      }
+    }
+    expect(bad, `report entries named differently from their report:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  it('every report entry is in the Reports group, which the app declares collapsed', () => {
+    expect(REPORT_ENTRIES.filter(({ group }) => group !== 'group_reports').map(({ n }) => n.id)).toEqual([]);
+    const declared = NAV.find((n) => n.id === 'group_reports');
+    expect(declared).toMatchObject({ type: 'group', label: 'Reports', expanded: false });
+  });
+
+  it('each entry asks for read on the object its report reads', () => {
+    const bad: string[] = [];
+    for (const { n } of REPORT_ENTRIES) {
+      const report = REPORTS.find((r) => r.name === n.reportName);
+      // A case report also asks that the member is not a sales rep (#2244),
+      // an opportunity report that the member holds neither service position
+      // (#2268); `app-navigation-audience.test.ts` pins who that hides.
+      const asked = /^current_user\.can\("(\w+)", "read"\)(?: && !\("sales_rep" in current_user\.positions\)| && !\("service_agent" in current_user\.positions\) && !\("service_manager" in current_user\.positions\))?$/.exec(String(sourceOf(n.visible)))?.[1];
+      if (!report || !asked || !objectsOf(report).includes(asked)) {
+        bad.push(`${n.id}: gate ${JSON.stringify(sourceOf(n.visible))}, report reads ${report ? objectsOf(report).join(' + ') : '?'}`);
+      }
+    }
+    expect(bad, `report entries not gated on what their report reads:\n  ${bad.join('\n  ')}`).toEqual([]);
+    // The one report reading two objects asks for the one three of its four
+    // panels read: a member without the other gets an access notice on the
+    // fourth panel, not a broken page (measured, see `crm.app.ts`).
+    expect(
+      REPORT_ENTRIES.filter(({ n }) => String(sourceOf(n.visible)).includes('"sales_rep" in current_user.positions')).map(({ n }) => n.id),
+      'report entries that also ask the rep position',
+    ).toEqual(['nav_report_cases_by_status', 'nav_report_sla', 'nav_report_cases_opened_by_day']);
+    expect(
+      REPORT_ENTRIES.filter(({ n }) => String(sourceOf(n.visible)).includes('"service_agent" in current_user.positions')).map(({ n }) => n.id),
+      'report entries that also ask the service positions',
+    ).toEqual([
+      'nav_report_opportunities_by_stage', 'nav_report_won_by_owner',
+      'nav_report_pipeline_coverage', 'nav_report_funnel_by_owner',
+    ]);
+    const churn = REPORT_ENTRIES.find(({ n }) => n.reportName === 'customer_churn_signals')?.n;
+    expect(sourceOf(churn?.visible)).toBe('current_user.can("crm_account", "read")');
+  });
+
+  it('the gates part the personas the way the permission sets say', () => {
+    // The read half only: a rep's set reads cases, and the rep position is
+    // what hides the case reports from a rep (`app-navigation-audience.test.ts`).
+    const shown = (set: AnyRec): string[] =>
+      REPORT_ENTRIES.filter(({ n }) => {
+        const asked = /"(\w+)"/.exec(String(sourceOf(n.visible)))?.[1] as string;
+        return set.objects?.[asked]?.allowRead === true;
+      }).map(({ n }) => n.reportName as string);
+    const ALL = REPORT_ENTRIES.map(({ n }) => n.reportName as string);
+    const CASES = ['cases_by_status_priority', 'sla_performance', 'cases_opened_by_day_priority'];
+    expect(shown(SalesRepProfile)).toEqual(ALL);
+    expect(shown(SalesManagerProfile)).toEqual(ALL);
+    for (const position of ['service_agent', 'service_manager']) {
+      expect(setsOf(position).map((set) => set.name), position).toEqual(['service_agent']);
+      expect(shown(setsOf(position)[0]!), position).toEqual([
+        'lead_inflow_by_month_source', 'accounts_by_industry_type', 'customer_churn_signals', ...CASES,
+      ]);
+    }
+    expect(shown(MarketingUserProfile)).toEqual(ALL.filter((name) => !CASES.includes(name)));
+  });
+});
+
+describe("each persona's first entry is its home (#2060 item 5)", () => {
+  // The console opens an app on the first entry the member is SHOWN
+  // (objectui#12426, in the 18.0.0-next.2 console), so the landing is this
+  // app's order and gates. The ruled homes: rep → Sales Home, manager / admin
+  // → Executive Overview, service agent / manager → the service module's
+  // dashboard. Measured per persona in a browser by the PR that made this order (its
+  // body has the table); these are the source facts that measurement rests on.
+  const SERVED = (servedApp((CrmApp as AnyRec).name).navigation ?? []) as AnyRec[];
+
+  it('the sidebar opens with Home, Sales Home, then the Service group led by its dashboard', () => {
+    expect(SERVED.slice(0, 3).map((n) => n.id)).toEqual(['nav_home', 'nav_sales_home', 'group_service']);
+    // A contributed item lands after the group's own children: the app gives
+    // this group none, so the module's first item is the group's first entry.
+    expect(NAV.find((n) => n.id === 'group_service')?.children).toEqual([]);
+    expect((SERVED[2].children as AnyRec[])[0]).toMatchObject({
+      id: 'nav_service_dashboard', type: 'dashboard', dashboardName: 'service_dashboard',
+    });
+  });
+
+  it('Home is the entry a sales rep is not shown, asked by the position a rep holds', () => {
+    expect(String(sourceOf(NAV[0].visible))).toMatch(
+      /^current_user\.can\("crm_opportunity", "read"\) && !\("sales_rep" in current_user\.positions\)/,
+    );
+    // The name in the gate is a declared position, the one both demo reps hold
+    // and the manager does not, and it declares the rep's permission set.
+    expect(CrmPositions.map((p) => p.name)).toContain('sales_rep');
+    expect(setsOf('sales_rep')).toEqual([SalesRepProfile]);
+    const holds = (key: string) => DemoOrgStaffing.find((m) => m.key === key)?.positions.includes('sales_rep');
+    expect(['na_rep', 'eu_rep', 'sales_manager'].map(holds)).toEqual([true, true, false]);
+  });
+
+  it('a service persona is shown nothing ahead of the Service group (#2262)', () => {
+    // Both pinned entries refuse both service positions by name: the read
+    // question alone lets them through since #2231 (asserted above), so the
+    // position is what makes the Service group their first slot.
+    for (const n of SERVED.slice(0, 2)) {
+      for (const position of ['service_agent', 'service_manager']) {
+        expect(String(sourceOf(n.visible)), n.id).toContain(`!("${position}" in current_user.positions)`);
+      }
+    }
+    expect(CrmPositions.map((p) => p.name)).toEqual(expect.arrayContaining(['service_agent', 'service_manager']));
+    const holds = (key: string, position: string) => DemoOrgStaffing.find((m) => m.key === key)?.positions.includes(position);
+    expect([holds('service_agent', 'service_agent'), holds('service_manager', 'service_manager')]).toEqual([true, true]);
+    const readsCases = (position: string) => setsOf(position).some((set) => set.objects?.crm_case?.allowRead === true);
+    expect(['service_agent', 'service_manager'].map(readsCases)).toEqual([true, true]);
   });
 });

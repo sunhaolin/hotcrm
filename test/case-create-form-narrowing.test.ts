@@ -1,9 +1,10 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import { CaseViews } from '../src/views/case.view';
-import { Case } from '../src/objects/case.object';
-import { CaseDetailPage } from '../src/pages/case_detail.page';
+import { ExpressionEngine } from '@objectstack/formula';
+import { CaseViews } from '../src/service/views/case.view';
+import { Case } from '../src/service/objects/case.object';
+import { CaseDetailPage } from '../src/service/pages/case_detail.page';
 
 /**
  * The case CREATE form offers only what a creator legitimately authors (#1214
@@ -46,10 +47,39 @@ type AnyRec = Record<string, any>;
 const fieldNamesOf = (section: AnyRec): string[] =>
   (section.fields ?? []).map((f: any) => (typeof f === 'string' ? f : f?.field)).filter(Boolean);
 
-const formFields = (): string[] =>
-  ((CaseViews as AnyRec).form?.sections ?? []).flatMap(fieldNamesOf);
-
 const objectFields = (Case as AnyRec).fields as Record<string, AnyRec>;
+
+/** The form's entries, each as `{ field, visibleWhen? }`. */
+const formEntries = (): AnyRec[] =>
+  ((CaseViews as AnyRec).form?.sections ?? [])
+    .flatMap((s: AnyRec) => s.fields ?? [])
+    .map((f: unknown) => (typeof f === 'string' ? { field: f } : (f as AnyRec)));
+
+/** Does `entry` show for `record`, as the console evaluates a field's `visibleWhen`? */
+const shows = (entry: AnyRec, record: AnyRec): boolean => {
+  if (entry.visibleWhen === undefined) return true;
+  const result = ExpressionEngine.evaluate<boolean>(entry.visibleWhen as never, { record } as never);
+  expect(result.ok, `${entry.field}.visibleWhen did not evaluate on ${JSON.stringify(record)}: ${JSON.stringify(result)}`).toBe(true);
+  return (result as AnyRec).value === true;
+};
+
+/**
+ * A new case as the create dialog opens it: every select at its default. Only
+ * `status` matters to a gate on this form today (#2338 item 2).
+ */
+const NEW_CASE: AnyRec = Object.fromEntries(
+  Object.entries(objectFields)
+    .map(([name, f]) => [name, (f.options ?? []).find((o: AnyRec) => o.default === true)?.value])
+    .filter(([, value]) => value !== undefined),
+);
+
+/**
+ * The fields the CREATE dialog shows: every entry of the one form whose
+ * `visibleWhen`, if any, holds for a new case, and for a record with no keys
+ * at all (a gate must not depend on a default being filled in to stay shut).
+ */
+const formFields = (): string[] =>
+  formEntries().filter((e) => shows(e, NEW_CASE) || shows(e, {})).map((e) => e.field as string);
 
 /**
  * The fields a person raising a case actually has in hand. CLOSED on purpose:
@@ -64,8 +94,16 @@ const CREATOR_AUTHORABLE = new Set([
   'subject',
   'crm_account',
   'crm_contact',
+  // What a web submitter typed (#2190): beside the contact, editable, never
+  // required — a staff-created case links a contact and needs neither.
+  'supplied_name',
+  'supplied_email',
   'status',
   'priority',
+  // What kind of request it is (#2369 row 6): the public support form asks a
+  // guest for it, and a staff-created case saved `type: null` with no field
+  // to set it.
+  'type',
   'origin',
   'owner_id',
   'description',
@@ -77,8 +115,10 @@ const CREATOR_AUTHORABLE = new Set([
  *
  * An empty `keeps` is a claim in its own right — the field is reachable from
  * NO surface in the roster below — and since #1428 it is asserted in that
- * direction too, not just documented. One field carries it today:
- * `first_response_date`, which no human ever authors, so it is not a debt.
+ * direction too, not just documented. No field carries it today:
+ * `first_response_date` did until #970 rewrote the record page's sections as
+ * `fieldGroups` references, which put the `sla` group — and with it this
+ * field — on the Details tab (maintainer ruling C: group membership decides).
  *
  * The other thing that used to produce an empty `keeps` was a field whose
  * surface was an OPEN PRODUCT QUESTION — `customer_rating` and
@@ -89,13 +129,12 @@ const CREATOR_AUTHORABLE = new Set([
  * that exists; a field with no surface AND no answer does not belong here.
  */
 const LIFECYCLE_MAINTAINED: Record<string, { why: string; keeps: string[] }> = {
-  created_date: {
-    why: 'readonly on the object; stamped at insert',
-    keeps: ['case_timeline.startDateField'],
-  },
+  // `created_date` left this roster with the field (#1992): it had no writer,
+  // and the creation instant is the platform's `created_at`, which no form
+  // ever offered. `case_timeline` starts on it — `test/case-creation-date.test.ts`.
   first_response_date: {
-    why: '`event.hook.ts` is its single writer — no human surface by design',
-    keeps: [],
+    why: '`event.hook.ts` is its single writer; shown on the record page through the `sla` group (#970)',
+    keeps: ['detail.details'],
   },
   sla_due_date: {
     why: '`case.hook.ts` stamps it from the priority x account-tier matrix',
@@ -112,19 +151,24 @@ const LIFECYCLE_MAINTAINED: Record<string, { why: string; keeps: string[] }> = {
   },
   is_sla_violated: {
     why: 'derived from the SLA sweep, never authored',
-    keeps: ['list.columns', 'detail.highlights'],
+    // Off the highlights strip since #2369 row 6 (a boolean there is drawn as
+    // a red "No" on every case on track): the breach is the record alert, and
+    // the flag stays in the `sla` group on the Details tab.
+    keeps: ['list.columns', 'detail.alert', 'detail.details'],
   },
   is_escalated: {
     // readonly since #1434 — stamped by `case_escalation`, `case_sla_monitor`
     // and the `case_escalation_stamp` sub-flow, all `runAs: 'system'`.
     why: 'readonly on the object; stamped by the escalation flows, never typed',
-    keeps: ['list.columns', 'escalated_cases.filter', 'detail.details'],
+    keeps: ['escalated_cases.filter', 'detail.details'],
   },
   escalation_reason: {
     why: 'written alongside `is_escalated` by the escalation path',
     keeps: ['detail.details'],
   },
   resolution: {
+    // On the one form since #2338 item 2, behind a status gate that keeps it
+    // off the create dialog (`formFields` reads only what a new case shows).
     why: 'authored when CLOSING a case, not when raising one',
     keeps: ['detail.details'],
   },
@@ -151,6 +195,7 @@ const surfaces = (): Record<string, Set<string>> => {
 
   const detailFields = new Set<string>();
   const highlightFields = new Set<string>();
+  const alertFields = new Set<string>();
   const walk = (node: any, into: 'highlights' | 'details' | null): void => {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) {
@@ -158,12 +203,26 @@ const surfaces = (): Record<string, Set<string>> => {
       return;
     }
     let next = into;
+    // A `record:alert` reads its fields through its `visible` predicate.
+    if (node.type === 'record:alert') {
+      for (const [, name] of JSON.stringify(node.properties?.visible ?? '').matchAll(/record\.(\w+)/g)) {
+        alertFields.add(name);
+      }
+    }
     if (node.type === 'record:highlights') next = 'highlights';
     else if (node.type === 'record:details') next = 'details';
     if (next && Array.isArray(node.fields)) {
       for (const f of node.fields) {
         const name = typeof f === 'string' ? f : f?.field;
         if (name) (next === 'highlights' ? highlightFields : detailFields).add(name);
+      }
+    }
+    // A `{ group }` section (#970, ruling C) enumerates nothing: the renderer
+    // derives its members from crm_case's `fieldGroups` — every visible field
+    // whose `group` is that key — so those members are this surface's fields.
+    if (next === 'details' && typeof node.group === 'string') {
+      for (const [name, f] of Object.entries(objectFields)) {
+        if (f?.group === node.group && f?.hidden !== true) detailFields.add(name);
       }
     }
     for (const value of Object.values(node)) walk(value, next);
@@ -180,6 +239,7 @@ const surfaces = (): Record<string, Set<string>> => {
     'my_open_cases.filter': names(lv.my_open_cases?.filter, (f: any) => f?.field),
     'escalated_cases.filter': names(lv.escalated_cases?.filter, (f: any) => f?.field),
     'detail.highlights': highlightFields,
+    'detail.alert': alertFields,
     'detail.details': detailFields,
   };
 };
@@ -209,10 +269,48 @@ describe('crm_case create form — removal direction', () => {
     expect(new Set(authorable)).toEqual(CREATOR_AUTHORABLE);
   });
 
+  it('offers `crm_account` without requiring it — a web case carries none (#2060 item 4)', () => {
+    // This is the edit form too, and an agent claims a web case through it (a
+    // move to In Progress). Measured on 18.0.0-next.1: with `required` here the
+    // console refused that save ("Please check the highlighted fields: Account")
+    // with nothing sent, while the server took the same PATCH.
+    const entries: unknown[] = ((CaseViews as AnyRec).form?.sections ?? []).flatMap(
+      (s: AnyRec) => s.fields ?? [],
+    );
+    const account = entries.find((f) => (typeof f === 'string' ? f : (f as AnyRec)?.field) === 'crm_account');
+    expect(account, 'crm_account left the case form — this pin would judge nothing').toBeDefined();
+    expect((account as AnyRec)?.required === true, 'the case form demands an account again').toBe(false);
+  });
+
   it('the public web-to-case form stays narrower still', () => {
     const wtc = (CaseViews as AnyRec).formViews?.web_to_case;
     const fields = (wtc?.sections ?? []).flatMap(fieldNamesOf);
-    expect(new Set(fields)).toEqual(new Set(['subject', 'description', 'type', 'priority']));
+    // The two `supplied_*` fields are who to answer (#2190); the public door
+    // admits exactly this list, so a field added here is a field a guest writes.
+    // `priority` left it in #2368: a guest may not choose Critical, and 18.2.0
+    // has no per-form option subset (`web-to-case-guest-priority.test.ts`).
+    expect(new Set(fields)).toEqual(new Set(['supplied_name', 'supplied_email', 'subject', 'description', 'type']));
+  });
+
+  it('the public form requires the reply address; the object requires neither supplied field (#2190)', () => {
+    const entries: AnyRec[] = ((CaseViews as AnyRec).formViews?.web_to_case?.sections ?? [])
+      .flatMap((s: AnyRec) => s.fields ?? [])
+      .map((f: unknown) => (typeof f === 'string' ? { field: f } : (f as AnyRec)));
+    const entry = (name: string) => entries.find((f) => f.field === name);
+    // `required` on the FORM entry is what the door judges, and only on an
+    // entry with no `visibleWhen` / `hidden` — a gated one is skipped there.
+    expect(entry('supplied_email')?.required, 'the public form no longer requires the reply address').toBe(true);
+    expect(entry('supplied_email')?.visibleWhen, 'a gated required entry is not judged by the door').toBeUndefined();
+    expect(entry('supplied_name'), 'the public form no longer asks for the name').toBeDefined();
+    // Optional on the object: a staff-created case saves without either, and
+    // no predicate requires them by origin (⛔ no `requiredWhen`).
+    for (const name of ['supplied_name', 'supplied_email']) {
+      expect(objectFields[name], `crm_case.${name} is not declared`).toBeDefined();
+      expect(objectFields[name]?.required, `crm_case.${name} became required on the object`).not.toBe(true);
+      expect(objectFields[name]?.requiredWhen, `crm_case.${name} gained a requiredWhen`).toBeUndefined();
+      expect(objectFields[name]?.readonly, `crm_case.${name} became readonly — staff can no longer correct it`).not.toBe(true);
+    }
+    expect(objectFields.supplied_email?.type).toBe('email');
   });
 });
 
@@ -251,7 +349,7 @@ describe('crm_case create form — retention direction', () => {
    * The reason is NOT the blanket this comment used to carry ("the platform
    * DROPS writes to readonly fields"). Measured in
    * `test/readonly-write-semantics.test.ts` on 17.1.0, re-measured there on
-   * 17.2.0 (#1460) and re-measured again on the current pin 17.3.0 (#1676),
+   * 17.2.0 (#1460) and re-measured again on 17.3.0 (#1676, the pin at the time),
    * same result every time: the strip is one branch of the
    * UPDATE path, `if (!opCtx.context?.isSystem)`, over CALLER-supplied keys —
    * so a `beforeUpdate` hook's own stamp survives it, an insert is exempt from
@@ -294,7 +392,7 @@ describe('crm_case create form — retention direction', () => {
 
   /**
    * #1428 — `internal_notes` was the third field that left with the Resolution
-   * section, and unlike the ten above it kept NO surface: not a list column,
+   * section, and unlike the nine above it kept NO surface: not a list column,
    * not a filter, not a section on the record page. It is staff prose somebody
    * has to type, so "no human surface" was never a design, and this is the pin
    * that keeps its replacement surface from being refactored away silently.
@@ -319,5 +417,45 @@ describe('crm_case create form — retention direction', () => {
   it('the queue still sorts on the SLA deadline', () => {
     const sort = ((CaseViews as AnyRec).list?.sort ?? []).map((x: any) => x.field);
     expect(sort).toContain('sla_due_date');
+  });
+});
+
+/**
+ * The edit form offers Resolution once the status says the case is being
+ * resolved (#2338 item 2).
+ *
+ * `resolution_required_for_closed` refuses a closed case with no resolution,
+ * and this form offers Status "Closed". With Resolution off the form, that save
+ * was a dead end: refused with "Resolution is required when closing a case",
+ * and nothing on the form to fill in. The same form is the create dialog, so
+ * the field is gated rather than always on; the removal direction above
+ * already pins that a new case does not show it.
+ */
+describe('crm_case edit form — Resolution when closing (#2338 item 2)', () => {
+  const resolution = (): AnyRec | undefined => formEntries().find((e) => e.field === 'resolution');
+  const STATUSES: string[] = (objectFields.status?.options ?? []).map((o: AnyRec) => o.value);
+
+  it('the object refuses a closed case with no resolution, so the form that offers Closed must offer the field', () => {
+    const rule = ((Case as AnyRec).validations ?? []).find((v: AnyRec) => v.name === 'resolution_required_for_closed');
+    expect(rule, 'resolution_required_for_closed is gone: this suite judges nothing').toBeDefined();
+    expect(STATUSES).toEqual(expect.arrayContaining(['resolved', 'closed']));
+    expect(resolution(), 'the case form no longer offers Resolution').toBeDefined();
+  });
+
+  it.each(['resolved', 'closed'])('shows on a case moved to %s', (status) => {
+    expect(shows(resolution()!, { ...NEW_CASE, status })).toBe(true);
+  });
+
+  it('stays off for every other status, for a new case and for a record with no status', () => {
+    const others = STATUSES.filter((s) => s !== 'resolved' && s !== 'closed');
+    expect(others.length).toBeGreaterThan(3);
+    for (const status of others) expect(shows(resolution()!, { status }), status).toBe(false);
+    expect(NEW_CASE.status).toBe('new');
+    expect(shows(resolution()!, NEW_CASE)).toBe(false);
+    expect(shows(resolution()!, {})).toBe(false);
+  });
+
+  it('is not required on the form: the object asks for it on closed only', () => {
+    expect(resolution()!.required === true).toBe(false);
   });
 });

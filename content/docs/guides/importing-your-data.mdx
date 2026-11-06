@@ -183,7 +183,7 @@ Email*, *Lead Owner Email* — matched against the email address of a HotCRM use
 - **Left blank** → the record is owned by **you**, the user running the import.
 
 That last case is worth knowing for leads too: a blank owner makes the importer the
-owner, and the usual round-robin lead assignment does **not** take over. Reassign
+owner, and the Lead Intake assignment rule does **not** take over. Reassign
 after the import if you need the leads distributed.
 
 ## What each mapping loads
@@ -233,14 +233,14 @@ blank and the lead lands as **New**.
 
 ## Known limits
 
-- **Addresses import for contacts only.** Contacts have separate mailing-address
-  fields, so their address columns land. Accounts and leads store their address as
-  one structured field that cannot be assembled from separate spreadsheet columns,
-  and a single joined address string is rejected row by row (*"Billing Address has
-  an invalid address value"*). Those two templates therefore carry no address
-  columns, and adding one to the sheet changes nothing — the mapping only reads the
-  headers it declares. Fill those addresses in after the import, in the record or
-  via the API.
+- **Addresses import for contacts only.** The contact template's five `Mailing …`
+  columns each fill one part — street, city, state/province, postal code, country —
+  of the contact's single structured Mailing Address; a row with all five blank
+  leaves it empty. The account and lead templates carry no address columns, and
+  adding one to the sheet changes nothing — the mapping only reads the headers it
+  declares. A single joined address string is not a way in either: it is rejected
+  row by row (*"Billing Address has an invalid address value"*). Fill those
+  addresses in after the import, in the record or via the API.
 - **50,000 rows per job.** Split a bigger file.
 - **Undo covers 5,000 rows.** Larger imports finish but cannot be rolled back —
   import big data sets in chunks if you want that safety net.

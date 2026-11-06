@@ -1,9 +1,10 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
-import stack from '../objectstack.config';
-import leadHooks from '../src/objects/lead.hook';
-import { hookNamed, makeCtx, makeHarness } from './helpers/hook-harness';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { ExpressionEngine } from '@objectstack/formula';
+import type { VerifyStack } from '@objectstack/verify';
+import stack from './helpers/composed-stack';
+import { hotcrmStack, signUpPerson, systemUpdate, type Person } from './helpers/verify-stack';
 
 /**
  * The converted-lead lock is ONE guard, and it is the hook (#575 B1).
@@ -24,6 +25,12 @@ import { hookNamed, makeCtx, makeHarness } from './helpers/hook-harness';
  * So the validation is gone and these tests pin what replaced it — which is
  * nothing, deliberately. The hook has to carry the whole contract now, and its
  * message has to be good enough to be the only one a user sees.
+ *
+ * Every edit below is real: the sales rep who owns a converted lead editing it
+ * through the engine's write door (`hooks.run`) on the shipped app booted by
+ * `@objectstack/verify`, the lead and the records it was converted into written
+ * as the system — so what refuses is whatever the engine runs first, and what
+ * is asserted is the refusal or the stored row.
  */
 
 type AnyRec = Record<string, any>;
@@ -32,19 +39,52 @@ const objects: AnyRec[] = (stack as any).objects ?? [];
 const lead = objects.find((o) => o.name === 'crm_lead') as AnyRec | undefined;
 const validations = (lead?.validations ?? []) as AnyRec[];
 
-const guard = hookNamed(leadHooks, 'lead_automation');
+let verify: VerifyStack;
+let rep: Person;
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  rep = await signUpPerson(verify, 'rep@converted-lead-guard.test', {
+    name: 'Sales Rep', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+  });
+}, 120_000);
 
-/** A converted lead as the hook sees it, with one attempted edit on top. */
-const editConverted = (input: AnyRec, previous: AnyRec = {}) =>
-  guard.handler(
-    makeCtx({
-      event: 'beforeUpdate',
-      input: { id: 'lead_1', ...input },
-      previous: { id: 'lead_1', is_converted: true, status: 'converted', company: 'Acme', email: 'a@acme.example.com', first_name: 'Ada', last_name: 'Lovelace', ...previous },
-      user: { id: 'usr_1' },
-      api: makeHarness().api,
-    }),
-  );
+/**
+ * A converted lead of the rep's, linked to the account, contact and deal it
+ * was converted into and to the lead and contact it duplicated — written as
+ * the system, the way the conversion flow leaves it. `over` is its stored state.
+ */
+const convertedLead = async (over: AnyRec = {}): Promise<AnyRec> => {
+  const n = ++k;
+  const [account] = await verify.seed('crm_account', [{ name: `Acme ${n}`, owner_id: rep.id }]);
+  const [contact, twin] = await verify.seed('crm_contact', [
+    { first_name: 'Ada', last_name: 'Lovelace', email: `ada${n}@acme.example.com`, crm_account: account!.id, owner_id: rep.id },
+    { first_name: 'Ada', last_name: 'Twin', email: `twin${n}@acme.example.com`, crm_account: account!.id, owner_id: rep.id },
+  ]);
+  const [deal] = await verify.seed('crm_opportunity', [{
+    name: `Acme Deal ${n}`, amount: 10_000, stage: 'qualification', close_date: '2030-06-30', crm_account: account!.id, owner_id: rep.id,
+  }]);
+  const [original] = await verify.seed('crm_lead', [{
+    first_name: 'Ada', last_name: 'Original', company: 'Acme', email: `original${n}@acme.example.com`, owner_id: rep.id,
+  }]);
+  const [lead] = await verify.seed('crm_lead', [{
+    first_name: 'Ada', last_name: 'Lovelace', company: 'Acme', email: `a${n}@acme.example.com`, rating: 1, owner_id: rep.id,
+    is_converted: true, status: 'converted', converted_date: '2026-01-01',
+    converted_account: account!.id, converted_contact: contact!.id, converted_opportunity: deal!.id,
+    duplicate_of_lead: original!.id, duplicate_of_contact: twin!.id,
+    ...over,
+  }]);
+  return lead!;
+};
+
+/** The rep's edit of `lead` — resolves with the stored row, rejects with the refusal. */
+const edit = async (lead: AnyRec, input: AnyRec): Promise<AnyRec> => {
+  await verify.hooks.run('crm_lead', 'update', { id: lead.id, ...input }, { as: rep.token });
+  return (await verify.rows('crm_lead', { id: lead.id }))[0]!;
+};
+
+/** A converted lead with one attempted edit on top. */
+const editConverted = async (input: AnyRec, over: AnyRec = {}) => edit(await convertedLead(over), input);
 
 describe('crm_lead declares no second converted-lead rule', () => {
   it('found the lead object at all', () => {
@@ -63,8 +103,29 @@ describe('crm_lead declares no second converted-lead rule', () => {
     // previous record is that rule wearing a hat.
     const celSource = (condition: unknown): string =>
       typeof condition === 'string' ? condition : String((condition as AnyRec | null)?.source ?? '');
+    // AGENTS.md rule 11: a rule that reads both and is NOT the lock, each with
+    // the reason it is not. Every entry must exist, so the roster cannot rot.
+    const NOT_THE_LOCK: Record<string, string> = {
+      // #2189: refuses the write CROSSING into status Converted without
+      // `is_converted: true` (it reads `previous.status`, never
+      // `previous.is_converted`). An edit to a converted lead satisfies it, so
+      // it never judges one; `test/lead-converted-only-by-conversion.test.ts`
+      // pins that the lock still answers such an edit with its 409.
+      converted_only_by_conversion: 'gates the status crossing, not edits to a converted lead',
+      // #2219: refuses the write CROSSING `is_converted` to `true` without
+      // `converted_account` and `converted_contact`. It reads
+      // `previous.is_converted` only to stand down when it is already `true`,
+      // so it never judges an edit to a converted lead; the lock's 409 on such
+      // an edit is pinned by `test/lead-converted-only-by-conversion.test.ts`.
+      converted_flag_only_by_conversion: 'gates the flag crossing, not edits to a converted lead',
+    };
+    expect(
+      Object.keys(NOT_THE_LOCK).filter((name) => !validations.some((v) => v.name === name)),
+      'a NOT_THE_LOCK entry names no rule on crm_lead',
+    ).toEqual([]);
     const offenders = validations
       .filter((v) => v.type === 'script')
+      .filter((v) => !(v.name in NOT_THE_LOCK))
       .filter((v) => {
         const src = celSource(v.condition);
         return src.includes('is_converted') && src.includes('previous.');
@@ -79,14 +140,14 @@ describe('crm_lead declares no second converted-lead rule', () => {
 });
 
 describe('the hook is the guard that actually speaks', () => {
-  it.each(['company', 'email', 'first_name', 'last_name'])(
-    'rejects an edit to %s — the fields the deleted validation covered',
-    async (field) => {
-      await expect(editConverted({ [field]: 'changed' })).rejects.toThrow(
-        /Cannot edit converted lead/,
-      );
-    },
-  );
+  it.each([
+    ['company', 'Globex'],
+    ['email', 'changed@globex.example.com'],
+    ['first_name', 'Changed'],
+    ['last_name', 'Changed'],
+  ])('rejects an edit to %s — the fields the deleted validation covered', async (field, value) => {
+    await expect(editConverted({ [field]: value })).rejects.toThrow(/Cannot edit converted lead/);
+  });
 
   it('names the offending field, because no second error follows it', async () => {
     // The deleted validation's whole claim was a friendlier message. Nothing
@@ -98,31 +159,20 @@ describe('the hook is the guard that actually speaks', () => {
     // The lock fires on writes the caller never made (a cascade clearing a
     // conversion link), so "a converted lead" was not enough to find the
     // record that refused. The label is `display_title`'s own pair — person and
-    // company — and drops whichever half the lead does not carry (#1243); a
-    // lead carrying neither gets "a converted lead" rather than a record id no
-    // lead surface in this app ever shows.
+    // company (#1243); a lead on this app always carries both, since first
+    // name, last name and company are all required.
     //
     // ⚠️ `LovelaceAda`, not `Ada Lovelace`, and ⛔ not a typo to correct — see
     // the Chinese-name case below for what this spelling is protecting.
-    await expect(editConverted({ company: 'Globex' })).rejects.toThrow(
-      /Cannot edit converted lead LovelaceAda - Acme/,
-    );
+    const lead = await convertedLead();
+    await expect(edit(lead, { company: 'Globex' })).rejects.toThrow(/Cannot edit converted lead LovelaceAda - Acme/);
     // The id is not merely absent from the middle of the sentence — it is
     // nowhere in it.
-    await expect(editConverted({ company: 'Globex' })).rejects.toThrow(
-      expect.objectContaining({ message: expect.not.stringContaining('lead_1') }),
+    await expect(edit(lead, { company: 'Globex' })).rejects.toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining(lead.id) }),
     );
-    await expect(
-      guard.handler(
-        makeCtx({
-          event: 'beforeUpdate',
-          input: { id: 'lead_2', rating: 5 },
-          previous: { id: 'lead_2', is_converted: true, company: 'Initech', rating: 1 },
-          user: { id: 'usr_1' },
-          api: makeHarness().api,
-        }),
-      ),
-    ).rejects.toThrow(/Cannot edit converted lead Initech \(attempted: rating\)\./);
+    await expect(editConverted({ rating: 5 }, { first_name: 'Grace', last_name: 'Hopper', company: 'Initech' }))
+      .rejects.toThrow(/Cannot edit converted lead HopperGrace - Initech \(attempted: rating\)\./);
   });
 
   /**
@@ -145,26 +195,8 @@ describe('the hook is the guard that actually speaks', () => {
    */
   it('names the lead the way display_title does — surname first, no separator', async () => {
     await expect(
-      guard.handler(
-        makeCtx({
-          event: 'beforeUpdate',
-          input: { id: 'lead_3', status: 'new' },
-          previous: {
-            id: 'lead_3',
-            is_converted: true,
-            status: 'converted',
-            first_name: '雪',
-            last_name: '韩',
-            company: '北方重工集团有限公司',
-          },
-          user: { id: 'usr_1' },
-          api: makeHarness().api,
-        }),
-      ),
-    ).rejects.toThrow(
-      'Cannot edit converted lead 韩雪 - 北方重工集团有限公司 (attempted: status). ' +
-        'Make changes on the converted records instead.',
-    );
+      editConverted({ status: 'new' }, { first_name: '雪', last_name: '韩', company: '北方重工集团有限公司' }),
+    ).rejects.toThrow(/Cannot edit converted lead 韩雪 - 北方重工集团有限公司 \(attempted: status\)\./);
   });
 
   /**
@@ -180,70 +212,89 @@ describe('the hook is the guard that actually speaks', () => {
    * again on rc.6 for #720 — the engine's own `__referentialFieldClear` is
    * stripped before a hook sees it), so the lock yields on the write SHAPE
    * instead: a write whose every non-system change is a declared link going
-   * value→null. The end-to-end proof that a real cascade produces exactly that
-   * shape, and the narrowness in both directions, live in
-   * `test/freeze-guard-reference-cleanup.test.ts`.
+   * value→null — here written as that shape directly. The end-to-end proof
+   * that a real cascade produces exactly that shape, and the narrowness in both
+   * directions, live in `test/freeze-guard-reference-cleanup.test.ts`.
    */
   describe('a cleared conversion link is the engine tidying up, not an edit', () => {
     it.each([
-      ['converted_opportunity', 'opp_1'],
-      ['converted_account', 'acc_1'],
-      ['converted_contact', 'con_1'],
-      ['duplicate_of_lead', 'lead_9'],
-      ['duplicate_of_contact', 'con_9'],
-    ])('%s', async (field, previousValue) => {
-      await expect(
-        editConverted({ [field]: null }, { [field]: previousValue }),
-      ).resolves.toBeUndefined();
+      'converted_opportunity', 'converted_account', 'converted_contact', 'duplicate_of_lead', 'duplicate_of_contact',
+    ])('%s', async (field) => {
+      const after = await editConverted({ [field]: null });
+      expect(after[field] ?? null).toBeNull();
+      expect(after.is_converted).toBe(true);
     });
 
     it('refuses the edit when the write is not only a link clear', async () => {
       // A hand edit that also touches a business field is an edit, and saying
       // so stays correct — the link branch must not swallow it.
-      await expect(
-        editConverted({ converted_opportunity: null, company: 'Globex' }, { converted_opportunity: 'opp_1' }),
-      ).rejects.toThrow(/Cannot edit converted lead/);
+      await expect(editConverted({ converted_opportunity: null, company: 'Globex' }))
+        .rejects.toThrow(/Cannot edit converted lead/);
     });
 
     it('is not reached when the link is merely re-stated', async () => {
       // `input[k] === previous[k]` is not a change at all, so nothing refuses.
-      await expect(
-        editConverted({ converted_opportunity: 'opp_1' }, { converted_opportunity: 'opp_1' }),
-      ).resolves.toBeUndefined();
+      const lead = await convertedLead();
+      const after = await edit(lead, { converted_opportunity: lead.converted_opportunity });
+      expect(after.converted_opportunity).toBe(lead.converted_opportunity);
     });
   });
 
+  it('tells the user the same refusal in field labels (#2338 item 14)', async () => {
+    // The diagnostic above keeps the API keys; what the console shows is
+    // `userMessage`, and a user reads "Company", not "company".
+    const refusalOf = (p: Promise<unknown>): Promise<AnyRec> => p.then(() => ({}), (e: AnyRec) => e);
+    const lead = await convertedLead();
+    const one = await refusalOf(edit(lead, { company: 'Globex' }));
+    expect([one.code, one.status]).toEqual(['RECORD_LOCKED', 409]);
+    expect(one.message).toMatch(/\(attempted: company\b/);
+    expect(one.userMessage).toBe(
+      'Cannot change Company on converted lead LovelaceAda - Acme; only its Description and Notes can still be edited. Make changes on the converted records instead.',
+    );
+    const two = await refusalOf(edit(lead, { email: 'changed@globex.example.com', rating: 5 }));
+    expect(two.userMessage).toMatch(/^Cannot change Email and Lead Score on converted lead LovelaceAda - Acme;/);
+  });
+
   it('still rejects fields the deleted validation never covered', async () => {
-    await expect(editConverted({ rating: 99 })).rejects.toThrow(/attempted: rating/);
+    await expect(editConverted({ rating: 5 })).rejects.toThrow(/attempted: rating/);
   });
 
   it('leaves narrative fields and system writes alone', async () => {
-    await expect(editConverted({ description: 'Post-conversion note' })).resolves.toBeUndefined();
-    // No `user` ⇒ system / flow / seed write: the lock is for user edits only.
-    await expect(
-      guard.handler(
-        makeCtx({
-          event: 'beforeUpdate',
-          input: { id: 'lead_1', company: 'Globex' },
-          previous: { id: 'lead_1', is_converted: true, company: 'Acme' },
-          user: undefined,
-          api: makeHarness().api,
-        }),
-      ),
-    ).resolves.toBeUndefined();
+    expect((await editConverted({ description: 'Post-conversion note' })).description).toBe('Post-conversion note');
+    // A system / flow / seed write carries no user: the lock is for user edits only.
+    const lead = await convertedLead();
+    await systemUpdate(verify, 'crm_lead', { id: lead.id, company: 'Globex' });
+    expect((await verify.rows('crm_lead', { id: lead.id }))[0]!.company).toBe('Globex');
   });
 
   it('does not lock an unconverted lead', async () => {
-    await expect(
-      guard.handler(
-        makeCtx({
-          event: 'beforeUpdate',
-          input: { id: 'lead_1', company: 'Globex' },
-          previous: { id: 'lead_1', is_converted: false, status: 'qualified', company: 'Acme' },
-          user: { id: 'usr_1' },
-          api: makeHarness().api,
-        }),
-      ),
-    ).resolves.toBeUndefined();
+    const [lead] = await verify.seed('crm_lead', [{
+      first_name: 'Ada', last_name: 'Open', company: 'Acme', email: `open${++k}@acme.example.com`, status: 'qualified', owner_id: rep.id,
+    }]);
+    expect((await edit(lead!, { company: 'Globex' })).company).toBe('Globex');
+  });
+});
+
+describe('the record page offers no Edit on a converted lead (#2366 row 1)', () => {
+  // The lock above is the guard; this is the offer. Before it, a converted lead
+  // drew Edit (and inline editing) and every save but Description and Notes
+  // ended in the 409 above. Hiding Edit also removes inline editing (measured on
+  // 18.2.0); the two narrative fields stay writable through the API, where the
+  // lock lets them through.
+  const editWhen = (): unknown => lead?.userActions?.edit?.visibleWhen;
+  const offered = (record: AnyRec): boolean => {
+    const result = ExpressionEngine.evaluate<boolean>(editWhen() as never, { record });
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    return (result as AnyRec).value === true;
+  };
+
+  it('hides Edit on a converted lead', () => {
+    expect(editWhen(), 'crm_lead.userActions.edit.visibleWhen').toBeTruthy();
+    expect(offered({ is_converted: true, status: 'converted' })).toBe(false);
+  });
+
+  it('CONTROL — offers Edit on an unconverted lead, and on the first render before the record loads', () => {
+    expect(offered({ is_converted: false, status: 'qualified' })).toBe(true);
+    expect(offered({})).toBe(true);
   });
 });

@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 
 /**
  * Record-level sharing coverage guards (#549).
@@ -29,7 +29,7 @@ import stack from '../objectstack.config';
  *      new child object (or a rule added/removed) has to update it knowingly;
  *   2. the admin docs — the prose that describes who sees what has to keep
  *      matching the metadata. The gap in #549 was reported as a *promise*
- *      problem: `content/docs/revenue/contracts.mdx` told admins "contracts
+ *      problem: `content/docs/sales/contracts.mdx` told admins "contracts
  *      follow the account's sharing" while the metadata delivered own-only.
  *
  * `test/authorization-coverage.test.ts` (#488/#547) covers the object-grant
@@ -121,8 +121,11 @@ const ACCOUNT_CHILD_COVERAGE: Record<string, 'derived' | 'own_only' | 'partial'>
   crm_contact: 'derived',
   crm_opportunity: 'partial',
   crm_case: 'partial',
-  crm_quote: 'own_only',
-  crm_contract: 'own_only',
+  // #549 (ruling 2026-08-31): both derive from the account, the same way
+  // `crm_contact` does — measured two levels deep (quote_line_item → quote →
+  // account) in `test/parent-derived-reach.test.ts`.
+  crm_quote: 'derived',
+  crm_contract: 'derived',
   crm_task: 'own_only',
   // #592. `crm_event` is `private` with no sharing rule of its own, exactly
   // like `crm_task` — the two are the same kind of record (a rep's personal
@@ -232,26 +235,23 @@ describe('what a shared account carries into its related lists', () => {
 });
 
 /**
- * `crm_case`'s three grants, named — including the triage widening (#1096).
+ * `crm_case`'s three grants, named.
  *
  * The ledger above answers `crm_case: 'partial'`, and 'partial' says only "some
- * rule widens some records". That was true before #1096 and is true after it,
- * so the ledger alone cannot notice a grant arriving or leaving — and the one
- * that arrived is the app's only grant over records with **no owner at all**.
+ * rule widens some records", so the ledger alone cannot notice a grant arriving
+ * or leaving. The roster is pinned by name.
  *
- * So the roster is pinned by name. `service_agent` is the entry that matters:
- * unlike the manager and director rungs, an agent's reach here is not "the same
- * cases, one rung up" — it is a set of rows that had no reader whatsoever, and
- * it is the one grant whose criteria matches on the ABSENCE of a value.
- *
- * Declared shape only. What it delivers on a running engine — on both the
- * sparse (absent-key) and column-complete (NULL) row shapes — is measured in
- * `test/unassigned-case-triage-reach.test.ts`.
+ * There used to be a fourth, `case_unassigned_triage_sharing` (#1096): EDIT on
+ * every open, unowned case for every `service_agent`. #2395 deleted it. Since
+ * ObjectStack 18.3.0 (ADR-0142) an ownerless case sits in the `case_intake`
+ * queue, and the queue's members read and claim it through the queue itself —
+ * so no sharing rule may answer "who sees unowned work" again. The behaviour is
+ * measured in `test/ownership-queues.test.ts`.
  */
 describe('who can read a case they do not own', () => {
   const caseRules = () => rulesOn('crm_case');
 
-  it('exactly three rules widen crm_case, and each names its position', () => {
+  it('exactly three rules widen crm_case, and each names its recipient', () => {
     const roster = caseRules()
       .map((r) => `${r.name}→${r.sharedWith?.value}:${r.accessLevel ?? 'read'}`)
       .sort();
@@ -262,35 +262,27 @@ describe('who can read a case they do not own', () => {
         'both belong in a PR that also updates the admin docs and this list.',
     ).toEqual([
       'case_director_sharing→service_director:read',
+      // A FIELD recipient (#2060 item 3): the one user the case names, not a position.
+      'case_escalated_from_sharing→escalated_from:read',
       'case_escalation_sharing→service_manager:edit',
-      'case_unassigned_triage_sharing→service_agent:edit',
     ]);
   });
 
-  it('the triage rule is the ONLY one that matches on the absence of an owner', () => {
-    // A second rule keying off `owner_id == null` would be a second, unreviewed
-    // answer to "who sees unowned work" — the shape that later has to be
-    // converged by deleting one of them. Across the WHOLE stack, not just
-    // crm_case: nothing else in this app shares records by ownerlessness.
+  it('no rule matches on the absence of an owner — the queue answers that (#2395)', () => {
+    // Across the WHOLE stack, not just crm_case: a rule keying off
+    // `owner_id == null` would be a second answer to "who sees unowned work",
+    // beside the platform's queue membership.
     const ownerless = sharingRules
       .filter((r) => /record\.owner_id\s*==\s*null/.test(r.condition?.source ?? ''))
       .map((r) => r.name as string);
-    expect(ownerless, 'more than one rule now grants sight of unowned records').toEqual([
-      'case_unassigned_triage_sharing',
-    ]);
+    expect(ownerless, 'a sharing rule grants sight of unowned records again').toEqual([]);
   });
 
-  it('no rule hands an agent a case that HAS an owner — acceptance #2, at the metadata layer', () => {
-    // The runtime proof is in the reach test; this is the authoring-time
-    // counterpart, and it is the cheaper of the two to keep honest. Any
-    // `service_agent`-targeted rule on crm_case must carry the ownerless
-    // condition — a second one that did not would grant owned rows, which is
-    // exactly what #1096 rejected option C for.
+  it('no rule widens crm_case to service_agent — agents reach unowned cases through the queue', () => {
     const bad = caseRules()
       .filter((r) => r.sharedWith?.type === 'position' && r.sharedWith?.value === 'service_agent')
-      .filter((r) => !/record\.owner_id\s*==\s*null/.test(r.condition?.source ?? ''))
-      .map((r) => `${r.name}: grants agents cases without requiring the case to be unowned`);
-    expect(bad, `agent-targeted case rules that reach owned records:\n  ${bad.join('\n  ')}`).toEqual([]);
+      .map((r) => r.name as string);
+    expect(bad, 'an agent-targeted case sharing rule is back').toEqual([]);
   });
 });
 
@@ -357,7 +349,7 @@ describe('the admin docs describe the sharing the app actually ships', () => {
     // sharing" while `crm_contract` shipped private + own-only. Any doc making
     // that promise for a ledger'd own-only object is the same defect.
     const PAGES = [
-      ['content/docs/revenue/contracts.mdx', 'crm_contract'],
+      ['content/docs/sales/contracts.mdx', 'crm_contract'],
       ['content/docs/sales/quotes.mdx', 'crm_quote'],
       ['content/docs/sales/activities.mdx', 'crm_task'],
     ] as const;
@@ -593,6 +585,8 @@ const ROW_LABEL: Record<string, Record<Locale, string>> = {
   crm_event_attendee: { en: 'Event Attendee', 'zh-Hans': '活动参与者', 'zh-Hant': '活動參與者' },
   crm_forecast: { en: 'Forecast', 'zh-Hans': '预测', 'zh-Hant': '預測' },
   crm_product: { en: 'Product', 'zh-Hans': '产品', 'zh-Hant': '產品' },
+  crm_price_book: { en: 'Price Book', 'zh-Hans': '价格表', 'zh-Hant': '價格表' },
+  crm_price_book_entry: { en: 'Price Book Entry', 'zh-Hans': '价格表条目', 'zh-Hant': '價格表條目' },
   // zh-Hans is 「营销活动」, the label the locale pack ships (`zh-CN.ts`
   // `objects.crm_campaign.label`) and the word the zh-Hans doc pages already
   // use. This row read 「市场活动」 until #830, which left the master spelled
@@ -660,13 +654,13 @@ describe('the OWD table lists every registered object, in every locale', () => {
    * `docs-drift.test.ts` uses for `CRON_LABEL`.
    */
   const COUNT_WORD: Record<Locale, Record<number, string>> = {
-    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen' },
-    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八' },
-    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八' },
+    en: { 3: 'three', 4: 'four', 5: 'five', 6: 'six', 7: 'seven', 8: 'eight', 9: 'nine', 12: 'twelve', 13: 'thirteen', 14: 'fourteen', 15: 'fifteen', 16: 'sixteen', 17: 'seventeen', 18: 'eighteen', 19: 'nineteen', 20: 'twenty' },
+    'zh-Hans': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八', 19: '十九', 20: '二十' },
+    'zh-Hant': { 3: '三', 4: '四', 5: '五', 6: '六', 7: '七', 8: '八', 9: '九', 12: '十二', 13: '十三', 14: '十四', 15: '十五', 16: '十六', 17: '十七', 18: '十八', 19: '十九', 20: '二十' },
   };
 
   it('the row ledger answers exactly the objects this app registers', () => {
-    // Anti-vacuum, both halves. 17 objects ship today, 5 of them parent-derived;
+    // Anti-vacuum, both halves. 20 objects ship today, 9 of them parent-derived;
     // a ledger compared against an empty derived set would pass by checking
     // nothing at all, and so would every rule below.
     expect(
@@ -830,7 +824,7 @@ describe('the OWD table lists every registered object, in every locale', () => {
  * The card asking for this (#809, filed 2026-08-05) had compared both Chinese
  * tables against `src/sharing/` row by row and found them clean, and filed the
  * gap as dormant. It did not stay dormant. On 2026-08-12 commit `4a0e1de`
- * (#1096) added `case_unassigned_triage_sharing` **and** its English row —
+ * (#1096) added `case_unassigned_triage_sharing` (deleted again in #2395) **and** its English row —
  * `| Unassigned Cases — Triage | Case | Edit | ... |` — and never touched the
  * two Chinese pages. So widening these rules goes RED on `main`, on both Chinese
  * pages, naming the rule they are missing.

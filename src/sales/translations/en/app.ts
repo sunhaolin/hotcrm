@@ -1,0 +1,304 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { TranslationData } from '@objectstack/spec/system';
+
+/**
+ * English (en) — every translation namespace EXCEPT `objects`:
+ * `apps`, `messages`, `dashboards`, `pages`, `picklists`.
+ *
+ * SPLIT AXIS (#1311): translation NAMESPACE first, then CRM DOMAIN FAMILY.
+ * Everything that is not `objects` lives in `./app.ts`; `objects` — 69-78% of
+ * every bundle — is one file per CRM domain family, and a detail object
+ * follows its master. A new row goes in the file for ITS family, never in
+ * whichever file is already open: that is how one file re-grows past the 70%
+ * advisory band `pnpm hygiene` prints. Full rule and rationale:
+ * `src/sales/translations/en.ts`.
+ *
+ * A namespace `TranslationData` gains later lands here too, and the room is
+ * measured: this file is the smaller half of the bundle, and the schema bounds
+ * how many namespaces can ever arrive.
+ */
+export const appSurface: Omit<TranslationData, 'objects'> = {
+  apps: {
+    crm_enterprise: {
+      label: 'HotCRM',
+      description: 'Customer relationship management for sales, service, and marketing',
+      navigation: {
+        group_activity: { label: 'Activity' },
+        group_sales: { label: 'Sales' },
+        group_order_to_cash: { label: 'Order to Cash' },
+        group_service: { label: 'Service' },
+        group_marketing: { label: 'Marketing' },
+        group_help: { label: 'Help' },
+      },
+    },
+  },
+  messages: {
+    'common.save': 'Save',
+    'common.cancel': 'Cancel',
+    'common.delete': 'Delete',
+    'common.edit': 'Edit',
+    'common.create': 'Create',
+    'common.search': 'Search',
+    'common.filter': 'Filter',
+    'common.export': 'Export',
+    'common.back': 'Back',
+    'common.confirm': 'Confirm',
+    'nav.sales': 'Sales',
+    'nav.service': 'Service',
+    'nav.marketing': 'Marketing',
+    'nav.products': 'Products',
+    'nav.analytics': 'Analytics',
+    'success.saved': 'Record saved successfully',
+    'success.converted': 'Lead converted successfully',
+    'confirm.delete': 'Are you sure you want to delete this record?',
+    'confirm.convert_lead': 'Convert this lead to account, contact, and opportunity?',
+    'error.required': 'This field is required',
+    'error.load_failed': 'Failed to load data',
+  },
+  dashboards: {
+    project_cost_dashboard: {
+      label: 'Project Cost',
+      description: 'Budget baseline vs planned vs actual cost across delivery projects',
+      widgets: {
+        total_budget: { title: 'Total Budget', description: 'Sum of approved budget baselines' },
+        total_labor_actual: { title: 'Labor Actual', description: 'Approved timesheet cost' },
+        total_travel_actual: { title: 'Travel Actual', description: 'Travel cost booked to projects' },
+        active_projects: { title: 'Active Projects', description: 'Delivery projects currently in flight' },
+        plan_vs_actual_by_project: { title: 'Budget vs Actual by Project', description: 'Baseline, planned and labor actual per delivery project' },
+        burn_by_project: { title: 'Budget Burn by Project', description: 'Baseline, actuals and burn per project' },
+      },
+    },
+    project_finance_dashboard: {
+      label: 'Project Finance',
+      description: 'Contract, invoiced, collected and purchase totals across delivery projects',
+      widgets: {
+        contract_total: { title: 'Contract Amount', description: 'Sum of contract amounts' },
+        invoiced_total: { title: 'Invoiced', description: 'Invoices issued, void excluded' },
+        collected_total: { title: 'Collected', description: 'Money received' },
+        purchase_total: { title: 'Purchase Contracts', description: 'Subcontract and procurement contracts, terminated excluded' },
+        finance_by_project: { title: 'Contract vs Invoiced vs Collected', description: 'Per delivery project' },
+        finance_table: { title: 'Project Finance Table', description: 'Contract, invoiced, collected, purchases, orders and the two ratios' },
+      },
+    },
+    sales_activity_dashboard: {
+      label: 'Sales Activity',
+      description: 'Who is talking to customers, how often, and which accounts have gone quiet',
+      widgets: {
+        interactions_held: { title: 'Interactions Logged', description: 'Calls and meetings that actually happened' },
+        meetings_booked: { title: 'Meetings Booked', description: 'Meetings on the calendar that have not happened yet' },
+        customer_minutes: { title: 'Customer Minutes', description: 'Total time spent in front of customers' },
+        tasks_completed: { title: 'Tasks Completed', description: 'Follow-ups closed out — the other half of activity' },
+        activity_by_rep: { title: 'Activity by Rep', description: 'Logged interactions per owner' },
+        activity_by_week: { title: 'Activity Volume by Week', description: 'Interactions per week' },
+        activity_mix: { title: 'Activity Mix', description: 'Calls vs meetings vs demos' },
+        activity_by_record_type: { title: 'Where the Activity Lands', description: 'Which part of the funnel is getting attention' },
+        deal_activity: { title: 'Interactions on Deals', description: 'Logged interactions linked to an opportunity' },
+        open_deals_for_activity: { title: 'Open Deals', description: 'Opportunities still in play' },
+        quiet_accounts_30: { title: 'Quiet 30+ Days', description: 'Active accounts with no logged interaction in a month' },
+        quiet_accounts_60: { title: 'Quiet 60+ Days', description: 'Two months of silence — the at-risk threshold' },
+        quiet_accounts_90: { title: 'Quiet 90+ Days', description: 'A quarter with no contact' },
+      },
+    },
+    crm_overview_dashboard: {
+      label: 'CRM Overview',
+      description: 'Revenue metrics, pipeline analytics, and deal insights',
+      widgets: {
+        total_revenue: { title: 'Total Revenue (Selected Period)', description: 'Closed-won revenue in the selected period' },
+        active_deals: { title: 'Open Deals (Selected Period)', description: 'Open opportunities closing in the selected period' },
+        won_deals: { title: 'Deals Won (Selected Period)', description: 'Closed-won deals in the selected period' },
+        avg_deal_size: { title: 'Avg Deal Size (Selected Period)', description: 'Average value of closed-won deals in the selected period' },
+        lead_source: { title: 'Lead Source', description: 'Pipeline value by acquisition channel' },
+        pipeline_by_stage: { title: 'Pipeline by Stage', description: 'Open opportunity value at each sales stage' },
+        top_products: { title: 'List Price by Category', description: 'Catalog list prices summed per product category, not sales' },
+        pipeline_by_owner: { title: 'Pipeline by Owner', description: 'Open pipeline value and deal count per sales rep' },
+      },
+    },
+    executive_dashboard: {
+      label: 'Executive Overview',
+      description: 'High-level revenue, customer, and pipeline KPIs for leadership',
+      widgets: {
+        total_revenue_ytd: { title: 'Total Revenue (YTD)', description: 'Closed-won revenue this year' },
+        total_accounts: { title: 'Active Accounts', description: 'Customers with at least one active relationship' },
+        total_contacts: { title: 'Total Contacts', description: 'People in our address book' },
+        open_leads: { title: 'Open Leads', description: 'Unconverted leads in the funnel' },
+        revenue_trend: { title: 'Revenue Trend', description: 'Closed-won revenue over the last 12 months' },
+        revenue_by_industry: { title: 'Revenue by Industry', description: 'YTD closed-won revenue split by customer industry' },
+        pipeline_by_stage: { title: 'Pipeline by Stage', description: 'Open opportunity value at each sales stage' },
+        new_accounts_by_month: { title: 'New Accounts', description: 'Account creation cadence — last 6 months' },
+        accounts_by_industry: { title: 'Accounts by Industry', description: 'Total annual revenue and account count per industry' },
+      },
+    },
+    sales_dashboard: {
+      label: 'Sales Performance',
+      description: 'Pipeline analytics, win rate trends, and rep performance',
+      widgets: {
+        total_pipeline_value: { title: 'Open Pipeline (Selected Period)', description: 'Value of open opportunities closing in the selected period' },
+        closed_won_qtd: { title: 'Closed Won (QTD)', description: 'Revenue closed this quarter' },
+        open_opportunities: { title: 'Open Deals (Selected Period)', description: 'Open opportunities closing in the selected period' },
+        avg_deal_size: { title: 'Avg Deal Size (QTD)', description: 'Average value of closed-won deals this quarter' },
+        pipeline_by_stage: { title: 'Pipeline by Stage', description: 'Open opportunity value at each sales stage' },
+        pipeline_by_forecast_category: { title: 'Pipeline by Forecast Category', description: 'Open pipeline grouped by sales forecast category' },
+        lead_source_breakdown: { title: 'Lead Source', description: 'Where our pipeline is coming from' },
+        open_pipeline_by_owner: { title: 'Open Pipeline by Owner', description: 'In-flight pipeline value, deal count and avg win probability per rep' },
+        quota_attainment_by_rep: { title: 'Quota Attainment by Rep', description: 'Current-quarter quota, closed revenue and attainment per rep. Fills once the nightly forecast snapshot opens the quarter and a manager sets each quota' },
+        pipeline_stage_by_source: { title: 'Pipeline by Stage × Lead Source', description: 'Cross-tab of open opportunity amount by stage and source' },
+        win_rate_12m: { title: 'Win Rate (12M)', description: 'Deals won as a share of all deals settled in the last 12 months' },
+        won_deals_12m: { title: 'Deals Won (12M)', description: 'The numerator of the win rate' },
+        lost_deals_12m: { title: 'Deals Lost (12M)', description: 'The other half of the win-rate denominator' },
+        win_rate_by_owner: { title: 'Win / Loss by Rep', description: 'Deals won, deals lost and win rate per rep — last 12 months' },
+        win_rate_by_lead_source: { title: 'Win / Loss by Lead Source', description: 'Which sources produce deals that actually close — last 12 months' },
+        loss_reason_breakdown: { title: 'Why We Lose', description: 'Lost deals by reason — last 12 months' },
+      },
+    },
+  },
+  pages: {
+    // The contract's two record pages (#2317): its working page and its print page.
+    contract_detail_page: {
+      label: 'Contract Detail',
+      description: "The contract's record page: the synthesized layout, with no slot overridden.",
+    },
+    contract_print_page: {
+      label: 'Contract Document',
+      description: 'The contract as a printable document: parties, term, value, billing, terms and signatures.',
+    },
+    account_detail_page: {
+      label: 'Account Detail',
+      description: 'Slotted account record page — custom header + persistent discussion feed.',
+      // Required, though it equals the page source: a missing `title` falls
+      // back to `label`, and the header then read "Account Detail" instead of
+      // the account's name (#2042).
+      title: '{name}',
+      subtitle: '{industry} · {type}',
+    },
+    account_workbench: {
+      label: 'Account Workbench',
+      description: 'Curated account list for the sales team: quick filters only, no view management.',
+    },
+    lead_detail_page: {
+      label: 'Lead Detail',
+      description: 'Comprehensive lead detail page with highlights, details, and related information',
+      title: '{first_name} {last_name}',
+      subtitle: '{company}',
+      components: {
+        lead_duplicate_alert_confirmed: { label: 'Confirmed Duplicate Alert' },
+        lead_duplicate_alert_suspected: { label: 'Suspected Duplicate Alert' },
+        lead_highlights: { label: 'Key Information' },
+        lead_path: { label: 'Lead Status Path' },
+        main_tabs: { label: 'Lead Information Tabs' },
+      },
+    },
+    opportunity_detail_page: {
+      label: 'Opportunity Detail',
+      description:
+        'Comprehensive opportunity detail page with path, highlights, details, and related lists',
+      title: '{name}',
+      subtitle: '{crm_account}',
+      components: {
+        opp_highlights: { label: 'Key Information' },
+        opp_stage_path: { label: 'Opportunity Stage Path' },
+        opp_approval_pending_manager: { label: 'Waiting on Sales Manager Approval' },
+        opp_approval_pending_director: { label: 'Waiting on Sales Manager and Sales Director Approval' },
+      },
+    },
+    sales_home_page: {
+      label: 'Sales Home',
+      description: 'Sales team home page with key metrics, my open work and upcoming events',
+      components: {
+        key_metrics: { title: 'Key Performance Indicators', label: 'Key Metrics' },
+        // `page:tabs` item labels, keyed by each item's `value` (#2284, spec 18.1.0,
+        // `pages.PAGE.components.TABS.items.VALUE.label`).
+        home_tabs: {
+          label: 'Home Tabs',
+          items: {
+            my_leads: { label: 'My Leads' },
+            my_open_deals: { label: 'My Open Deals' },
+            my_open_tasks: { label: 'My Open Tasks' },
+          },
+        },
+        upcoming_events: { title: 'Upcoming Events', label: 'Upcoming Events' },
+      },
+    },
+  },
+  // Shared option lists (`src/<pkg>/picklists/*.picklist.ts`), translated ONCE:
+  // every field that references a list (`Field.select({ picklist })`) inherits
+  // these option labels, so a field-level `options` entry exists only for a
+  // field with inline options of its own.
+  picklists: {
+    salutation: {
+      label: 'Salutation',
+      options: { mr: 'Mr.', ms: 'Ms.', mrs: 'Mrs.', dr: 'Dr.', prof: 'Prof.' },
+    },
+    industry: {
+      label: 'Industry',
+      options: {
+        technology: 'Technology', software: 'Software / SaaS', finance: 'Finance',
+        healthcare: 'Healthcare', retail: 'Retail', manufacturing: 'Manufacturing',
+        education: 'Education', real_estate: 'Real Estate', media: 'Media & Entertainment',
+        logistics: 'Logistics', hospitality: 'Hospitality', energy: 'Energy & Utilities',
+        government: 'Government', nonprofit: 'Non-profit', other: 'Other',
+      },
+    },
+    lead_source: {
+      label: 'Lead Source',
+      options: {
+        web: 'Web', referral: 'Referral', event: 'Event / Trade Show',
+        webinar: 'Webinar', partner: 'Partner', advertisement: 'Advertisement',
+        paid_search: 'Paid Search', social: 'Social Media', content: 'Content / Blog',
+        cold_call: 'Cold Call', email_campaign: 'Email Campaign', other: 'Other',
+      },
+    },
+    payment_terms: {
+      label: 'Payment Terms',
+      options: {
+        net_15: 'Net 15', net_30: 'Net 30', net_60: 'Net 60',
+        net_90: 'Net 90', due_on_receipt: 'Due on Receipt',
+      },
+    },
+    related_to_type: {
+      label: 'Related To Type',
+      options: {
+        crm_account: 'Account', crm_contact: 'Contact', crm_opportunity: 'Opportunity',
+        crm_lead: 'Lead', crm_case: 'Case',
+      },
+    },
+  },
+  // Approval flows (#2060 item 13, #2284): the flow's own `label`, and each
+  // `approval` node's step label under `approvals.<node>.label` (spec 18.1.0),
+  // the step name an approval request shows the submitter and the approvers.
+  // The source copy, verbatim from the flow files, so the other three packs
+  // translate a key en also carries. Screen-flow copy is not repeated here:
+  // en reads it from the flow source.
+  flows: {
+    account_approval: {
+      label: 'Account Approval',
+      approvals: { account_review: { label: 'Account Review' } },
+    },
+    lead_conversion_approval: {
+      label: 'Lead Conversion Approval',
+      approvals: { conversion_review: { label: 'Lead Conversion Review' } },
+    },
+    opportunity_approval: {
+      label: 'Large Deal Approval',
+      approvals: {
+        manager_review: { label: 'Sales Manager Review' },
+        director_signoff: { label: 'Sales Director Sign-off' },
+      },
+    },
+    opportunity_approval_on_create: {
+      label: 'Large Deal Approval (on create)',
+      approvals: {
+        manager_review: { label: 'Sales Manager Review' },
+        director_signoff: { label: 'Sales Director Sign-off' },
+      },
+    },
+    opportunity_qualification_approval: {
+      label: 'Opportunity Qualification Approval',
+      approvals: { qualification_review: { label: 'Qualification Review' } },
+    },
+    opportunity_status_change_approval: {
+      label: 'Opportunity Status Change Approval',
+      approvals: { status_review: { label: 'Status Change Review' } },
+    },
+  },
+};

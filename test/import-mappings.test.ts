@@ -3,8 +3,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { unknownImportMappingTargets } from '@objectstack/spec/data';
+import { applyMappingToRows, buildFieldMetaMap, coerceRow, type MappingArtifactLike } from '@objectstack/core';
 import { REPO_ROOT } from './helpers/repo-root';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
+import { offeredOptions } from './helpers/stack-picklists';
 
 /**
  * Import-mapping integrity guards (#603).
@@ -30,8 +33,9 @@ import stack from '../objectstack.config';
  *      again with a green import. The header sets are asserted to match
  *      exactly, in both directions.
  *
- * Everything here reads the REGISTERED stack (`objectstack.config.ts`), so a
- * mapping that is authored but never registered fails too — an unregistered
+ * Everything here reads the REGISTERED stacks (the four package stacks
+ * `objectstack.config.ts` composes, through `test/helpers/composed-stack.ts`),
+ * so a mapping that is authored but never registered fails too — an unregistered
  * mapping is a 404 `MAPPING_NOT_FOUND` at import time.
  */
 
@@ -59,10 +63,15 @@ const mappingByName = (name: string): AnyRec => {
 const first = (v: string | string[]): string => (Array.isArray(v) ? v[0] : v);
 const all = (v: string | string[]): string[] => (Array.isArray(v) ? v : [v]);
 
-/** Header row of a template CSV, honouring quoted cells. */
-const templateHeaders = (file: string): string[] => {
-  const text = readFileSync(join(REPO_ROOT, 'assets/import-templates', file), 'utf8');
-  const line = text.split('\n')[0].replace(/\r$/, '');
+/** The non-blank lines of a template CSV (the templates carry no multi-line cell). */
+const templateLines = (file: string): string[] =>
+  readFileSync(join(REPO_ROOT, 'assets/import-templates', file), 'utf8')
+    .split('\n')
+    .map((l) => l.replace(/\r$/, ''))
+    .filter((l) => l.trim() !== '');
+
+/** One CSV line → its cells, honouring quoted cells. */
+const csvCells = (line: string): string[] => {
   const out: string[] = [];
   let cur = '';
   let quoted = false;
@@ -78,6 +87,19 @@ const templateHeaders = (file: string): string[] => {
   }
   out.push(cur);
   return out;
+};
+
+/** Header row of a template CSV. */
+const templateHeaders = (file: string): string[] => csvCells(templateLines(file)[0]);
+
+/** Data rows of a template CSV, keyed by header — the shape the import door parses a file into. */
+const templateRows = (file: string): Array<Record<string, string>> => {
+  const [head, ...body] = templateLines(file);
+  const headers = csvCells(head);
+  return body.map((line) => {
+    const cells = csvCells(line);
+    return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
+  });
 };
 
 const templateDataRowCount = (file: string): number =>
@@ -109,10 +131,15 @@ describe('import mappings — registration', () => {
 describe('import mappings — every target is a real field', () => {
   it.each(EXPECTED)('$name maps only fields that exist on $object', ({ name, object }) => {
     const m = mappingByName(name);
-    const fields = objectByName.get(object)!.fields as Record<string, AnyRec>;
-    const unknown = m.fieldMapping
-      .flatMap((e: AnyRec) => all(e.target))
-      .filter((t: string) => !(t in fields));
+    const def = objectByName.get(object)!;
+    // The platform's own verdict, the one the import endpoint asks before any
+    // row: a target is a field, or `field.part` naming a declared part of a
+    // compound field (`mailing_address.street`, #1836). It answers "no
+    // opinion" (empty) for an object with no readable field map, so the
+    // field map is asserted non-empty first.
+    expect(Object.keys((def.fields ?? {}) as AnyRec).length).toBeGreaterThan(0);
+    const unknown = unknownImportMappingTargets(m.fieldMapping, def)
+      .map((miss) => `${miss.path} "${miss.target}" (${miss.reason})`);
     expect(unknown, `unknown target field(s) on ${object}`).toEqual([]);
   });
 
@@ -153,7 +180,8 @@ describe('import mappings — transforms the import path can execute', () => {
     for (const entry of m.fieldMapping as AnyRec[]) {
       if (entry.transform !== 'map') continue;
       const target = first(entry.target);
-      const options: AnyRec[] = fields[target]?.options ?? [];
+      // A shared-list field (`industry`, `lead_source`, #2000) offers its picklist's options.
+      const options: AnyRec[] = offeredOptions(fields[target]) ?? [];
       expect(options.length, `${target} is mapped with 'map' but declares no options`).toBeGreaterThan(0);
       const legal = new Set(options.map((o) => o.value));
       for (const [source, mapped] of Object.entries(entry.params?.valueMap ?? {})) {
@@ -209,6 +237,35 @@ describe('import mappings — a template CSV imports without hand-mapping', () =
 
   it.each(EXPECTED)('$template ships at least 50 example rows', ({ template }) => {
     expect(templateDataRowCount(template)).toBeGreaterThanOrEqual(50);
+  });
+
+  it.each(EXPECTED)('every cell of $template coerces through $name with no error', async ({ name, object, template }) => {
+    // The template is the first file a new customer imports, so every one of
+    // its rows must land (#1998: six `Department: "HR"` rows failed with
+    // `invalid_option`, because the import matches an option VALUE exactly and
+    // only its LABEL case-insensitively). The two steps below are the import
+    // door's own, from `@objectstack/core`: the mapping pipeline (value maps,
+    // compound-part assembly) and the per-cell coercion that produces
+    // `invalid_option`. Reference cells (Account Name, owner email) are
+    // resolved against the database at the door and are out of reach here —
+    // with no resolver, coercion passes them through untouched.
+    const m = mappingByName(name);
+    const def = objectByName.get(object)!;
+    const rows = templateRows(template);
+    expect(rows.length).toBe(templateDataRowCount(template));
+
+    const mapped = applyMappingToRows(rows, m as MappingArtifactLike, { objectSchema: def });
+    if (!mapped.ok) throw new Error(`${name} refused before any row: ${mapped.code}`);
+    expect(mapped.rows.length).toBe(rows.length);
+
+    const metaMap = buildFieldMetaMap(def);
+    const failures: string[] = [];
+    for (const [i, row] of mapped.rows.entries()) {
+      const { errors } = await coerceRow(row, metaMap, {});
+      // `row` counts data rows from 1, as the import report does.
+      for (const e of errors) failures.push(`row ${i + 1} ${e.field} ${e.code}: ${e.message}`);
+    }
+    expect(failures, `${template} rows that fail cell coercion`).toEqual([]);
   });
 
   it.each(EXPECTED)('$name covers every field $object requires on create', ({ name, object }) => {

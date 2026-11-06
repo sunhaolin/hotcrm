@@ -1,0 +1,47 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+/**
+ * Sales flow barrel.
+ *
+ * A flow lives with the object its start node names (plan item 5: an item
+ * lives with the object it is authored against), so the four directories each
+ * carry their own. The registration ORDER — which used to be the `allFlows`
+ * array at the bottom of `src/flows/index.ts` — is not here: the order flows
+ * reach a package's `defineStack()` is written straight into the artifact, and
+ * the app package registers three directories' flows (sales, revenue,
+ * marketing) in one interleaved order no per-directory list can reproduce, so
+ * that list — `appFlows` — lives in `objectstack.composition.ts`, where all
+ * three are visible. The service module orders its own, in
+ * `src/service/index.ts`.
+ *
+ * `_billing-endpoint.ts` and `_guarded-iteration.ts` are the shared flow
+ * sources every package reads along its edge into sales.
+ */
+export { LeadConversionFlow } from './lead-conversion.flow';
+export { LeadConversionAccountRevenueFlow } from './lead-conversion-account-revenue.flow';
+export { LeadConversionApprovalFlow } from './lead-conversion-approval.flow';
+export { AccountApprovalFlow } from './account-approval.flow';
+export { ScheduleFollowUpFlow } from './schedule-followup.flow';
+export { OpportunityApprovalFlow, OpportunityApprovalOnCreateFlow } from './opportunity-approval.flow';
+export { OpportunityStatusChangeApprovalFlow } from './opportunity-status-change-approval.flow';
+export { OpportunityQualificationApprovalFlow } from './opportunity-qualification-approval.flow';
+export { OpportunityStagnationFlow } from './opportunity-stagnation.flow';
+export { ForecastSnapshotFlow } from './forecast-snapshot.flow';
+export { LeadAssignmentFlow } from './lead-assignment.flow';
+export { ContactWelcomeFlow } from './contact-welcome.flow';
+export { OpportunityWonAlertFlow } from './opportunity-won-alert.flow';
+export { TaskUrgentAlertFlow } from './task-urgent-alert.flow';
+export { TaskDueReminderFlow } from './task-due-reminder.flow';
+export { BillingHandoffClosedWonFlow } from './billing-handoff-closed-won.flow';
+export { ContractRenewalFlow } from './contract-renewal.flow';
+export { ContractExpirationFlow } from './contract-expiration.flow';
+export { BillingHandoffContractActivatedFlow } from './billing-handoff-contract-activated.flow';
+export { ContractDraftedNoticeFlow } from './contract-drafted-notice.flow';
+// Demo PSA approvals (epic #2) — one export per flow: a flows barrel
+// re-exports flows and nothing else (`test/flow-registration-completeness`),
+// and `appFlows` in `objectstack.composition.ts` lists each by name.
+export {
+  LeadApprovalFlow, OpportunityInitiationFlow,
+  PresalesProjectApprovalFlow, DeliveryProjectApprovalFlow, TimesheetApprovalFlow,
+  BudgetAdjustmentApprovalFlow, BusinessTripApprovalFlow, LeaveRequestApprovalFlow, CostPlanApprovalFlow,
+} from './psa-approvals.flow';

@@ -21,10 +21,13 @@ HotCRM also has product-facing documentation under [`content/docs/`](../content/
 | Local, artifact, and marketplace deployment | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Versioning and distribution | [RELEASE_STRATEGY.md](RELEASE_STRATEGY.md) |
 | Module boundaries and the ADR-0130 multi-package split plan | [architecture/module-split-plan.md](architecture/module-split-plan.md) |
+| The PSA (project delivery and cost) module — standard-product design and the first ADR-0130 module cut | [architecture/psa-module-plan.md](architecture/psa-module-plan.md) |
+| The order-to-cash module — what sales sees after the contract: collection plan, invoice and payment status (REQ-0007) | [architecture/order-to-cash-module-plan.md](architecture/order-to-cash-module-plan.md) |
 | Upgrade, seeding, and version alignment | [MAINTENANCE.md](MAINTENANCE.md) |
 | Customer requirements and product disposition | [requirements/README.md](requirements/README.md) |
 | Where object and field metadata is declared | [developers/api_reference.md](developers/api_reference.md) |
 | ObjectStack code examples | [developers/code_examples.md](developers/code_examples.md) |
+| How amounts, quantities, percentages and dates are shown, and which key carries each | [developers/number-formats.md](developers/number-formats.md) |
 
 ## Documentation Boundaries
 
@@ -37,23 +40,18 @@ HotCRM also has product-facing documentation under [`content/docs/`](../content/
 
 ## Current Repository Shape
 
-HotCRM is a single ObjectStack marketplace app. The source of truth is [`objectstack.config.ts`](../objectstack.config.ts), which registers metadata from `src/`.
+HotCRM is a single ObjectStack marketplace app, shipped as one release artifact that carries four packages (ADR-0130 D4): `app.objectstack.hotcrm`, the `type: app` package, and the modules `app.objectstack.hotcrm.service`, `app.objectstack.hotcrm.revenue` and `app.objectstack.hotcrm.marketing`. The source of truth is [`objectstack.config.ts`](../objectstack.config.ts), which composes the four package stacks [`objectstack.composition.ts`](../objectstack.composition.ts) builds from `src/`.
 
 ```text
 hotcrm/
 ├── objectstack.config.ts
+├── objectstack.composition.ts
 ├── src/
-│   ├── objects/        # ObjectSchema.create metadata, object lifecycle hooks
-│   ├── actions/        # UI actions and AI-callable action bodies
-│   ├── flows/          # ObjectStack automation flows
-│   ├── skills/         # AI skill definitions (skills-only surface)
-│   ├── dashboards/     # Dashboard metadata
-│   ├── reports/        # Report metadata
-│   ├── views/, pages/  # App UI metadata
-│   ├── profiles/       # Permission sets
-│   ├── sharing/        # Sharing rules and positions
-│   ├── translations/   # Locale bundles
-│   └── data/           # Seed data
+│   ├── sales/          # the `type: app` package (ADR-0130) — a directory under src/ IS a package
+│   ├── service/        # the service module — case, knowledge_article, article_feedback
+│   ├── revenue/        # the revenue module — product, opportunity_line_item, quote, quote_line_item
+│   ├── marketing/      # the marketing module — campaign, campaign_member
+│   └── docs/           # package docs (ADR-0046), read from this fixed path by the builder
 ├── content/docs/       # Product documentation site content
 └── docs/               # Internal documentation
 ```
@@ -67,7 +65,7 @@ When changing metadata or runtime behavior:
 1. Update the closest product docs in `content/docs/` if the user-facing behavior changed.
 2. Update `docs/STATUS.md` when counts or verification commands change.
 3. Leave `docs/developers/api_reference.md` alone when object fields change — the `fields:`
-   block of `src/objects/*.object.ts` is the reference, and that page points at it rather
+   block of `src/*/objects/*.object.ts` is the reference, and that page points at it rather
    than restating it. *Supersedes the instruction to hand-update that page, which asked for
    the field transcript since removed from it — 2026-08-31 ruling, item 5.*
 4. Update `docs/developers/code_examples.md` when ObjectStack conventions change.

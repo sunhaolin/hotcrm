@@ -1,8 +1,8 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import { TimesheetViews } from '../src/views/timesheet.view';
-import { Timesheet } from '../src/objects/timesheet.object';
+import { TimesheetViews } from '../src/sales/views/timesheet.view';
+import { Timesheet } from '../src/sales/objects/timesheet.object';
 
 /**
  * A timesheet's PRICE is derived, so it is not authored.

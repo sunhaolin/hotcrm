@@ -3,9 +3,16 @@
 import { describe, it, expect } from 'vitest';
 import { compileCelToFilter } from '@objectstack/formula';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
-import { COUNTRY_TERRITORY, TERRITORY_OPTIONS, territoryFor } from '../src/objects/_territory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import stack from './helpers/composed-stack';
+import { COUNTRY_TERRITORY, TERRITORY_OPTIONS, territoryFor } from '../src/sales/objects/_territory';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * Every declared sharing rule must actually be SEEDED (#621).
@@ -102,6 +109,8 @@ const MAPPABLE_RECIPIENTS = new Set([
   'position',
   'business_unit',
   'unit_and_subordinates',
+  // Record-relative (#14103); mapped and seeded since plugin-sharing #15072.
+  'field',
 ]);
 
 /** `P` compiles to `{ dialect: 'cel', source }`. */
@@ -175,7 +184,10 @@ describe('every declared sharing rule is actually seeded', () => {
       const outcome = seedOutcome(rule);
       if (!outcome.seeded) continue; // reported by the test above
       for (const field of outcome.fields) {
-        if (!(field in (object.fields ?? {}))) {
+        // `id` is the platform's primary key — a real, flat column on every
+        // object, declared by none. `forecast_manager_sharing` filters on it
+        // (`record.id != ""`), the match-every-row predicate #2277 ruled.
+        if (field !== 'id' && !(field in (object.fields ?? {}))) {
           bad.push(`${rule.name}: filters on "${field}", which ${rule.object} does not declare`);
         }
       }
@@ -388,6 +400,9 @@ describe('what a sharing condition may contain (platform compiler, measured)', (
  *
  * ### Measured on `@objectstack/driver-memory` 17.1.0 — the card's half is dead
  *
+ * (Since the maintainer's ruling on #2092 the witnesses below run on
+ * `driver-sqlite-wasm`, which answers every one of them the same way.)
+ *
  * `$not` no longer reaches mingo: the driver declares `$and`/`$or`/`$not` and
  * refuses anything else with a coded `INVALID_FILTER` instead of passing it
  * through. Measured directly, both the authored form and the portable
@@ -407,10 +422,9 @@ function columnsFor(rule: AnyRec, names: string[]): AnyRec {
 }
 
 /**
- * One record each rule must reach, and records it must not.
- *
- * Persistence is off: the memory driver otherwise writes
- * `.objectstack/data/memory-driver.json` and would carry rows between runs.
+ * One record each rule must reach, and records it must not. Each rule gets a
+ * fresh in-memory SQLite database (`filename: ':memory:'`), so no row carries
+ * between runs.
  */
 const RULE_WITNESSES: Record<string, { reaches: AnyRec; misses: AnyRec[] }> = {
   account_team_sharing: {
@@ -441,19 +455,10 @@ const RULE_WITNESSES: Record<string, { reaches: AnyRec; misses: AnyRec[] }> = {
     reaches: { priority: 'critical', is_closed: false },
     misses: [{ priority: 'high', is_closed: false }, { priority: 'critical', is_closed: true }],
   },
-  case_unassigned_triage_sharing: {
-    // `owner_id == null` is the one rule whose witness turns on a null, and
-    // null semantics are exactly where drivers have been measured to disagree
-    // (objectstack#11065). The assertion is on the ROW that comes back, never
-    // on a null value — an unowned open case is reachable, an owned one is not.
-    // The second clause is `status`, not `is_closed` (#1145) — the derived flag
-    // never flips on `resolved`, so it could not express "no longer live work".
-    reaches: { owner_id: null, status: 'new' },
-    misses: [
-      { owner_id: 'usr_1', status: 'new' },
-      { owner_id: null, status: 'resolved' },
-      { owner_id: null, status: 'closed' },
-    ],
+  case_escalated_from_sharing: {
+    // Reaches every open case; WHO it grants is the case's own `escalated_from`.
+    reaches: { is_closed: false },
+    misses: [{ is_closed: true }],
   },
   opportunity_sales_sharing: {
     reaches: { stage: 'proposal', amount: 250000 },
@@ -466,6 +471,14 @@ const RULE_WITNESSES: Record<string, { reaches: AnyRec; misses: AnyRec[] }> = {
   opportunity_executive_sharing: {
     reaches: { stage: 'negotiation', amount: 500000 },
     misses: [{ stage: 'closed_won', amount: 500000 }, { stage: 'proposal', amount: 100 }],
+  },
+  forecast_manager_sharing: {
+    // Match-every-row by design (#2277): the edit half of the manager's
+    // org-wide forecast grant. There is no row it may miss, so the witness is
+    // that it reaches an ordinary row at all — a `!= ""` the driver could not
+    // run, or one that compiled to match-nothing, returns zero rows here.
+    reaches: { period: 'quarter' },
+    misses: [],
   },
 };
 
@@ -499,14 +512,15 @@ describe('every seeded rule EXECUTES on the configured driver, not merely compil
       const witness = RULE_WITNESSES[name];
       const columns = Object.keys(Object.assign({}, witness.reaches, ...witness.misses));
       const ql = await ObjectQL.create({
-        datasources: { default: new InMemoryDriver({ persistence: false }) },
+        datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
         objects: {
           [rule!.object as string]: { name: rule!.object, fields: columnsFor(rule!, columns) },
         } as never,
       });
+      await ql.syncSchemas();
 
       try {
-        const api = ql.createContext({ isSystem: true });
+        const api = ql.createContext({ isSystem: true, tenantId: ORG });
         const repo = () => api.object(rule!.object as string);
         const reached = (await repo().insert(witness.reaches as never)) as AnyRec;
         for (const miss of witness.misses) await repo().insert(miss as never);
@@ -539,14 +553,16 @@ describe('every seeded rule EXECUTES on the configured driver, not merely compil
  * measured separately and a platform upgrade that breaks either one names
  * which.
  *
- * The expected row sets are MEASURED against `driver-memory` 17.1.0, not
- * reasoned about — including the two null-sensitive rows, which is the family
- * objectstack#11065 records drivers disagreeing on (`avg` over a boolean
- * answers `null` on memory and a number on sqlite). Note what was measured
- * here: `Cyan` has a null `type`, and both `!= "customer"` and
- * `!(… == "customer")` DO return it. That is this driver's answer, written
- * down; if another driver answers differently, that difference belongs in a
- * card, not in a `??` in this file.
+ * The expected row sets are MEASURED, not reasoned about — first against
+ * `driver-memory` 17.1.0, and re-measured on `driver-sqlite-wasm`
+ * 18.0.0-next.0 when the maintainer's ruling on #2092 moved every test onto
+ * SQL: every row answered identically on both. That includes the two
+ * null-sensitive rows, which is the family objectstack#11065 records drivers
+ * disagreeing on (`avg` over a boolean answers `null` on memory and a number
+ * on sqlite). Note what was measured here: `Cyan` has a null `type`, and both
+ * `!= "customer"` and `!(… == "customer")` DO return it. That is this driver's
+ * answer, written down; if another driver answers differently, that
+ * difference belongs in a card, not in a `??` in this file.
  */
 describe('what the configured driver does with a compiled condition (measured)', () => {
   const FIXTURE = [
@@ -555,9 +571,9 @@ describe('what the configured driver does with a compiled condition (measured)',
     { name: 'Cyan', type: null, is_active: true, billing_country: 'JP', annual_revenue: 1000, territory: 'other' },
   ];
 
-  const makeAccounts = () =>
-    ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+  const makeAccounts = async () => {
+    const ql = await ObjectQL.create({
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_account: {
           name: 'crm_account',
@@ -569,6 +585,9 @@ describe('what the configured driver does with a compiled condition (measured)',
         },
       } as never,
     });
+    await ql.syncSchemas();
+    return ql;
+  };
 
   it.each([
     ['equality + conjunction', 'record.type == "customer" && record.is_active == true', ['Acme']],
@@ -590,7 +609,7 @@ describe('what the configured driver does with a compiled condition (measured)',
 
     const ql = await makeAccounts();
     try {
-      const api = ql.createContext({ isSystem: true });
+      const api = ql.createContext({ isSystem: true, tenantId: ORG });
       for (const row of FIXTURE) await api.object('crm_account').insert(row as never);
       const rows = (await api.object('crm_account').find({
         where: (compiled as unknown as { filter: unknown }).filter,
@@ -607,13 +626,18 @@ describe('what the configured driver does with a compiled condition (measured)',
     // widening the result set. That is what makes "the rows came back" a
     // trustworthy signal above — and it is the platform behaviour that
     // replaced the mingo passthrough this card was filed against.
+    //
+    // Asserted by its envelope. The SQL driver withholds the offending key
+    // from the message (it names it in the server log only, because this
+    // predicate is not marked as author-written), so the `$nor` text the
+    // memory driver's message carried is not part of the contract here.
     const ql = await makeAccounts();
     try {
-      const api = ql.createContext({ isSystem: true });
+      const api = ql.createContext({ isSystem: true, tenantId: ORG });
       for (const row of FIXTURE) await api.object('crm_account').insert(row as never);
       await expect(
         api.object('crm_account').find({ where: { $nor: [{ type: 'customer' }] } as never }),
-      ).rejects.toThrow(/\$nor/);
+      ).rejects.toMatchObject({ code: 'INVALID_FILTER', status: 400 });
     } finally {
       await ql.close();
     }

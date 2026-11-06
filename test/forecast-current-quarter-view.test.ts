@@ -2,8 +2,15 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import stack, { localePacks } from './helpers/composed-stack';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * ═══ HOUSE RULE: a view label may not promise a time scope its filter does
@@ -90,9 +97,6 @@ import stack from '../objectstack.config';
 type AnyRec = Record<string, any>;
 
 const views: AnyRec[] = (stack as any).views ?? [];
-const localePacks: [string, AnyRec][] = ((stack as any).translations ?? []).flatMap(
-  (bundle: AnyRec) => Object.entries(bundle) as [string, AnyRec][],
-);
 
 /**
  * Phrases that claim a CURRENT calendar period, per period and per locale, and
@@ -512,7 +516,7 @@ describe('this_quarter_forecasts returns the current quarter, on the real engine
 
   beforeAll(async () => {
     ql = await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_forecast: {
           name: 'crm_forecast',
@@ -527,15 +531,10 @@ describe('this_quarter_forecasts returns the current quarter, on the real engine
         },
       } as never,
     });
-    // ⛔ No `tenantId` here. From @objectstack/driver-memory 17.4.0 the in-memory
-    // driver REFUSES any call the engine hands a tenant scope
-    // (`MemoryMultiTenantUnsupportedError`, objectstack#16589): it has no
-    // row-level tenant isolation, so answering would read across organizations.
-    // This fixture holds one implicit tenant and measures nothing about tenancy,
-    // so the honest shape is not to ask an unisolating driver to isolate. ⛔ Do
-    // NOT reach for `tenancy: { enabled: false }` instead — the refusal names that
-    // as the wrong answer for data that really is per-organization.
-    api = ql.createContext({ isSystem: true, userId: 'usr_1' } as never);
+    await ql.syncSchemas();
+    // No `tenantId` here: this fixture holds one implicit tenant and measures
+    // nothing about tenancy.
+    api = ql.createContext({ isSystem: true, tenantId: ORG, userId: 'usr_1' } as never);
 
     // The current quarter, as the 03:00 sweep opens it — one row per owner.
     await api.object('crm_forecast').insert({
@@ -661,7 +660,7 @@ describe('closing_this_quarter returns this quarter only, on the real engine (#7
 
   beforeAll(async () => {
     ql = await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_opportunity: {
           name: 'crm_opportunity',
@@ -678,15 +677,10 @@ describe('closing_this_quarter returns this quarter only, on the real engine (#7
         },
       } as never,
     });
-    // ⛔ No `tenantId` here. From @objectstack/driver-memory 17.4.0 the in-memory
-    // driver REFUSES any call the engine hands a tenant scope
-    // (`MemoryMultiTenantUnsupportedError`, objectstack#16589): it has no
-    // row-level tenant isolation, so answering would read across organizations.
-    // This fixture holds one implicit tenant and measures nothing about tenancy,
-    // so the honest shape is not to ask an unisolating driver to isolate. ⛔ Do
-    // NOT reach for `tenancy: { enabled: false }` instead — the refusal names that
-    // as the wrong answer for data that really is per-organization.
-    api = ql.createContext({ isSystem: true, userId: 'usr_1' } as never);
+    await ql.syncSchemas();
+    // No `tenantId` here: this fixture holds one implicit tenant and measures
+    // nothing about tenancy.
+    api = ql.createContext({ isSystem: true, tenantId: ORG, userId: 'usr_1' } as never);
     for (const f of fixtures) {
       await api.object('crm_opportunity').insert({
         name: f.name, close_date: f.close_date, forecast_category: f.forecast_category,

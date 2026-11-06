@@ -14,7 +14,7 @@ description: 產品目錄、合約生命週期、續約，以及高價值折扣�
 | 領域 | 作用 |
 | --- | --- |
 | [**產品**](/zh-Hant/docs/revenue/products) | 你所銷售內容的目錄——名稱、編碼、標價、SKU。 |
-| [**合約**](/zh-Hant/docs/revenue/contracts) | 與客戶簽署的協議——條款、價值、續約。 |
+| [**價格表**](/zh-Hant/docs/revenue/price-books) | 一個產品不止一個價格——標準價、夥伴價、區域價、促銷價。 |
 | [**審批**](/zh-Hant/docs/revenue/approvals) | 針對高價值折扣的多步驟審批。 |
 | [**計費交接**](/zh-Hant/docs/revenue/billing-handoff) | CRM 範圍的終點——把贏單商機與已啟用合約交給計費系統的兩個出站事件。 |
 
@@ -46,11 +46,13 @@ Renewal task ──► Renewal opportunity
 - **自動蓋簽署日期**——同一次啟用會在**合約**上寫入當天日期，且僅當合約上還沒有簽署日期時才蓋。**帳戶**上不會蓋任何日期：沒有 *Customer Since* 欄位，也沒有任何其它名字的欄位記錄帳戶何時成為客戶，所以做同期群分析只能讀合約的**簽署日期**或**開始日期**。
 - **每日到期掃描**——午夜時分，超過結束日期的合約被標記為 *Expired* 並通知所有者。
 - **每日續約提醒**——當合約進入它自己的通知視窗（**續約通知（天）**，不改就是 30 天）時，**合約負責人**會收到一個續約任務和一條提醒（站內收件匣 + 郵件）。除他之外無人被通知——帳戶所有者不會，帳戶上的續約負責人也不會。
-- **折扣審批**——超過 $500K 的商機自動路由給經理 + 總監簽批。
+- **大額交易審批**——$100K 及以上的商機自動路由給經理審核；高於 $500K 的還要總監簽批。
 
 ## 在哪裡找到這些內容
 
 HotCRM 應用裡**沒有 Products（產品）群組**。產品目錄在側邊欄上唯一的入口是 **Sales**（銷售）群組下的 **Products**（產品）——產品目錄是報價行項目與商機行項目所指向的主資料，因此與其餘收入側物件放在一起。除了這一項和全域搜尋之外，只能從報價或商機的明細列反查到產品記錄。
+
+**Price Books**（價格表）在同一群組裡緊跟 **Products**（產品）：目錄的價格就放在目錄旁邊。價格表條目沒有自己的入口，要從它所屬的價格表進入。
 
 **Contracts**（合約）不在 **Sales**（銷售）群組下。衡量一個專案的每一個數字都要對著簽署後的合約算——交付專案要指定它的銷售合約，開票、收款、專案毛利率都讀合約額——所以這個條目排在 **Project Finance**（專案財務）群組的第一位，在 Invoices、Collections、Purchase Contracts、Sales Orders 之前。它依舊是整個應用側邊欄裡通往合約的唯一入口。
 
@@ -63,10 +65,11 @@ HotCRM 應用裡**沒有 Products（產品）群組**。產品目錄在側邊欄
 - **Action History**（操作歷史）——側邊欄上沒有叫這個名字的條目。審批的操作留痕本身是真實資料，由審批外掛以 `sys_approval_action` 儲存，但本應用裡沒有任何導覽條目能打開它。
 - **Processes**（流程）——是被**刻意刪掉**的，不是漏掉的：任何已安裝的外掛裡都不存在 `sys_approval_process` 物件，該條目的 *requires object* 守衛會在每一次安裝裡把它永遠隱藏。除非將來有這樣一個物件上線，它不會回來。
 
-**Master Data**、**Marketing** 與 **Insights** 三個群組**預設摺疊**——與 Sales、Projects、Project Finance、My Work、Activity、Service 不同，它們不會在應用載入時自動展開。先把群組點開，再判斷某樣東西在不在這裡。**Inbox** 已經不在其列：**My Work** 載入時就是展開的，待辦審批不點任何東西就能看見。
+**Master Data**、**Reports** 與 **Help** 三個群組**預設摺疊**——其餘群組都會在應用載入時自動展開，所以 **My Work** 下 **Inbox** 裡的待辦審批不點任何東西就能看見。
 
 ## 從這裡開始
 
 - [產品](/zh-Hant/docs/revenue/products)——你用來構建報價的目錄。
-- [合約](/zh-Hant/docs/revenue/contracts)——簽署的協議。
+- [價格表](/zh-Hant/docs/revenue/price-books)——標準價格表，以及與它並列的其他價格表。
+- [合約](/zh-Hant/docs/sales/contracts)——簽署的協議。
 - [審批](/zh-Hant/docs/revenue/approvals)——折扣審批流程。

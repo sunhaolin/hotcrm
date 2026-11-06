@@ -2,11 +2,19 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { SysUser } from '@objectstack/platform-objects';
-import stack from '../objectstack.config';
-import { ATTENDEE_RESOLUTIONS } from '../src/objects/event_attendee.object';
-import { eventAttendeesFromContacts, eventAttendeesFromLeads } from '../src/data/service.seed';
+import stack from './helpers/composed-stack';
+import { ATTENDEE_RESOLUTIONS } from '../src/sales/objects/event_attendee.object';
+import { eventAttendeesFromContacts, eventAttendeesFromLeads } from '../src/sales/data/activity.seed';
+import { registerStackPicklists } from './helpers/stack-picklists';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * `attendee_type` and the column it names must agree (#740).
@@ -104,6 +112,13 @@ describe('the four resolutions are one declared correspondence', () => {
     }
   });
 
+  it('shows every resolution column in the attendee panel on a meeting (#2338 item 8)', () => {
+    // The panel reads `relatedListColumns` on this lookup. Without it, it fell
+    // back to `highlightFields` and showed no name at all.
+    const columns = (EVENT_ATTENDEE.fields.crm_event.relatedListColumns ?? []) as string[];
+    expect(columns.slice(0, ATTENDEE_RESOLUTIONS.length)).toEqual(ATTENDEE_RESOLUTIONS.map((r) => r.column));
+  });
+
   it('reads every resolution column in both rules, and pairs it with its own type', () => {
     // The mechanical guard against a fifth resolution being added to the table
     // while a hand-written rule branch is forgotten — the #740 failure exactly.
@@ -150,7 +165,7 @@ describe('the acceptance surface, on a real engine', () => {
 
   beforeEach(async () => {
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_event_attendee: EVENT_ATTENDEE,
         crm_event: byName('crm_event'),
@@ -160,7 +175,9 @@ describe('the acceptance surface, on a real engine', () => {
         sys_user: SysUser,
       } as never,
     })) as never;
-    api = ql.createContext({ isSystem: true });
+    registerStackPicklists(ql);
+    await ql.syncSchemas();
+    api = ql.createContext({ isSystem: true, tenantId: ORG });
 
     const event = await api.object('crm_event').insert({
       subject: 'Contract negotiation',

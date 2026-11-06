@@ -10,8 +10,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { ExpressionEngine } from '@objectstack/formula';
-import costPlanHooks from '../src/objects/cost_plan.hook';
-import { CostPlan } from '../src/objects/cost_plan.object';
+import costPlanHooks from '../src/sales/objects/cost_plan.hook';
+import { CostPlan } from '../src/sales/objects/cost_plan.object';
 import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
 
 const USER = { id: 'user_1' };

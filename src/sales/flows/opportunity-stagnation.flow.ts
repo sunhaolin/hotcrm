@@ -1,0 +1,211 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { P, cel } from '@objectstack/spec';
+import type * as Automation from '@objectstack/spec/automation';
+import { guarded } from './_guarded-iteration';
+import { optionLabelsByLocale } from './_option-labels';
+import { CrmTranslations } from '../translations';
+type Flow = Automation.Flow;
+
+/**
+ * Opportunity Stagnation — scheduled "deal-rot" detector.
+ *
+ * This daily sweep is what acts on `stage_entry_date` (stamped by the lifecycle
+ * hook on insert and on every stage change): it finds open opportunities
+ * stalled longer than the threshold, nudges the owner and books a follow-up
+ * task so the deal re-enters the working set. A deal with an
+ * open stall task is skipped (idempotency), so each stall episode produces
+ * exactly one nudge; completing the task re-arms it.
+ *
+ * Capabilities exercised: scheduled trigger + `loop` + `notify` + task
+ * creation. Pipeline-hygiene automation is one of the highest-ROI uses of
+ * Flows in a sales org.
+ */
+const STALE_THRESHOLD_DAYS = 14;
+
+/**
+ * The stall task's title. It names the deal — except a PRIVATE one.
+ *
+ * A deal flagged Private is visible only to its owner (`src/docs/crm_admin_access.md`),
+ * and that promise covers what the app derives from it. Who may read the stall
+ * task is decided by `crm_task`'s own grants and its owner, not by the deal's,
+ * so the title is written for every reader of the task: a private deal's task
+ * reads {@link PRIVATE_STALL_SUBJECT}, without the name. The owner is still
+ * nudged (the notification goes to the owner alone, who can read the deal), and
+ * `related_to_opportunity` still links the deal for whoever can read it.
+ *
+ * `is_private` is `has()`-guarded and compared to `true`: `currentOpp` is a raw
+ * driver row (see the totality note in `contract-renewal.flow.ts`), and only the
+ * field's own boolean counts as private. `name` stays bare as it always was:
+ * `crm_opportunity.name` is required + notNull.
+ * `test/private-opportunity-derived-records.test.ts` pins both titles.
+ */
+const PRIVATE_STALL_SUBJECT = 'Advance stalled deal (private opportunity)';
+
+/**
+ * `crm_task.subject` caps at 255 and the engine ENFORCES it, while
+ * `crm_opportunity.name` declares no cap: a deal named longer than 233
+ * characters made `'Advance stalled deal: ' + name` overflow, the insert was
+ * refused, and the deal got no stall task (#2210). The title is cut the way its
+ * hook siblings cut theirs (`opportunity.hook.ts`, `case.hook.ts`): over 255,
+ * the first 254 characters and an ellipsis.
+ *
+ * `size()` guards `substring()` because the installed CEL `substring` throws
+ * when its end index runs past the string, so it cannot be called unguarded on
+ * a short name. Both are platform CEL (cel-js built-ins on the platform's
+ * evaluator); nothing here re-implements a cap the engine owns.
+ *
+ * The gate below matches on this SAME expression, so a long-named deal's
+ * already-open task is found and the sweep stays idempotent for it.
+ */
+const SUBJECT_CAP = 255;
+const NAMED_STALL_SUBJECT = cel`size('Advance stalled deal: ' + currentOpp.name) > ${SUBJECT_CAP}
+  ? ('Advance stalled deal: ' + currentOpp.name).substring(0, ${SUBJECT_CAP - 1}) + '…'
+  : 'Advance stalled deal: ' + currentOpp.name`;
+// The private branch wraps the named expression's own source, so the title
+// written and the title the gate looks for cannot drift apart.
+const STALL_SUBJECT: typeof NAMED_STALL_SUBJECT = {
+  ...NAMED_STALL_SUBJECT,
+  source: `has(currentOpp.is_private) && currentOpp.is_private == true
+  ? ${JSON.stringify(PRIVATE_STALL_SUBJECT)} : (${NAMED_STALL_SUBJECT.source})`,
+};
+
+export const OpportunityStagnationFlow: Flow = {
+  name: 'opportunity_stagnation',
+  label: 'Stalled Deal Alert',
+  description: 'Daily sweep: nudge owners about open opportunities stuck in-stage beyond the threshold.',
+  type: 'schedule',
+  status: 'active',
+  // Scheduled runs have no trigger user, so under the default runAs:'user' the
+  // data nodes execute UNSCOPED anyway. Declare runAs:'system' to make that
+  // RLS-bypassing elevation explicit and intended (ADR-0049).
+  runAs: 'system',
+
+  variables: [],
+
+  nodes: [
+    { id: 'start', type: 'start', label: 'Start (daily 07:30)', config: { schedule: '30 7 * * *' } },
+    {
+      id: 'query_stalled', type: 'get_record', label: 'Find Stalled Deals',
+      config: {
+        objectName: 'crm_opportunity',
+        // ⛔ Predicate on the STORED `stage_entry_date`, never on
+        // `days_in_stage`: the latter is a formula, computed after the query, so
+        // as a filter key it addresses a column that does not exist.
+        // `entry < today − N`
+        // is the same test as `days_in_stage > N`, computed by a CEL value
+        // envelope (the `isoDate(daysAgo(n))` spelling; contract-renewal uses
+        // its `daysFromNow` twin).
+        // A row with a null `stage_entry_date` does not satisfy `$lt` and is
+        // skipped, preserving "nothing has stagnated yet" for unstamped rows.
+        filter: {
+          stage: { $nin: ['closed_won', 'closed_lost'] },
+          stage_entry_date: { $lt: cel`isoDate(daysAgo(${STALE_THRESHOLD_DAYS}))` },
+        },
+        limit: 500,
+        outputVariable: 'oppList',
+      },
+    },
+    {
+      id: 'loop_opps', type: 'loop', label: 'For Each Stalled Deal',
+      config: {
+        collection: cel`oppList`,
+        iteratorVariable: 'currentOpp',
+        body: guarded('opp', {
+          nodes: [
+            {
+              // Idempotency gate: a still-open stall task means this deal was
+              // already nudged. ⛔ Without it the daily sweep re-notifies and
+              // re-creates an identical task every morning for as long as the
+              // deal stays stalled — an unbounded duplicate pile-up.
+              //
+              // The gate matches BOTH title shapes (see `STALL_SUBJECT`): the
+              // title follows `is_private`, which can change while a stall task
+              // is open, and a gate that matched only today's shape would book
+              // a second task for the same stall episode.
+              id: 'find_existing_task', type: 'get_record', label: 'Already Nudged?',
+              config: {
+                objectName: 'crm_task',
+                filter: {
+                  related_to_opportunity: cel`currentOpp.id`,
+                  subject: { $in: [NAMED_STALL_SUBJECT, PRIVATE_STALL_SUBJECT] },
+                  status: { $nin: ['completed'] },
+                },
+                outputVariable: 'existingStallTask',
+              },
+            },
+            {
+              // Gateway only — the predicate lives on the out-edge.
+              id: 'check_not_nudged', type: 'decision', label: 'First Nudge?',
+            },
+            {
+              // Owner only: `{currentOpp.owner_id.manager}` cannot traverse a
+              // lookup in flow templates — it interpolates to the literal
+              // "undefined" (cf. opportunity_won_alert).
+              id: 'notify_owner', type: 'notify', label: 'Nudge Owner',
+              config: {
+                recipients: [cel`has(currentOpp.owner_id) ? currentOpp.owner_id : null`],
+                channels: ['inbox', 'email'],
+                topic: 'deal_stalled',
+                template: 'crm.deal_stalled',
+                // The stage by its label, one per language (#2391): each
+                // locale's template reads its own key (`_option-labels.ts`).
+                templateData: {
+                  name: cel`currentOpp.name`,
+                  stage_label: optionLabelsByLocale(CrmTranslations, 'crm_opportunity', 'stage', 'currentOpp.stage'),
+                  days_in_stage: cel`currentOpp.days_in_stage`,
+                },
+                actionUrl: '/crm_opportunity/{{currentOpp.id}}',
+                // A schedule run has no organization: since 18.0.0-next.1 the
+                // notification takes its owner from this record (objectstack#23284).
+                sourceObject: 'crm_opportunity',
+                sourceId: cel`currentOpp.id`,
+              },
+            },
+            {
+              id: 'create_followup_task', type: 'create_record', label: 'Create Follow-up Task',
+              config: {
+                objectName: 'crm_task',
+                fields: {
+                  subject: STALL_SUBJECT,
+                  type: 'follow_up', priority: 'high', status: 'not_started',
+                  due_date: cel`isoDate(daysFromNow(2))`,
+                  owner_id: cel`has(currentOpp.owner_id) ? currentOpp.owner_id : null`,
+                  // ORG PARTITION. A schedule trigger carries no
+                  // organization, so without this the nudge task is born
+                  // `organization_id` NULL — outside every org partition.
+                  // Upstream ruling objectstack#6155 Q2=A assigns the answer to
+                  // the flow author; the task belongs to the org of the deal it
+                  // nudges. `crm_opportunity` carries the column, so the read
+                  // resolves. It is deliberately UNGUARDED: on 17.x a source
+                  // lacking it interpolated to `undefined` and landed as NULL
+                  // while looking declared; CEL fails the iteration instead, and
+                  // a `has()` guard would write that NULL back.
+                  organization_id: cel`currentOpp.organization_id`,
+                  related_to_type: 'crm_opportunity',
+                  related_to_opportunity: cel`currentOpp.id`,
+                },
+              },
+            },
+          ],
+          edges: [
+            { id: 'b1', source: 'find_existing_task', target: 'check_not_nudged', type: 'default' },
+            // "Already nudged" has no edge, so the loop moves to the next item.
+            // This edge is the ONLY site for the predicate: a `decision`
+            // node's singular `config.condition` is never read, so a node copy
+            // would be inert metadata free to drift away from what runs.
+            { id: 'b2', source: 'check_not_nudged', target: 'notify_owner', type: 'conditional', condition: P`existingStallTask == null`, label: 'First nudge' },
+            { id: 'b3', source: 'notify_owner', target: 'create_followup_task', type: 'default' },
+          ],
+        }),
+      },
+    },
+    { id: 'end', type: 'end', label: 'End' },
+  ],
+
+  edges: [
+    { id: 'e1', source: 'start', target: 'query_stalled', type: 'default' },
+    { id: 'e2', source: 'query_stalled', target: 'loop_opps', type: 'default' },
+    { id: 'e3', source: 'loop_opps', target: 'end', type: 'default' },
+  ],
+};
