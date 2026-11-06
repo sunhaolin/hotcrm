@@ -49,3 +49,9 @@ public/_studio/
 test-results/
 playwright-report/
 *.v0.bak
+
+# AI-tool session state (WorkBuddy auto-memory) — tool scratch, not project content
+.workbuddy/
+
+# Office-suite lock files: WPS/LibreOffice drop a `.~<name>` beside an open document
+.~*
