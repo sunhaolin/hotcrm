@@ -1,13 +1,13 @@
 // Copyright (c) 2026 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import timesheetHooks from '../src/objects/timesheet.hook';
-import presalesProjectHooks from '../src/objects/presales_project.hook';
-import deliveryProjectHooks from '../src/objects/delivery_project.hook';
-import leaveRequestHooks from '../src/objects/leave_request.hook';
-import businessTripHooks from '../src/objects/business_trip.hook';
-import travelCostHooks from '../src/objects/travel_cost.hook';
-import opportunityHooks from '../src/objects/opportunity.hook';
+import timesheetHooks from '../src/sales/objects/timesheet.hook';
+import presalesProjectHooks from '../src/sales/objects/presales_project.hook';
+import deliveryProjectHooks from '../src/sales/objects/delivery_project.hook';
+import leaveRequestHooks from '../src/sales/objects/leave_request.hook';
+import businessTripHooks from '../src/sales/objects/business_trip.hook';
+import travelCostHooks from '../src/sales/objects/travel_cost.hook';
+import opportunityHooks from '../src/sales/objects/opportunity.hook';
 import { makeHarness, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
 import { makeSandboxEngine, runHookBody } from './helpers/action-sandbox';
 

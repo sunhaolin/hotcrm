@@ -3,31 +3,32 @@
 import { describe, it, expect } from 'vitest';
 import { AgentSchema } from '@objectstack/spec/ai';
 import { ComponentPropsMap, RecordActivityProps, RecordRelatedListProps } from '@objectstack/spec/ui';
-import stack from '../objectstack.config';
-import {
-  type AnyRec,
-  objects,
-  pages,
-  views,
-  objectNames,
-  profileNames,
-  PLATFORM_OBJECTS,
-  fieldsOf,
-  walk,
-} from './helpers/metadata-fixtures';
+import stack, { type AnyRec, walk } from './helpers/composed-stack';
+import { hotcrmStack, platformObjectNames, registeredFields } from './helpers/verify-stack';
+
+const objects: AnyRec[] = (stack as AnyRec).objects ?? [];
+const pages: AnyRec[] = (stack as AnyRec).pages ?? [];
+const views: AnyRec[] = (stack as AnyRec).views ?? [];
+const objectNames = new Set(objects.map((o) => o.name as string));
+
+// The runtime half of a reference check — which objects and columns the booted
+// app actually registers — is read from the platform's registry, not a roster.
+const runtime = await hotcrmStack();
+const PLATFORM_OBJECTS = platformObjectNames(runtime, objectNames);
+const fieldsOf = (object: string): string[] => registeredFields(runtime, object);
 
 /**
  * Dangling-reference guards for UI metadata.
  *
  * `os validate` / `build` check metadata SHAPE — that a page declares a
  * `relationshipField`, that a view section lists `fields` — but never that the
- * named field, object, or profile actually exists. Every reference below was a
- * real defect found by clicking through the app, and each failed silently: the
- * related list rendered "0", the form section rendered blank, the profile
- * assignment matched nobody. Nothing errored, so nothing was noticed.
+ * named field or object actually exists. Every reference below was a real
+ * defect found by clicking through the app, and each failed silently: the
+ * related list rendered "0", the form section rendered blank. Nothing errored,
+ * so nothing was noticed.
  *
- * These tests resolve every UI reference against the objects/profiles the app
- * really defines, so the next bad name fails in CI instead of in a demo.
+ * These tests resolve every UI reference against the objects the app really
+ * defines, so the next bad name fails in CI instead of in a demo.
  *
  * ---
  *
@@ -41,7 +42,7 @@ import {
  * family so a reader lands on the guard in one hop:
  *
  *   `test/view-references.test.ts`
- *     view field references resolve · priority queues sort by urgency, not
+ *     priority queues sort by urgency, not
  *     alphabetically · filter template tokens are resolvable · row colors and
  *     kanban groups key off real option values · every canonical opportunity
  *     stage reaches the UI that enumerates stages · every named list view is
@@ -60,7 +61,9 @@ import {
  *   `test/bulk-action-dispatch.test.ts` (split earlier, by #815)
  *     the `bulkActionDefs` / `execution: 'aggregate'` dispatch contract
  *
- * The derivations all four share live in `test/helpers/metadata-fixtures.ts`.
+ * The derivations all four share live in `test/helpers/composed-stack.ts` (the
+ * authored collections) and the platform's registry, read through
+ * `@objectstack/verify`'s handle (`test/helpers/verify-stack.ts`).
  * The split moved text only: no assertion, helper or fixture changed, and the
  * suite runs the same 70 tests it ran before.
  */
@@ -121,11 +124,12 @@ describe('page component references resolve', () => {
    *
    * What made all three survive review is that NOTHING red went off. The props
    * bag is `z.record(z.string(), z.unknown())` on `PageComponent`, so a rejected
-   * rule is dropped, not refused: `objectstack build` prints an advisory
+   * rule is dropped, not refused: `objectstack build` printed an advisory
    * `component-props-invalid` / `component-props-unknown-key` warning among ~80
-   * others and still exits 0, the artifact still writes, and the list still
-   * renders — unfiltered. A heading reading "Open Tasks" over every task,
-   * completed ones included, is the whole symptom.
+   * others and still exited 0, the artifact still wrote, and the list still
+   * rendered — unfiltered. A heading reading "Open Tasks" over every task,
+   * completed ones included, is the whole symptom. (Since @objectstack 18.0.0
+   * both rules are errors under `objectstack lint --strict`, exit 1; hotcrm#1583.)
    *
    * So the legal shape comes from the contract itself, never from a list copied
    * into this file — the same discipline the `record:activity` guard below
@@ -327,25 +331,24 @@ describe('page component references resolve', () => {
   });
 
   /**
-   * ── The general form of the two guards above (#1269) ──────────────────────
+   * ── Every page component's props bag: the platform parses it (#1583) ──────
    *
-   * EVERY page component's `properties` bag, parsed against ITS OWN entry in
-   * the spec's `ComponentPropsMap`. The two guards above pin one prop each
-   * (`record:related_list.filter`, `record:activity.types`) because those were
-   * the props somebody had already got wrong; this one closes the class they
-   * belong to, and it does not depend on anyone noticing the next instance.
+   * The two guards above pin one prop each (`record:related_list.filter`,
+   * `record:activity.types`) because those were the props somebody had already
+   * got wrong. The general form, every component's `properties` parsed against
+   * its own `ComponentPropsMap` entry, used to live here too (#1269). It is
+   * retired: `objectstack lint --strict` (`pnpm lint`) now refuses the whole
+   * class as `component-props-invalid` / `component-props-unknown-key` errors,
+   * exit 1, on every case that sweep covered (top level, nested and in a slot,
+   * an absent bag, an unknown key, a wrong type, a retired key, and a nested
+   * bag that is `null` or an array: objectstack#22212, #24991). Measured by
+   * ablation on @objectstack 18.1.0 in hotcrm#1583, which holds the table.
    *
-   * WHY A GUARD AND NOT A BUILD CHECK. `PageComponent.properties` is
-   * `z.record(z.string(), z.unknown())`, so a key the component does not
-   * declare is DROPPED, not refused: the page builds, the artifact writes, the
-   * component renders — minus whatever the key was meant to configure.
-   * `objectstack build` does report each one as an advisory
-   * `component-props-invalid` / `component-props-unknown-key` warning and still
-   * exits 0, and its printer caps the detail list at 50 entries with no
-   * "…and N more" line (objectstack#11529), so the visible count is a floor,
-   * never a total. 75 of these had accumulated across all eight pages by the
-   * time anyone counted. Zero printed warnings is corroboration; THIS is the
-   * measurement.
+   * WHAT IS LEFT HERE. Lint can only judge a type it has a contract for: a
+   * component type with no `ComponentPropsMap` row is parsed by nothing, and a
+   * type outside the platform's reserved namespaces is not even reported as
+   * unknown (hotcrm#1583, probe p13). That is this app's rule, not the
+   * platform's, so the guard below stays.
    *
    * WHAT COUNTS AS A PAGE COMPONENT. `walk` yields every object carrying a
    * string `type`, which on these pages includes things that are not
@@ -363,21 +366,20 @@ describe('page component references resolve', () => {
    * Component types this app authors that the spec declares NO props contract
    * for, so nothing can parse them. Shrink-only: adding a line needs a reason.
    *
-   *   list-view — the embedded saved-view panel `home.page.ts` builds for each
-   *   Sales Home tab. `ComponentPropsMap` has no `list-view` row, so its
-   *   `properties` (objectName / viewType / columns / filter / sort) are
-   *   checked by the field- and view-reference guards in this file and in
-   *   `test/view-references.test.ts`, and by nothing schema-shaped.
+   * Empty since @objectstack/spec 18.0.0-next.4, whose `ComponentPropsMap`
+   * gained a `list-view` row (changeset `22444-list-view-component-props-row`):
+   * the embedded saved-view panels `home.page.ts` builds for each Sales Home
+   * tab, the one line this set held, are now parsed by lint.
    *
    * The staleness half matters as much as the list: when the spec grows a row
-   * for one of these, the exemption must go so the type joins the parse below.
+   * for one of these, the exemption must go so lint's parse covers the type.
    */
-  const NO_PROPS_CONTRACT = new Set(['list-view']);
+  const NO_PROPS_CONTRACT = new Set<string>();
 
   it('every page component type has a props contract to parse against', () => {
     expect(
       PAGE_COMPONENTS.length,
-      'no page components were found — this guard and the one below would be vacuous',
+      'no page components were found — this guard would be vacuous',
     ).toBeGreaterThan(0);
 
     const map = ComponentPropsMap as Record<string, unknown>;
@@ -390,7 +392,7 @@ describe('page component references resolve', () => {
     ];
     expect(
       uncovered,
-      `page component types with no ComponentPropsMap row — the guard below cannot check these:\n  ${uncovered.join('\n  ')}`,
+      `page component types with no ComponentPropsMap row — lint cannot check these:\n  ${uncovered.join('\n  ')}`,
     ).toEqual([]);
 
     // An exemption outlives its reason only if nobody checks. Both directions:
@@ -406,162 +408,54 @@ describe('page component references resolve', () => {
   });
 
   /**
-   * Props the components drop, that are NOT this card's to fix — each named,
-   * dated and owned, so the debt is visible instead of invisible.
+   * A logged call or meeting shows on the record it was logged on (#2071).
    *
-   * Keyed `page.name/component.id :: prop`, where `prop` is the issue path
-   * with array indices collapsed to `[]` (so a finding survives its list being
-   * reordered, and the five rejected entries of one `actions` array are one
-   * line rather than five).
+   * `log_call` and `log_meeting` write their `sys_activity` row as type
+   * `completed` — the `task` feed kind — and the console's activity timeline
+   * drops every such row unless the block that renders it sets
+   * `showCompleted: true` (`RecordActivityProps.showCompleted`, default
+   * `false`). So a record page whose feed leaves it off shows the rep a
+   * success toast and then no call: measured on the case and the deal, whose
+   * Activity tabs never listed one, and on the account, whose Discussion feed
+   * — its only timeline — never did either.
    *
-   *   …/*_header :: actions[] — RESOLVED, exemption removed (#1653). The entry
-   *   rested on a renderer argument: `PageHeaderProps.actions` is
-   *   `z.array(z.string())` ("Action IDs"), objectui's `page:header` renderer
-   *   was measured consuming ActionDef OBJECTS, and the exemption held the
-   *   source on the renderer's side. Maintainer ruling of 2026-09-06, verbatim
-   *   and untranslated — 「元数据项目不应该依赖 @object-ui/components」 — settles
-   *   which side moves: this repo declares zero `@object-ui/*` dependencies, so
-   *   a renderer's current behaviour was never its authority, and cannot even
-   *   be measured from here. The four headers now author action ids per
-   *   `@objectstack/spec` 17.3.0 and conform. Renderer-side id resolution is
-   *   objectui#6252 / #7182 (ruled 2026-09-02, option C, "ids are the
-   *   contract"), not this repo's.
-   *
-   *   …/*_details :: sections[].collapsible — RESOLVED UPSTREAM, exemption
-   *   removed. The disagreement pointed the other way: the key WORKED (objectui
-   *   spreads the authored section into `DetailSection`, which renders a
-   *   `<Collapsible>` card) while `RecordDetailsProps` refused to declare it, so
-   *   the spec's own rule — the delivered shape is the contract, which is how
-   *   `alwaysShowStrip`, `maxVisible`, `inlineEdit` and `hideFields` came to be
-   *   declared — said the DECLARATION should move. Filed as
-   *   objectstack-ai/objectstack#11289 (via #1249); it landed in the platform
-   *   17.3.0 line, and the 17.2.0 -> 17.3.0 upgrade is what surfaced it here:
-   *   `os validate` stopped raising the two `collapsible` advisories and this
-   *   guard's own stale-exemption arm went red naming both lines. Nothing in
-   *   this repo changed shape — the schema caught up with the renderer.
-   *
-   *   sales_home_page/ai_briefing :: description — `page:card` does not declare
-   *   `description`, so the paragraph renders nowhere; the fix is to move the
-   *   copy into an `element:text` child. It is pinned where it is by the #1002
-   *   persona guard at the bottom of this file, which reads
-   *   `properties.description` and encodes a maintainer ruling, so relocating
-   *   it means rewriting a ruling-backed guard. Filed as #1216.
+   * The pages are found, not listed: every authored record page of an object
+   * the app registers `log_call` / `log_meeting` on. Each must carry at least
+   * one feed block, and every feed block on it must show completed rows — on
+   * `record:activity` directly, on `record:chatter` / `record:discussion`
+   * under `feed`. An object with no authored page (`crm_contact`) renders the
+   * platform's default page, which this app cannot configure; that half is
+   * the platform's, reported from #2071.
    */
-  const KNOWN_UNCONFORMING = new Set([
-    'sales_home_page/ai_briefing :: description',
-  ]);
+  it('every record page of an object that logs calls and meetings shows completed activity', () => {
+    const LOGGING = new Set(['log_call', 'log_meeting']);
+    const loggingObjects = new Set(
+      (((stack as AnyRec).actions ?? []) as AnyRec[])
+        .filter((a) => LOGGING.has(a.name) && typeof a.objectName === 'string')
+        .map((a) => a.objectName as string),
+    );
+    const recordPages = pages.filter((p) => p.type === 'record' && loggingObjects.has(p.object));
+    // Not vacuous: the lead, case, deal and account pages are all such pages.
+    expect(recordPages.length, 'no authored record page of a logging object was found').toBeGreaterThan(0);
 
-  it("every page component's properties parse against its own ComponentPropsMap entry", () => {
-    const map = ComponentPropsMap as Record<string, { safeParse: (v: unknown) => any }>;
-
-    /** Issue path → prop label: numeric segments collapse to `[]`. */
-    const propLabel = (path: readonly unknown[], key?: string): string => {
-      const parts = path.map((p) => (typeof p === 'number' ? '[]' : String(p)));
-      const joined = parts.reduce<string>(
-        (acc, p) => (p === '[]' ? `${acc}[]` : acc ? `${acc}.${p}` : p),
-        '',
+    const showsCompleted = (c: AnyRec): boolean =>
+      c.type === 'record:activity' ? c.properties?.showCompleted === true : c.properties?.feed?.showCompleted === true;
+    const bad: string[] = [];
+    for (const p of recordPages) {
+      const feeds = [...walk(p.regions), ...walk(p.slots)].filter((c) =>
+        ['record:activity', 'record:chatter', 'record:discussion'].includes(c.type),
       );
-      if (!key) return joined || '<component>';
-      return joined ? `${joined}.${key}` : key;
-    };
-
-    const found = new Set<string>();
-    const bad: string[] = [];
-    const pagesSeen = new Set<string>();
-    const parsedTypes = new Set<string>();
-    let parsed = 0;
-
-    for (const page of pages) {
-      for (const c of [...walk(page.regions), ...walk(page.slots)] as AnyRec[]) {
-        if (typeof c.id !== 'string') continue;
-        const schema = map[c.type];
-        if (!schema) continue; // covered by the guard above
-        parsed++;
-        pagesSeen.add(page.name);
-        parsedTypes.add(c.type as string);
-        const result = schema.safeParse(c.properties ?? {});
-        if (result.success) continue;
-        for (const issue of result.error.issues) {
-          // `unrecognized_keys` reports every rejected key of one object in a
-          // single issue, so it expands to one finding per key.
-          const keys: (string | undefined)[] =
-            issue.code === 'unrecognized_keys' ? (issue.keys as string[]) : [undefined];
-          for (const key of keys) {
-            const where = `${page.name}/${c.id} :: ${propLabel(issue.path, key)}`;
-            found.add(where);
-            if (KNOWN_UNCONFORMING.has(where)) continue;
-            bad.push(`${where} [${c.type}] ${issue.message}`);
-          }
-        }
+      if (feeds.length === 0) bad.push(`${p.name}: no activity feed block — a logged call has nowhere to appear`);
+      for (const c of feeds.filter((f) => !showsCompleted(f))) {
+        bad.push(`${p.name} › ${c.id}: ${c.type} hides completed rows — set showCompleted: true${c.type === 'record:activity' ? '' : ' under feed'}`);
       }
     }
-
-    // ── Non-vacuity ──────────────────────────────────────────────────────
-    // Three ways a later refactor could empty this rule while it kept
-    // reporting clean, each closed by a check that does not read the same
-    // expression the loop above does.
-    //
-    // 1. Nothing parsed at all.
-    expect(parsed, 'no page component was parsed — the walk found nothing').toBeGreaterThan(0);
-
-    // 2. A whole page stops being reached. The expectation is derived
-    //    STRUCTURALLY — a page composes components iff it declares regions or
-    //    slots — so it stays true if the walk itself breaks. `account_workbench`
-    //    is correctly absent: an ADR-0047 interface page carries no components
-    //    at all (`regions: []`), its list surface being generated from
-    //    `interfaceConfig`. `account_detail` is the case this catches: it is
-    //    slots-only (`regions: []`), so a walk that stopped descending into
-    //    `slots` would drop it and nothing else would notice.
-    const composes = pages.filter((p) => (p.regions?.length ?? 0) > 0 || !!p.slots);
-    expect(
-      composes.map((p) => p.name).filter((n) => !pagesSeen.has(n)),
-      'pages that declare regions or slots but contributed no parsed component — the walk no longer reaches them',
-    ).toEqual([]);
-
-    // 3. The walk stops DESCENDING and only enumerates each region's top
-    //    level — which would still parse a dozen components and report clean.
-    //    Every `record:related_list` in this app sits three levels down (tab
-    //    item → accordion item → children), so its presence is the proof that
-    //    nested components are still being reached.
-    expect(
-      parsedTypes.has('record:related_list'),
-      'no nested record:related_list was parsed — the walk is no longer descending into tab/accordion children',
-    ).toBe(true);
-
-    expect(bad, `props the component drops:\n  ${bad.join('\n  ')}`).toEqual([]);
-
-    // Keyed on still being BROKEN, not on still existing: a header that starts
-    // conforming must drop its line, or the next bad prop inherits the cover.
-    const stale = [...KNOWN_UNCONFORMING].filter((k) => !found.has(k));
-    expect(
-      stale,
-      `exemptions whose prop now conforms — delete these lines:\n  ${stale.join('\n  ')}`,
-    ).toEqual([]);
+    expect(bad, `record pages that hide a logged call or meeting:\n  ${bad.join('\n  ')}`).toEqual([]);
   });
 
-  it('record:details / record:highlights / record:path only name real fields on the page object', () => {
-    const bad: string[] = [];
-    for (const page of pages) {
-      if (!page.object || !objectNames.has(page.object)) continue;
-      const known = fieldsOf(page.object);
-      for (const c of [...walk(page.regions), ...walk(page.slots)]) {
-        const named: string[] = [];
-        if (c.type === 'record:highlights') named.push(...(c.properties?.fields ?? []));
-        if (c.type === 'record:details') {
-          for (const s of c.properties?.sections ?? []) named.push(...(s.fields ?? []));
-        }
-        if (c.type === 'record:path' && c.properties?.statusField) {
-          named.push(c.properties.statusField);
-        }
-        for (const f of named) {
-          if (typeof f === 'string' && !known.includes(f)) {
-            bad.push(`${page.name} / ${c.id}: "${page.object}" has no field "${f}"`);
-          }
-        }
-      }
-    }
-    expect(bad, `dangling record-component fields:\n  ${bad.join('\n  ')}`).toEqual([]);
-  });
+  // ⚰️ RETIRED (#1583): "record:details / record:highlights / record:path only
+  // name real fields on the page object". `objectstack lint --strict` reports
+  // each as `page-field-unknown`, and `pnpm lint` fails on it.
 
   it('record:path stages are real options of the status field', () => {
     const bad: string[] = [];
@@ -582,16 +476,6 @@ describe('page component references resolve', () => {
       }
     }
     expect(bad, `dangling path stages:\n  ${bad.join('\n  ')}`).toEqual([]);
-  });
-
-  it('assignedProfiles name real profiles', () => {
-    const bad: string[] = [];
-    for (const page of pages) {
-      for (const p of page.assignedProfiles ?? []) {
-        if (!profileNames.has(p)) bad.push(`${page.name}: profile "${p}" is not defined`);
-      }
-    }
-    expect(bad, `dangling profile assignments:\n  ${bad.join('\n  ')}`).toEqual([]);
   });
 
   /**
@@ -680,67 +564,38 @@ describe('page component references resolve', () => {
    * "Today's Schedule" with nothing under them. A third, `ai_briefing`, looked
    * bound but was not — its paragraph was authored as `properties.description`,
    * a key `page:card` does not declare, so the props schema stripped it and
-   * the card rendered as a title too.
+   * the card rendered as a title too (#1581 moved it into an `element:text`
+   * child).
    *
    * That last one is why this rule reads DECLARED content keys rather than
    * "does the props bag have something in it": `PageComponent.properties` is
    * an open bag, so an undeclared key is a success receipt for configuration
    * that renders nothing. A container is full when it holds components.
    *
-   * # The exemption list is the honest half
+   * # No exemptions
    *
    * #771 declined to widen its rule to sidebars because a rule that goes red
-   * on things the PR is not fixing gets suppressed rather than fixed. The way
-   * out is not a narrower rule, it is a rule that covers everything with the
-   * known-open cases named, dated and owned — so the debt is visible instead
-   * of invisible. Each entry needs an issue, and the assertion below fails
-   * when an entry is no longer reachable, so a fixed defect cannot leave its
-   * exemption behind to cover the next one.
+   * on things the PR is not fixing gets suppressed rather than fixed. #734
+   * widened it anyway, naming its known-open cases in an exemption list that
+   * went red when an entry outlived its defect. #1581 fixed one entry and
+   * #2118 retired the page holding the last, so the list went with them:
+   * every container on every page is held to the rule.
    */
   it('no page region renders an empty container', () => {
-    /**
-     * `page.name/component.id` of containers that are known-empty and NOT this
-     * card's to fix. Shrink-only: adding a line needs an issue and a reason.
-     *
-     *   utility_bar_page/quick_notes — an empty `page:card` on a page #734
-     *   deliberately does not touch (that page is the reproduction of an
-     *   upstream renderer gap for `global:*` component types, and editing it
-     *   would destroy the evidence). Filed as #1215.
-     *
-     *   sales_home_page/ai_briefing — carries its copy under
-     *   `properties.description`, which `page:card` does not declare, so it
-     *   renders as a title too. The fix is to move that copy into an
-     *   `element:text` child — but the copy is pinned where it is by the
-     *   #1002 persona guard below, which reads `properties.description` and
-     *   encodes a maintainer ruling, so moving it is its own card rather than
-     *   a rider on this one. Filed as #1216.
-     */
-    const KNOWN_EMPTY = new Set(['utility_bar_page/quick_notes', 'sales_home_page/ai_briefing']);
-
     const bad: string[] = [];
-    const emptyFound = new Set<string>();
     let containersSeen = 0;
     for (const page of pages) {
       for (const c of [...walk(page.regions), ...walk(page.slots)] as AnyRec[]) {
         if (!CONTAINERS.has(c.type)) continue;
         containersSeen++;
         if (hasContent(c)) continue;
-        const where = `${page.name}/${c.id}`;
-        emptyFound.add(where);
-        if (KNOWN_EMPTY.has(where)) continue;
-        bad.push(`${where}: ${c.type} "${c.properties?.title ?? c.label ?? ''}" has no body — it renders as a title over nothing`);
+        bad.push(`${page.name}/${c.id}: ${c.type} "${c.properties?.title ?? c.label ?? ''}" has no body — it renders as a title over nothing`);
       }
     }
 
     // Same reason as `tabsSeen` above: the rule must not pass by finding nothing.
     expect(containersSeen, 'no page containers were inspected — the walk found nothing').toBeGreaterThan(0);
     expect(bad, `containers that render blank:\n  ${bad.join('\n  ')}`).toEqual([]);
-
-    // An exemption outlives its defect only if nobody checks. Keyed on still
-    // being EMPTY, not on still existing: a `quick_notes` that gets a body
-    // must drop its line here, or the next empty card inherits the cover.
-    const stale = [...KNOWN_EMPTY].filter((k) => !emptyFound.has(k));
-    expect(stale, `exemptions whose container is no longer empty — delete these lines:\n  ${stale.join('\n  ')}`).toEqual([]);
   });
 
   /**
@@ -758,7 +613,7 @@ describe('page component references resolve', () => {
       hasContent({ type: 'page:card', properties: { title: 'Ask the AI Assistant', description: 'Open the panel…' } }),
     ).toBe(false);
     // What it ships now, and the shapes that must stay accepted.
-    expect(hasContent({ type: 'list-view', properties: { objectName: 'crm_lead' } })).toBe(true);
+    expect(hasContent({ type: 'list-view', properties: { data: { provider: 'object', object: 'crm_lead' } } })).toBe(true);
     expect(hasContent({ type: 'page:card', properties: { children: [{ type: 'object-metric' }] } })).toBe(true);
     // The retired `body` spelling still renders, so it still counts as content.
     expect(hasContent({ type: 'page:card', properties: { body: [{ type: 'object-metric' }] } })).toBe(true);
@@ -1204,81 +1059,29 @@ describe('app AI bindings resolve to a platform agent', () => {
 });
 
 /**
- * The home page's AI card does not name a retired persona (#1002).
+ * Sales Home carries no AI card (#2338 item 5).
  *
- * The two guards above check agent BINDINGS — `defaultAgent`, `stack.agents` —
- * because those are keys a schema can be pointed at. This one checks a
- * paragraph, and that is the whole point: the card below said
- * "Ask the Sales Copilot" for months while every gate stayed green. `os
- * validate` and `pnpm lint` walk authored metadata and treat a card's `title` /
- * `description` as free text; PR #1001's persona rule is deliberately scoped to
- * `content/docs/**` (the range the maintainer drew for #612), so it never
- * opened a `.page.ts`. A retired persona in `src/` had no guard at all — and
- * this one was live UI copy, visible to a user today, not documentation.
+ * `ai_briefing` told every user to open "the assistant panel from the right
+ * edge of the page". The panel is the platform's, and an install without its
+ * assistant has none: the #2320 browser pass measured `GET /api/v1/ai/agents`
+ * answering `[]` on 18.2.0, so the card sent people looking for a control that
+ * was not there. A page component cannot be shown only where the `ai`
+ * capability is present, so the card was dropped rather than reworded.
  *
- * Two drifts were fixed here, both from the maintainer's 2026-08-04 ruling on
- * #612 (Option A) and the architecture note that followed it:
- *
- * - **The persona.** `sales_copilot` was retired in #512 and ADR-0063 §2 made
- *   the surface skills-only. AI capability is implemented by agents in
- *   `objectstack-ai/cloud`; HotCRM contributes domain skills. So the copy names
- *   the platform's assistant, never an app-owned one.
- * - **The entry point.** The card sent users to "the floating Copilot
- *   (bottom-right)"; `content/docs/ai-copilot/index.mdx` documents "the chat
- *   panel the platform opens from the right edge of every page" (#611 / PR
- *   #1001). Two descriptions of one entry point is drift whichever is right, so
- *   the card now uses the documented one.
- *
- * SCOPE — read before extending. This pins the ONE card this PR rewrote. It is
- * not the general rule, and it cannot catch the same persona reappearing in a
- * different card, view, or skill description: that is a scan-surface question
- * over every user-visible string in `src/` (`title` / `label` / `description` /
- * `help`), which touches the public wording surface and needs its own ruling.
- * Filed as #1003 for that reason — do not quietly grow this into it.
- *
- * Reverse verification: predicted red-before / green-after, the ordinary
- * direction for a forbidden-string pin over copy that plainly contained the
- * string. Measured by restoring the old three lines: 2 of 3 assertions fail
- * ("Ask the Sales Copilot" on `title`, "Today with Copilot" on `label`, and the
- * floating/bottom-right entry point), then green once rewritten.
+ * This replaces the #1002 guard, which read that card's copy for a retired
+ * copilot persona. With the card gone it would read nothing, and a copy rule
+ * over nothing passes forever. The wider scan #1003 asked for is unchanged.
  */
-describe('live UI copy does not name a retired copilot persona (#1002)', () => {
+describe('Sales Home offers no AI card (#2338 item 5)', () => {
   const homePage = pages.find((p) => p.name === 'sales_home_page');
+  const components = [...walk(homePage?.regions), ...walk(homePage?.slots)] as AnyRec[];
 
-  /** The card carries the app's only AI-facing home-page copy. */
-  const card = [...walk(homePage?.regions), ...walk(homePage?.slots)].find(
-    (c: AnyRec) => c.id === 'ai_briefing',
-  );
-
-  it('the card this rule reads is still on the home page', () => {
-    // Guard the guard: renamed away, every assertion below would pass by
-    // reading `undefined` — the empty-pass failure mode a copy rule dies of.
+  it('the page this rule reads is still registered and has components', () => {
     expect(homePage, 'sales_home_page is no longer registered in the stack').toBeDefined();
-    expect(card, 'no component with id "ai_briefing" on sales_home_page').toBeDefined();
-    expect(typeof card?.properties?.title).toBe('string');
-    expect(typeof card?.properties?.description).toBe('string');
+    expect(components.length).toBeGreaterThan(0);
   });
 
-  it('no retired persona name in the card copy', () => {
-    const copy = [card?.label, card?.properties?.title, card?.properties?.description]
-      .filter((s): s is string => typeof s === 'string')
-      .join('\n');
-    // The bare word is included on purpose: "Copilot" alone reads as an
-    // app-owned assistant in UI copy, even though the DOCS keep *AI Copilot* as
-    // a section name (#611's line, which applies to a docs nav, not to a card).
-    const found = ['Sales Copilot', 'Service Copilot', 'Copilot'].filter((name) =>
-      copy.includes(name),
-    );
-    expect(found, `retired persona named in home-page card copy: ${found.join(', ')}`).toEqual([]);
-  });
-
-  it('the card points at the documented assistant entry point', () => {
-    const description: string = card?.properties?.description ?? '';
-    // The stale spelling, not a paraphrase of the new one: pinning the exact
-    // sentence would fail on any harmless rewording, while "floating" /
-    // "bottom-right" is precisely the claim that contradicts the docs.
-    expect(description.toLowerCase()).not.toContain('floating');
-    expect(description.toLowerCase()).not.toContain('bottom-right');
-    expect(description).toContain('right edge');
+  it('no component points users at the assistant panel', () => {
+    expect(components.filter((c) => c.id === 'ai_briefing').map((c) => c.id)).toEqual([]);
   });
 });

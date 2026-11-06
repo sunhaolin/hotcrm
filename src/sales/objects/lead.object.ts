@@ -1,0 +1,870 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { ObjectSchema, Field } from '@objectstack/spec/data';
+import type { SelectOption } from '@objectstack/spec/data';
+import { F, P } from '@objectstack/spec';
+
+/**
+ * Duplicate Of — `crm_lead.duplicate_of_type`, the discriminator half of the
+ * `duplicate_of_lead` / `duplicate_of_contact` pair (#598).
+ *
+ * Two vocabularies, deliberately, and the split is the enforcement:
+ *
+ *   - {@link DUPLICATE_OF_TYPE_AUTHORABLE_OPTIONS} is what a human may pick.
+ *     Each value names an object, and the field below pairs it with that
+ *     object's lookup through `requiredWhen`, so choosing one demands a record.
+ *   - The field's own `options` are what the COLUMN may hold: the authorable
+ *     set plus {@link DUPLICATE_OF_TYPE_ERASED}, a tombstone no author writes.
+ *
+ * The form spreads the authorable set (`src/sales/views/lead.view.ts`) and the
+ * field spreads it too, then appends the tombstone, so the tombstone is
+ * unpickable BY CONSTRUCTION rather than by a hand-maintained exclusion list: a
+ * third authorable object type added here reaches the form automatically, and
+ * the tombstone never does.
+ *
+ * Not a shared `picklist`: one field holds the full list, and the subset the
+ * form offers is not a field's option set at all, so neither half has a second
+ * field to share with (#2000).
+ */
+export const DUPLICATE_OF_TYPE_AUTHORABLE_OPTIONS: SelectOption[] = [
+  { label: 'Lead',    value: 'crm_lead' },
+  { label: 'Contact', value: 'crm_contact' },
+];
+
+/**
+ * The tombstone (#1164): "this lead was confirmed a duplicate of a record that
+ * has since been erased."
+ *
+ * It exists because on the record — which is all a validation can see, being
+ * evaluated against `{...previous, ...data}` — "the pointer was erased" and
+ * "this claim never named anyone" were the SAME state. Every way of teaching a
+ * rule to tolerate the first also admitted the second, which is why the erasure
+ * path could not be cleared by relaxing anything (measured in full on #1164).
+ * Giving the two states different values makes them different facts, and then
+ * no rule has to be loosened at all: the `requiredWhen` pairing fires only on
+ * `crm_lead` / `crm_contact` so it never sees this value, and
+ * `duplicate_disqualification_requires_survivor` asks for a NON-BLANK type,
+ * which this is.
+ *
+ * Deliberately not an object name: it is the answer to "which object holds the
+ * survivor" when the answer is "none, any more".
+ *
+ * ⚠️ `lead_duplicate_check` (`lead.hook.ts`, job 1c) is the ONLY writer, and it
+ * spells the value as an inline literal — L2 hook bodies run body-only in the
+ * QuickJS sandbox, so a module constant resolves at authoring time and arrives
+ * as `undefined` (same constraint as the SLA matrix in `case.hook.ts`). The two
+ * spellings are pinned together, and the writer pinned to that one site, by
+ * `test/lead-duplicate-management.test.ts`.
+ */
+export const DUPLICATE_OF_TYPE_ERASED = 'erased';
+
+export const Lead = ObjectSchema.create({
+  name: 'crm_lead',
+  label: 'Lead',
+  pluralLabel: 'Leads',
+  icon: 'user-plus',
+  description: 'Potential customers not yet qualified',
+
+  // ADR-0090 D1/D7: OWD is an authored decision. Owner-worked queue.
+  sharingModel: 'private',
+  
+  fieldGroups: [
+    { key: 'identity',     label: 'Identity',           icon: 'user-plus' },
+    { key: 'company_info', label: 'Company Information', icon: 'building' },
+    { key: 'contact_info', label: 'Contact Information', icon: 'phone' },
+    { key: 'qualification', label: 'Qualification',     icon: 'star' },
+    { key: 'assignment',   label: 'Assignment',         icon: 'user' },
+    { key: 'address',      label: 'Address',            icon: 'map-pin', collapse: 'collapsed' },
+    { key: 'additional',   label: 'Additional Info',    icon: 'info', collapse: 'collapsed' },
+    { key: 'preferences',  label: 'Communication Preferences', icon: 'bell-off', collapse: 'collapsed' },
+    { key: 'conversion',   label: 'Conversion',         icon: 'check-circle', collapse: 'collapsed' },
+    { key: 'duplicates',   label: 'Duplicate Management', icon: 'copy', collapse: 'collapsed' },
+  ],
+
+  fields: {
+    // Platform ownership anchor — canonical note in `account.object.ts` (#548).
+    owner_id: Field.lookup('sys_user', {
+      label: 'Lead Owner',
+      group: 'assignment',
+      system: true,
+      readonly: false,
+      trackHistory: true,
+    }),
+
+    // Personal Information
+    salutation: Field.select({
+      label: 'Salutation',
+      group: 'identity',
+      // The list shared with Contact (#490) — `src/sales/picklists/salutation.picklist.ts`.
+      picklist: 'salutation',
+    }),
+
+    first_name: Field.text({
+      label: 'First Name',
+      required: true,
+      storage: { notNull: true },
+      searchable: true,
+      group: 'identity',
+    }),
+
+    last_name: Field.text({
+      label: 'Last Name',
+      required: true,
+      storage: { notNull: true },
+      searchable: true,
+      group: 'identity',
+    }),
+
+    // ⚠️ `salutation` is a picklist, so a formula sees the raw VALUE (`ms`,
+    // `dr`), not the label — including it renders names as "ms Emily Davis" in
+    // lists and details. Dropped here and from `display_title` below, matching
+    // Contact.
+    //
+    // Demo (epic #2): surname first with no separator — the Chinese order
+    // (王志强, not 志强 王). The two columns keep their meaning (`last_name` is
+    // the surname); only the composition and the form order follow Chinese.
+    full_name: Field.formula({
+      label: 'Full Name',
+      expression: F`joinNonEmpty([record.last_name, record.first_name], '')`,
+      group: 'identity',
+    }),
+
+    // ADR-0079 record title (was titleFormat '{full_name} - {company}').
+    // Composed from the same source fields as `full_name` (not read off that formula)
+    // plus `company`, so the title resolves from real stored values.
+    // Stored, not a formula (#2230, objectstack#24981 ruling A): the engine
+    // computes the expression on every insert and every update by id and
+    // stores the result, so an import matches a lookup cell against this title
+    // and sort and search read a real column. `readonly` keeps it off the
+    // forms; a value a client sends never stands. Rows stored before #2230
+    // are titled by `scripts/backfill-record-titles.ts`.
+    display_title: Field.text({
+      readonly: true,
+      label: 'Display Title',
+      expression: F`joinNonEmpty([record.last_name, record.first_name], '') + " - " + record.company`,
+      group: 'identity',
+    }),
+
+    // Company Information
+    company: Field.text({
+      label: 'Company',
+      required: true,
+      storage: { notNull: true },
+      searchable: true,
+      group: 'company_info',
+    }),
+
+    /**
+     * Case- and whitespace-folded copy of `company` — the value lead conversion
+     * compares against `crm_account.name_normalized`.
+     *
+     * ### Why the LEAD needs one too
+     *
+     * ⚠️ A normalized column on `crm_account` alone fixes nothing: the
+     * conversion flow would then compare a raw company string against a folded
+     * account name, and `"ACME  Corp"` still would not match `acme corp`. Both
+     * sides have to be canonical, and the flow can canonicalize neither —
+     * `service-automation`'s `resolveToken` accepts exactly one function form
+     * (`NOW()` / `TODAY()`), so `{LOWER(x)}`, `{TRIM(x)}` and
+     * `{x.toLowerCase()}` all resolve to `undefined`. See the field comment on
+     * `crm_account.name_normalized` for the full measurement.
+     *
+     * `company` itself is NOT folded in place: it is the display value, it is
+     * copied verbatim onto the account the conversion creates, and lower-casing
+     * it would ship `acme corp` as a customer-visible account name. That is the
+     * one way this differs from `email`, which has no meaningful case and so is
+     * canonicalized in place.
+     *
+     * Derived, never authored: `lead_duplicate_check` recomputes it on every
+     * write that carries `company`. Not indexed — nothing filters on it; it is
+     * read off the lead record the flow already fetched.
+     */
+    company_normalized: Field.text({
+      label: 'Company (Normalized)',
+      description:
+        'Match key for lead conversion: Company lower-cased, trimmed, with internal whitespace collapsed. Maintained by the lead_duplicate_check hook — never edit directly.',
+      readonly: true,
+      hidden: true,
+      maxLength: 255,
+      group: 'company_info',
+    }),
+
+    title: Field.text({
+      label: 'Job Title',
+      group: 'company_info',
+    }),
+
+    industry: Field.select({
+      label: 'Industry',
+      group: 'company_info',
+      // The list shared with Account (#490): lead_conversion copies this value
+      // onto the created Account, so both objects MUST agree — one list,
+      // referenced by name, makes that true by construction.
+      picklist: 'industry',
+    }),
+
+    // ⚠️ NOT `unique`. A hard uniqueness constraint on a lead's email says a
+    // person may enquire once, ever, and the database enforces it by REJECTING
+    // the second enquiry — turning an ordinary follow-up into a 500 on the
+    // public form. Real funnels re-capture the same address routinely.
+    // Duplicates are a fact to be RECORDED, not an error: `lead_duplicate_check`
+    // in lead.hook.ts links the new lead to the record it repeats (see the
+    // `duplicates` field group below). The plain index below is what keeps the
+    // column indexed in the constraint's absence — the intake dedupe lookup, the
+    // `crm_lead_import` upsert key and the conversion flow all read leads by
+    // email on every write.
+    email: Field.email({
+      label: 'Email',
+      required: true,
+      storage: { notNull: true },
+      group: 'contact_info',
+    }),
+
+    phone: Field.text({
+      label: 'Phone',
+      format: 'phone',
+      group: 'contact_info',
+    }),
+
+    mobile: Field.text({
+      label: 'Mobile',
+      format: 'phone',
+      group: 'contact_info',
+    }),
+
+    website: Field.url({
+      label: 'Website',
+      group: 'contact_info',
+    }),
+
+    // Lead Qualification
+    status: Field.select({
+      label: 'Lead Status',
+      required: true,
+      storage: { notNull: true },
+      group: 'qualification',
+      trackHistory: true,
+      // Field-level default: option-level `default: true` only preselects in
+      // UI forms after first paint; the quick-create dialog and API inserts
+      // need a real defaultValue (see approval_status for the same lesson).
+      defaultValue: 'new',
+      options: [
+        { label: 'New', value: 'new', color: '#808080', kind: 'open', default: true },
+        { label: 'Contacted', value: 'contacted', color: '#FFA500', kind: 'open' },
+        { label: 'Qualified', value: 'qualified', color: '#4169E1', kind: 'open' },
+        { label: 'Unqualified', value: 'unqualified', color: '#FF0000', kind: 'lost' },
+        { label: 'Converted', value: 'converted', color: '#00AA00', kind: 'won' },
+      ]
+    }),
+
+    rating: Field.rating(5, {
+      label: 'Lead Score',
+      // Says what a blank does (#2369 row 2): `lead_automation` scores a lead
+      // created without one (`computeRating` in `lead.hook.ts`).
+      description: 'Leave blank and a new lead is scored for you (1-5 stars) from its email domain, phone, job title, industry and company size.',
+      group: 'qualification',
+    }),
+
+    lead_source: Field.select({
+      label: 'Lead Source',
+      group: 'qualification',
+      // The list shared with Contact + Opportunity (#490): lead_conversion
+      // copies this value onto the created Opportunity, so all three MUST agree.
+      picklist: 'lead_source',
+    }),
+
+    // ── Demand: what this prospect wants, and what it is worth ─────────
+    //
+    // REQ-0005 steps 6-7. Both fields are in `qualification` because they ARE
+    // qualification data — what the buyer is asking for and how big it is are
+    // the two facts a rep weighs before working a lead — and neither is
+    // required: a lead captured off the public form has neither, and saves
+    // exactly as it did before.
+
+    // A GENERIC STARTER SET, and that is the disposition rather than an apology
+    // for a short list: REQ-0005 rules the *slot* standard and the *values*
+    // configuration — "a customer's own demand taxonomy is overlay
+    // configuration the same way `industry` values are". So these seven are the
+    // vocabulary a fresh install routes and reports on until an overlay
+    // replaces them, and replacing them is a one-site edit: this field.
+    //
+    // ⚠️ NOT the same axis as `crm_opportunity.type`, and ⛔ never folded into
+    // it. That field answers "is this new business, an upgrade, a renewal or an
+    // expansion" — the customer RELATIONSHIP the deal changes. This one answers
+    // what the buyer wants delivered, which is orthogonal: a renewal of a
+    // support contract and a renewal of a consulting engagement differ here and
+    // not there. They are deliberately not shared, so ⛔ do not turn this list
+    // into a `picklist` and point `crm_opportunity` at it to make a conversion
+    // mapping possible.
+    //
+    // SINGLE-valued, for the reason `crm_contact.buying_function` records: a
+    // grouped list view answers with one server-side aggregate per raw stored
+    // value, so a `multiple: true` column groups by the COMBINATION and loses
+    // the groupability REQ-0005 acceptance 1 asks for.
+    need_type: Field.select({
+      label: 'Need Type',
+      group: 'qualification',
+      description: 'What this prospect is asking for. Routing, prioritisation and demand reporting read this.',
+      options: [
+        { label: 'New Implementation',   value: 'new_implementation' },
+        { label: 'Expansion',            value: 'expansion' },
+        { label: 'Replacement',          value: 'replacement' },
+        { label: 'Renewal',              value: 'renewal' },
+        { label: 'Consulting',           value: 'consulting' },
+        { label: 'Support & Maintenance', value: 'support' },
+        { label: 'Other',                value: 'other' },
+      ],
+    }),
+
+    // ⛔ NEVER conflated with `annual_revenue`, which sits two groups below in
+    // `additional` and answers a different question: that is the prospect
+    // COMPANY's own turnover, a size signal, and it is the value
+    // `lead_conversion` copies onto the account it creates. This is the value
+    // of the DEMAND — the number that becomes `crm_opportunity.amount` when the
+    // lead converts, and the only figure the pipeline has before then.
+    //
+    // ⛔ Nor is it a second copy of `crm_opportunity.amount`. The opportunity's
+    // amount is a committed deal figure a rep defends in a forecast; this is an
+    // estimate taken before qualification, and the conversion screen is where a
+    // human turns one into the other (it PREFILLS from here — see the
+    // `opportunityAmount` screen field in `lead-conversion.flow.ts` — rather
+    // than copying silently, so the rep confirms the number that enters the
+    // forecast).
+    estimated_amount: Field.currency({
+      label: 'Estimated Amount',
+      group: 'qualification',
+      description: 'Estimated value of this demand, before qualification. Prefills the deal amount at conversion.',
+    }),
+
+    // ── The conversion approval gate (REQ-0005 step 7) ─────────────────
+    //
+    // ⚠️ `defaultValue: 'not_required'` IS THE GATE'S OFF SWITCH, and it is the
+    // one line an install changes to arm it. REQ-0005: "The gate must be
+    // configurable — off by default. A single-seller install must not be forced
+    // through an approval to convert a lead."
+    //
+    //   OFF (shipped)  every lead is born `not_required`; nothing ever writes
+    //                  `pending`, so `lead_conversion_approval` never enters,
+    //                  the Convert button never hides and the write-path gate in
+    //                  `lead.hook.ts` never fires. Conversion behaves EXACTLY as
+    //                  it did before this field existed.
+    //   ON             change this one value to `'pending'`. Every lead is then
+    //                  born pending, `lead_conversion_approval` opens its
+    //                  request, and conversion is refused until an approver
+    //                  decides.
+    //
+    // Leads that predate the switch keep whatever they were born with, which is
+    // the point: arming the gate does not invalidate or re-open a single
+    // existing record (REQ-0005 acceptance 4). This is a TRANSITION GATE, not an
+    // invariant (AGENTS.md metadata semantics rule 7) — what is refused is the
+    // ACT of converting, evaluated against `previous` in `lead.hook.ts`, never
+    // the state of a record that is already converted.
+    //
+    // Shape copied from `crm_opportunity.approval_status`: `readonly: true`
+    // plus a REAL field-level `defaultValue`, ⛔ not only an option-level
+    // `default: true` — the same lesson `status` above records, and the reason
+    // that field's own comment gives: an option default only preselects in UI
+    // forms after first paint, so a quick-create dialog or an API insert would
+    // land a null and a null matches no flow entry condition.
+    //
+    // ⛔ Do NOT add an "approved" value to `status` instead. That select is the
+    // qualification lifecycle; a sixth value there would break the
+    // `convert_lead` predicate, the `lead_status_progression` transitions and
+    // the seeded rows, and would conflate "this lead is worth working" with
+    // "someone signed off on converting it".
+    conversion_approval_status: Field.select({
+      label: 'Conversion Approval',
+      group: 'qualification',
+      readonly: true,
+      trackHistory: true,
+      description:
+        'Whether this lead has been signed off for conversion. Not Required means no approval is asked for — the shipped default.',
+      defaultValue: 'not_required',
+      options: [
+        { label: 'Not Required', value: 'not_required', default: true },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+
+    // Assignment
+
+    // Conversion tracking.
+    // ⛔ NOT `readonly`: the `lead_conversion` flow's `mark_converted` node
+    // UPDATEs this column and the four `converted_*` ones below, and that flow
+    // declares no `runAs` — so it runs at the engine default `'user'`, which is
+    // also where house rule 9 keeps a screen flow. `stripReadonlyFields` runs
+    // under `if (!opCtx.context?.isSystem)` and deletes every readonly key the
+    // CALLER supplied, so `readonly` here would silently un-convert every
+    // conversion.
+    // ⚠️ The other writer is unaffected, and is not the reason: the
+    // guest-submission sanitiser in `lead.hook.ts` ASSIGNS these on
+    // `beforeInsert`, and hook-written keys are not caller-supplied — nor does
+    // the strip run on INSERT at all. Measured in
+    // `test/readonly-write-semantics.test.ts`.
+    // ⇒ Declaring these `readonly` would need the flow's write ELEVATED, which
+    // is a privilege decision on the maintainer's floor, not this file's (#1435).
+    // Edit-protection is the `beforeUpdate` guard in `lead.hook.ts`, which
+    // rejects any USER edit to a converted lead outside a small allow-list —
+    // and it is the ONLY guard, deliberately: a script validation beside it
+    // never fires, because the hook's throw always wins the race. "Converted"
+    // there means THIS column is `true` (#2189); a write that sets the status
+    // to Converted without it is refused by the `converted_only_by_conversion`
+    // validation instead, and a write that sets it without the account and
+    // the contact Convert Lead creates is refused by
+    // `converted_flag_only_by_conversion` (#2219) — the Details tab's
+    // Converted switch included, which stays drawn for that reason: the
+    // refusal names Convert Lead, and this column stays writable for the flow.
+    is_converted: Field.boolean({
+      label: 'Converted',
+      defaultValue: false,
+      group: 'conversion',
+      trackHistory: true,
+    }),
+
+    converted_account: Field.lookup('crm_account', {
+      label: 'Converted Account',
+      group: 'conversion',
+    }),
+
+    converted_contact: Field.lookup('crm_contact', {
+      label: 'Converted Contact',
+      group: 'conversion',
+    }),
+
+    converted_opportunity: Field.lookup('crm_opportunity', {
+      label: 'Converted Opportunity',
+      group: 'conversion',
+    }),
+
+    converted_date: Field.datetime({
+      label: 'Converted Date',
+      group: 'conversion',
+    }),
+
+    // Address (using new address field type)
+    address: Field.address({
+      label: 'Address',
+      group: 'address',
+    }),
+
+    // Additional Info
+    annual_revenue: Field.currency({
+      label: 'Annual Revenue',
+      group: 'additional',
+    }),
+
+    number_of_employees: Field.number({
+      label: 'Number of Employees',
+      group: 'additional',
+    }),
+
+    description: Field.markdown({
+      label: 'Description',
+      group: 'additional',
+    }),
+
+    // Custom notes with rich text formatting
+    notes: Field.richtext({
+      label: 'Notes',
+      description: 'Working notes on this lead — supports formatting.',
+      group: 'additional',
+    }),
+
+    // Flags
+    do_not_call: Field.boolean({
+      label: 'Do Not Call',
+      defaultValue: false,
+      group: 'preferences',
+    }),
+
+    email_opt_out: Field.boolean({
+      label: 'Email Opt Out',
+      defaultValue: false,
+      group: 'preferences',
+    }),
+
+    // Follow-up & disqualification tracking
+    next_followup_date: Field.date({
+      label: 'Next Follow-up Date',
+      group: 'qualification',
+    }),
+
+    // NOT `readonly` (#592) — see the long note on
+    // `crm_account.last_activity_date`. The activity bubble writes this from
+    // another object's hook, and a readonly field is stripped from any
+    // non-system write whose caller supplied the key (#2948), so every bubble
+    // into this column was silently discarded.
+    last_contacted_date: Field.datetime({
+      label: 'Last Contacted',
+      group: 'qualification',
+    }),
+
+    disqualification_reason: Field.select({
+      label: 'Disqualification Reason',
+      group: 'qualification',
+      description: 'Required when status is Unqualified',
+      options: [
+        { label: 'Not a Fit',         value: 'not_a_fit' },
+        { label: 'No Budget',         value: 'no_budget' },
+        { label: 'Wrong Persona',     value: 'wrong_persona' },
+        { label: 'Unreachable',       value: 'unreachable' },
+        { label: 'Duplicate',         value: 'duplicate' },
+        { label: 'Competitor',        value: 'competitor' },
+        { label: 'Other',             value: 'other' },
+      ],
+    }),
+
+    // ── Duplicate management ───────────────────────────────────────────
+    //
+    // `disqualification_reason: 'duplicate'` is only meaningful if the record
+    // says WHAT it duplicates — otherwise the "duplicate" bar on the
+    // disqualification breakdown points at nothing you can open.
+    //
+    // ⚠️ The surviving record can live on either object — a still-open lead, or
+    // a contact the prospect already became — and `Field.lookup` takes exactly
+    // one target (`Field.lookup(['crm_lead','crm_contact'])` is rejected at
+    // schema parse: "reference: expected string, received array"). So the link
+    // is the same TYPE-DISCRIMINATOR shape `crm_task.related_to_*` already uses:
+    // one select naming the object, one lookup per object, and the pairing
+    // enforced declaratively.
+    //
+    // The vocabulary is TWO sets, declared and split at the top of this file: the
+    // two object names an author may pick, plus `erased` — a tombstone the form
+    // does not offer and only `lead_duplicate_check` ever writes.
+    //
+    // The tombstone is what lets an erasure COMPLETE against a lead a human
+    // confirmed as a duplicate, without relaxing one rule, so read it as a
+    // constraint rather than as a spare value: `requiredWhen` below pairs only
+    // `crm_lead` / `crm_contact`, so a tombstoned type never fires either
+    // pairing and never demands a pointer to a record that is gone; and
+    // `duplicate_disqualification_requires_survivor` asks for a NON-BLANK type
+    // plus `duplicate_status == "confirmed"`, both of which a tombstoned lead
+    // still satisfies — so the verdict a reviewer recorded survives the erasure
+    // instead of being deleted as a side effect of someone else's GDPR request.
+    duplicate_of_type: Field.select({
+      label: 'Duplicate Of',
+      group: 'duplicates',
+      description: 'Which object holds the surviving record this lead repeats.',
+      options: [
+        ...DUPLICATE_OF_TYPE_AUTHORABLE_OPTIONS,
+        { label: 'Erased Record', value: DUPLICATE_OF_TYPE_ERASED },
+      ],
+    }),
+
+    // ⚠️ The type↔lookup pairing is `requiredWhen`, not a script validation:
+    // "the lookup named by the type must be populated" is exactly a conditional
+    // write contract, the engine evaluates it on insert and update, and it
+    // reports against the FIELD, so the form marks the empty lookup instead of
+    // showing a record-level error. (`crm_task` states the same intent as a
+    // warning-severity script rule because it predates `requiredWhen`,
+    // ADR-0113.)
+    //
+    // ⚠️ `has(...)` is load-bearing, not decoration. A bare
+    // `record.duplicate_of_type == "crm_lead"` aborts with `No such key` on any
+    // record whose merged shape omits the column, and the engine's response to a
+    // predicate that fails to evaluate is to SKIP it ("requiredWhen for
+    // 'duplicate_of_lead' failed to evaluate — skipped"). The rule would then
+    // read as enforced and require nothing at all.
+    //
+    // ⚠️ Both lookups take the spec default `deleteBehavior: 'set_null'`, and
+    // that is deliberate: a lead is a first-class record that happens to carry a
+    // flag, so `cascade` would destroy the lead because the record it was
+    // compared against was deleted. What keeps the pairing honest under a
+    // `set_null` clear is the retirement block in `lead_duplicate_check`
+    // (`lead.hook.ts`, job 1c): when a write leaves the named lookup blank it
+    // drops `duplicate_of_type` and `duplicate_status` in the same write, so the
+    // pair is never left half-stated and this rule never has to be loosened to
+    // tolerate one. Read that note before changing either predicate.
+    duplicate_of_lead: Field.lookup('crm_lead', {
+      label: 'Duplicate Of Lead',
+      group: 'duplicates',
+      requiredWhen: P`has(record.duplicate_of_type) && record.duplicate_of_type == "crm_lead"`,
+    }),
+
+    duplicate_of_contact: Field.lookup('crm_contact', {
+      label: 'Duplicate Of Contact',
+      group: 'duplicates',
+      requiredWhen: P`has(record.duplicate_of_type) && record.duplicate_of_type == "crm_contact"`,
+    }),
+
+    // Machine suspicion and human verdict are ONE field with two values, not two
+    // parallel sets of link fields: the intake hook writes `suspected` and only
+    // ever when this is blank (lead.hook.ts), so a human's `confirmed` survives
+    // every later write, and both states stay queryable off one column.
+    duplicate_status: Field.select({
+      label: 'Duplicate Status',
+      group: 'duplicates',
+      trackHistory: true,
+      description:
+        'Suspected = flagged automatically at intake. Confirmed = a human verified the match.',
+      options: [
+        { label: 'Suspected', value: 'suspected', color: '#FFA500' },
+        { label: 'Confirmed', value: 'confirmed', color: '#FF0000' },
+      ],
+    }),
+    // ── Demo (epic #2 / T1): demand-shaped lead fields ──
+    demand_type: Field.select({
+      label: 'Demand Type',
+      group: 'qualification',
+      options: [
+        { label: 'Software Development', value: 'software_development' },
+        { label: 'Implementation Service', value: 'implementation' },
+        { label: 'Operations & Maintenance', value: 'operations' },
+        { label: 'Consulting', value: 'consulting' },
+      ],
+    }),
+    approval_status: Field.select({
+      label: 'Approval Status',
+      group: 'assignment',
+      // Demo (epic #2): the 发起审批 button (`psa-approval.actions.ts`) sets
+      // this to `submitted`; the approval flow mirrors pending/approved/
+      // rejected. readonly — rendered on forms, never typed.
+      readonly: true,
+      defaultValue: 'draft',
+      trackHistory: true,
+      options: [
+        { label: 'Draft', value: 'draft', default: true },
+        { label: 'Submitted', value: 'submitted', color: '#4169E1' },
+        { label: 'Pending', value: 'pending', color: '#FFA500' },
+        { label: 'Approved', value: 'approved', color: '#00AA00' },
+        { label: 'Rejected', value: 'rejected', color: '#FF0000' },
+      ],
+    }),
+    approved_date: Field.datetime({
+      label: 'Approved Date',
+      group: 'assignment',
+      readonly: true,
+    }),
+  },
+
+  // Lifecycle transitions are enforced via a `state_machine` validation rule
+  // (see validations[] below). ⚠️ There is no top-level `stateMachines` key on
+  // the platform — status state machines are expressed in the validation union.
+
+  // Database indexes for performance
+  //
+  // ⚠️ `email` is indexed but NOT unique, and the index must stay explicit: it
+  // used to exist only as a side effect of a field-level `unique: true`, so
+  // dropping that constraint would otherwise have dropped the index with it and
+  // left three read paths — the `lead_duplicate_check` intake lookup, the
+  // `crm_lead_import` upsert key and the conversion flow — scanning the table
+  // on every write.
+  //
+  // ⛔ Do NOT add `unique: true` back here: a single-column unique index makes
+  // the platform-wide constraint win over the per-tenant composite
+  // (framework#3991), so two organizations could not work the same address
+  // independently. Uniqueness is not the rule this object wants at all.
+  indexes: [
+    { fields: ['owner_id'] },
+    { fields: ['status'] },
+    { fields: ['company'] },
+    { fields: ['email'] },
+  ],
+  
+  // API surface. History → Field.trackHistory (ADR-0052).
+  enable: {
+    apiEnabled: true,
+  },
+
+  // A converted lead offers no Edit (#2366 row 1). The converted-lead lock in
+  // `lead.hook.ts` refuses every user change but Description and Notes, so the
+  // form led a rep through every field and then refused the save. The guard is
+  // the hook's; this is the courtesy half. The lead's record page shows what it
+  // became under Conversion (account, contact, opportunity), where the work
+  // continues. The predicate reads `is_converted`, the flag the lock keys on
+  // (#2189), and is total: an absent flag (the page's first render) offers
+  // Edit. Pinned in `test/converted-lead-guard.test.ts`.
+  userActions: {
+    edit: {
+      visibleWhen: P`!(has(record.is_converted) && record.is_converted == true)`,
+    },
+  },
+  
+  // ADR-0079 record title — the stored `display_title` field defined above.
+  nameField: 'display_title',
+  // Explicit search targets (ADR-0061): the real columns the lookup picker
+  // and global search match. Until #2230 they were required, because the
+  // title was a formula with no column for `$search` to default to. The
+  // title is stored now; these stay because they name what is searched.
+  searchableFields: ['first_name', 'last_name', 'company', 'email'],
+  highlightFields: ['full_name', 'company', 'email', 'status', 'owner_id'],
+  
+  // Removed: list_views and form_views belong in UI configuration, not object definition
+  
+  // Predicates below are TOTAL: every `record.x` read is `has()`-guarded, so the
+  // rule returns a verdict even when the merged record has no such key. See
+  // AGENTS.md "Validation predicates must be TOTAL" and
+  // test/object-validation-predicates.test.ts, which fails the build otherwise.
+  validations: [
+    {
+      name: 'email_required',
+      type: 'script',
+      severity: 'error',
+      message: 'Email is required',
+      condition: P`!has(record.email) || isBlank(record.email)`,
+    },
+    {
+      // The field description promises "Required when status is Unqualified";
+      // this is what enforces it. A lead in `unqualified` with no recorded
+      // reason loses the one datum a disqualification review needs. Same shape
+      // as `crm_case.escalation_reason_required`.
+      name: 'disqualification_reason_required',
+      type: 'script',
+      severity: 'error',
+      message: 'Disqualification reason is required when a lead is Unqualified',
+      condition: P`has(record.status) && record.status == "unqualified" && (!has(record.disqualification_reason) || isBlank(record.disqualification_reason))`,
+    },
+    {
+      // "Disqualified as a duplicate" has to name the survivor.
+      //
+      // Same shape as `disqualification_reason_required` directly above — a
+      // declarative condition evaluated by the engine on insert and update, with
+      // no hook involved. The two clauses are the two things the field-level
+      // `requiredWhen` on the lookups cannot say:
+      //
+      //   1. `duplicate_of_type` must be chosen, which is what makes exactly one
+      //      of the two `requiredWhen` predicates fire and demand its lookup.
+      //   2. `duplicate_status` must be `confirmed` SPECIFICALLY. `requiredWhen`
+      //      asks whether a field is populated, not what it holds — and a lead
+      //      closed on the machine's `suspected` guess is precisely the outcome
+      //      this rule exists to prevent. A human has to look and agree.
+      //
+      // ⚠️ Every field reference is wrapped in `has(...)`, and that is what makes
+      // this an enforced rule rather than a decorative one. The engine evaluates
+      // a validation against `{...previous, ...data}` and fills absent fields
+      // with null on INSERT — but not on UPDATE, where `previous` is whatever
+      // the driver returned, and a driver that stores only the columns a row was
+      // written with hands back a record with no `duplicate_status` key at all.
+      // Strict CEL then aborts the whole predicate with `No such key`, and a
+      // predicate that fails to evaluate is SKIPPED, not failed:
+      //
+      //     WARN Validation rule '…' predicate failed to evaluate (…) — skipped
+      //
+      // The unguarded first draft of this rule let a lead be closed as a
+      // duplicate with no survivor named, silently, on the in-memory driver —
+      // the driver the whole test suite runs on.
+      name: 'duplicate_disqualification_requires_survivor',
+      type: 'script',
+      severity: 'error',
+      message:
+        'Disqualifying a lead as Duplicate requires naming the surviving record and setting Duplicate Status to Confirmed',
+      condition: P`has(record.disqualification_reason) && record.disqualification_reason == "duplicate" && !(has(record.duplicate_of_type) && !isBlank(record.duplicate_of_type) && has(record.duplicate_status) && record.duplicate_status == "confirmed")`,
+    },
+    {
+      // A lead is Converted only through Convert Lead (#2189). The
+      // `lead_conversion` flow creates or reuses the account and contact and
+      // writes `is_converted: true` in the SAME update as `status: 'converted'`
+      // (`mark_converted`), so this rule never refuses it. What it refuses is
+      // every other way to that status — the Status picklist on the Edit and
+      // Create forms, the kanban, a REST `PATCH` / `POST` — which used to save
+      // a lead at Converted with nothing converted.
+      //
+      // A TRANSITION GATE, not an invariant (AGENTS.md metadata semantics rule
+      // 7), and the `previous` term is what makes it one: it refuses the write
+      // that CROSSES into Converted (an insert, or an update from another
+      // status) without `is_converted: true`. A lead stored at Converted with
+      // nothing converted before this rule existed passes every later write,
+      // so it can be edited again, its status set back, and then converted
+      // through Convert Lead; the converted-lead lock in `lead.hook.ts` no
+      // longer freezes it, because it keys on `is_converted`, not on the status.
+      //
+      // ⛔ Not the invariant form (refuse whenever the merged record reads
+      // Converted without `is_converted`). Measured on 18.0.0: it refuses the
+      // engine's own `set_null` cleanup on such a lead, so deleting the contact
+      // its intake dedupe linked it to answered 400 with this message and the
+      // contact stayed — the undeletable-record shape #720 ruled out.
+      //
+      // ⚠️ A script with a `previous` read, and neither of the two gate
+      // constructs rule 7 names, deliberately (rule 11; the roster entry is in
+      // `test/converted-lead-guard.test.ts`). `requiredWhen` judges presence,
+      // and a `false` flag is present. A `visibleWhen` bound on the
+      // `converted` option is enforced on the write, but its refusal is the
+      // platform's fixed "option 'converted' is not available", which cannot
+      // tell a rep where conversion happens — and the ruling on #2189 makes
+      // naming Convert Lead the refusal's contract.
+      //
+      // ⚠️ `severity: 'error'` is the point. `lead_status_progression` below is
+      // a `warning` and allows `→ converted` from every open status, so it
+      // could not say this; a state machine judges the step, not what the
+      // conversion wrote.
+      name: 'converted_only_by_conversion',
+      type: 'script',
+      severity: 'error',
+      message:
+        'Only Convert Lead sets a lead to Converted, because it creates the account and contact the lead becomes. Choose another Status, then use Convert Lead.',
+      condition: P`has(record.status) && record.status == "converted" && !(has(record.is_converted) && record.is_converted == true) && (previous == null || !has(previous.status) || previous.status != "converted")`,
+    },
+    {
+      // The other door to the same state (#2219): the Converted FLAG. The
+      // Details tab draws `is_converted` as a switch, and it cannot be
+      // `readonly` (the note on the field), so ticking it and saving — or a
+      // REST `PATCH` / `POST` carrying it — stored the flag with every
+      // `converted_*` link null, and the converted-lead lock in `lead.hook.ts`,
+      // which keys on the flag, then froze the lead with no converted records
+      // to "make changes on". So the flag crosses to `true` only with the
+      // records the conversion leaves: `converted_account` and
+      // `converted_contact`, in the same write or already stored (the rule
+      // reads the merged record).
+      //
+      // Exactly the records `mark_converted` always writes, measured on the
+      // flow: it writes both on every path (a new or a reused account, a new or
+      // a reused contact). ⛔ Not `converted_opportunity`: "Create
+      // Opportunity?" unticked writes it null, so requiring it would refuse
+      // the wizard's own conversion. Not `converted_date`: a stamp of when, not
+      // a record the lock sends anyone to.
+      //
+      // A TRANSITION GATE, in the shape of `converted_only_by_conversion`
+      // above, and for its measured reason: the `previous` term refuses only
+      // the write that CROSSES the flag to `true` (an insert, or an update of
+      // a lead not yet converted). ⛔ Not the invariant form (refuse whenever
+      // the merged record holds the flag without both records): deleting a
+      // converted lead's account makes the engine clear `converted_account`
+      // and `converted_contact` with an UPDATE of the lead (`set_null`), and
+      // the invariant form refuses that cleanup, so the account could never
+      // be deleted — the #720 shape. `test/freeze-guard-reference-cleanup.test.ts`
+      // ("tears the whole conversion down") is that case.
+      //
+      // ⚠️ A script with a `previous` read rather than `requiredWhen` on the
+      // two links, deliberately (rule 11; the roster entry is in
+      // `test/converted-lead-guard.test.ts`): `requiredWhen` answers with the
+      // platform's fixed "… is required", which cannot tell a rep where
+      // conversion happens, and naming Convert Lead is this refusal's contract
+      // as it is #2189's.
+      //
+      // The rules agree on the wizard's write and on no other: a write of the
+      // status alone is `converted_only_by_conversion`'s, a write of the flag
+      // without both records is this one's.
+      name: 'converted_flag_only_by_conversion',
+      type: 'script',
+      severity: 'error',
+      message:
+        'Only Convert Lead marks a lead as Converted, because it creates the account and contact the lead becomes. Use Convert Lead instead of ticking Converted.',
+      condition: P`has(record.is_converted) && record.is_converted == true && !(has(record.converted_account) && !isBlank(record.converted_account) && has(record.converted_contact) && !isBlank(record.converted_contact)) && (previous == null || !has(previous.is_converted) || previous.is_converted != true)`,
+    },
+    {
+      name: 'lead_status_progression',
+      type: 'state_machine',
+      severity: 'warning',
+      message: 'Invalid lead status transition',
+      field: 'status',
+      // Conversion (→ converted) is allowed from any worked-open status so the
+      // Convert action's widened visibility (new/contacted/qualified) never trips
+      // a spurious "invalid transition" warning when the flow stamps
+      // status:'converted'. WHO may take that step is `converted_only_by_conversion`
+      // above: only the write that also sets `is_converted: true`.
+      transitions: {
+        new: ['contacted', 'qualified', 'unqualified', 'converted'],
+        contacted: ['qualified', 'unqualified', 'converted'],
+        qualified: ['converted', 'unqualified'],
+        unqualified: ['new'],
+        converted: [],
+      },
+    },
+  ],
+  
+  // ⚠️ No `workflows[]` here, and none is possible: object `workflows[]` were
+  // removed from the platform. Field updates live in this object's `*.hook.ts`;
+  // scheduled status flips and notifications live in `src/*/flows/*.flow.ts`.
+});

@@ -1,21 +1,33 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
+import type { VerifyStack } from '@objectstack/verify';
 import { compileCelToFilter } from '@objectstack/formula';
-import stack from '../objectstack.config';
-import accountHook from '../src/objects/account.hook';
-import { TERRITORY_OPTIONS, territoryFor } from '../src/objects/_territory';
-import { CrmSeedData } from '../src/data/index';
-import * as sharedSeed from '../src/data/_shared';
-import * as catalogSeed from '../src/data/catalog.seed';
-import * as salesSeed from '../src/data/sales.seed';
-import * as serviceSeed from '../src/data/service.seed';
-import * as marketingSeed from '../src/data/marketing.seed';
-import * as revenueSeed from '../src/data/revenue.seed';
-import * as psaSeed from '../src/data/psa.seed';
-import * as psaRound2Seed from '../src/data/psa-round2.seed';
-import * as psaIndustrySeed from '../src/data/psa-industry.seed';
-import { makeCtx } from './helpers/hook-harness';
+import stack from './helpers/composed-stack';
+import { TERRITORY_OPTIONS, territoryFor } from '../src/sales/objects/_territory';
+import { CrmSeedData } from '../objectstack.composition';
+import * as sharedSeed from '../src/sales/data/_shared';
+import * as catalogSeed from '../src/revenue/data/catalog.seed';
+import * as salesSeed from '../src/sales/data/sales.seed';
+import * as serviceSeed from '../src/service/data/service.seed';
+import * as marketingSeed from '../src/marketing/data/marketing.seed';
+import * as revenueSeed from '../src/revenue/data/revenue.seed';
+// The two families the ADR-0130 layout split out by object ownership: the
+// opportunity line items are `crm_opportunity_line_item` (revenue), the
+// activity rows and the forecast snapshots are sales'. Enrolled here so this
+// guard still sees every authored dataset, not the six modules it used to.
+import * as lineItemSeed from '../src/revenue/data/opportunity-line-item.seed';
+import * as priceBookSeed from '../src/revenue/data/price-book.seed';
+import * as activitySeed from '../src/sales/data/activity.seed';
+import * as forecastSeed from '../src/sales/data/forecast.seed';
+// Split out of `revenue.seed.ts` when `crm_contract` moved to the app package
+// (`module-split-plan.md` item 11).
+import * as contractSeed from '../src/sales/data/contract.seed';
+import { hotcrmStack } from './helpers/verify-stack';
+import * as psaSeed from '../src/sales/data/psa.seed';
+import * as psaRound2Seed from '../src/sales/data/psa-round2.seed';
+import * as psaIndustrySeed from '../src/sales/data/psa-industry.seed';
+import * as psaIndustryRevenueSeed from '../src/revenue/data/psa-industry.seed';
 
 /**
  * The territory rules must match REAL seeded accounts (#638).
@@ -58,7 +70,7 @@ import { makeCtx } from './helpers/hook-harness';
  * `SeedLoaderService.SEED_OPTIONS` says the same thing in words: its
  * `skipTriggers` suppresses record-change AUTOMATION (autolaunched flows) for
  * seed writes, while "Lifecycle HOOKS (derived/default fields, validation)
- * still run". `src/data/_shared.ts` now states the corrected premise.
+ * still run". `src/sales/data/_shared.ts` now states the corrected premise.
  *
  * ### What is NOT covered here
  *
@@ -66,7 +78,7 @@ import { makeCtx } from './helpers/hook-harness';
  * fresh install `sys_user_position` is empty — nobody holds `na_sales_team` or
  * `eu_sales_team` (measured: 0 rows, 0 shares). That is a separate gap, filed
  * separately; it is not something the seed data can fix, since a seed cannot
- * name a user (see the note at the foot of `src/data/index.ts`).
+ * name a user (see the note beside `CrmSeedData` in `objectstack.composition.ts`).
  */
 
 type AnyRec = Record<string, any>;
@@ -80,60 +92,34 @@ const ruleByName = (name: string) => sharingRules.find((r) => r.name === name);
 const TERRITORY_RULES = ['north_america_territory', 'europe_territory'] as const;
 
 /**
- * The projection exactly as a seed insert produces it: the REAL
- * `account_protection` body, invoked with the event the seed loader raises.
- * Re-implementing `country → billing_country` here would let the two drift and
- * still pass, which is the failure mode this whole file is about.
+ * The projection exactly as a seed insert produces it: the seeded accounts as
+ * the booted app STORED them after its own seed replay ran
+ * `account_protection` over them. Re-implementing `country → billing_country`
+ * here would let the two drift and still pass, which is the failure mode this
+ * whole file is about.
  */
-async function project(record: AnyRec): Promise<AnyRec> {
-  const input: AnyRec = { ...record };
-  await (accountHook as AnyRec).handler(makeCtx({ event: 'beforeInsert', input }));
-  return input;
-}
-
-const projectedAccounts = await Promise.all(accountRecords.map(project));
+let verify: VerifyStack;
+let projectedAccounts: AnyRec[] = [];
+const seededNames = accountRecords.map((r) => String(r.name));
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  projectedAccounts = await verify.rows('crm_account', { name: { $in: seededNames } });
+}, 120_000);
 const nameOf = (r: AnyRec) => String(r.name);
 
 /**
- * Evaluate a compiled `FilterCondition` against one projected record.
- *
- * Deliberately narrow: it understands only the shapes these rules compile to
- * today (`{field: {$in: [...]}}` and `{field: value}`) and THROWS on anything
- * else. Returning `false` for an unrecognised shape would report "the
- * territories are empty" — indistinguishable from the bug — the next time the
- * compiler's output changes.
+ * The seeded accounts one declared rule covers: the seeder's own compiler, and
+ * the engine's own query over what it compiled to.
  */
-function matches(filter: unknown, row: AnyRec): boolean {
-  if (!filter || typeof filter !== 'object' || Array.isArray(filter)) {
-    throw new Error(`unsupported compiled filter: ${JSON.stringify(filter)}`);
-  }
-  const entries = Object.entries(filter as AnyRec);
-  if (entries.length !== 1) {
-    throw new Error(`expected a single-field filter, got ${JSON.stringify(filter)}`);
-  }
-  const [field, condition] = entries[0];
-  if (field.startsWith('$')) {
-    throw new Error(`expected a field-keyed filter, got operator "${field}"`);
-  }
-  if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
-    const ops = Object.entries(condition as AnyRec);
-    if (ops.length === 1 && ops[0][0] === '$in' && Array.isArray(ops[0][1])) {
-      return (ops[0][1] as unknown[]).includes(row[field]);
-    }
-    throw new Error(`unsupported compiled operator: ${JSON.stringify(condition)}`);
-  }
-  return row[field] === condition;
-}
-
-/** The accounts one declared rule covers, via the seeder's own compiler. */
-function covered(ruleName: string): string[] {
+async function covered(ruleName: string): Promise<string[]> {
   const rule = ruleByName(ruleName);
   if (!rule) throw new Error(`no sharing rule named ${ruleName}`);
   const compiled = compileCelToFilter(rule.condition ?? '', { variables: {} });
   if (!compiled.ok) {
     throw new Error(`${ruleName}: condition does not compile (${compiled.reason}: ${compiled.detail})`);
   }
-  return projectedAccounts.filter((row) => matches(compiled.filter, row)).map(nameOf);
+  const rows = await verify.rows('crm_account', { $and: [compiled.filter, { name: { $in: seededNames } }] });
+  return rows.map(nameOf);
 }
 
 describe('the demo dataset can actually exercise the territory rules (#638)', () => {
@@ -141,6 +127,7 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
     // Guard the guard: a seed or config refactor that stopped exposing either
     // side would make every assertion below vacuously true.
     expect(accountRecords.length, 'no crm_account seed records').toBeGreaterThanOrEqual(9);
+    expect(projectedAccounts.map(nameOf).sort(), 'a seeded account did not land on the booted app').toEqual([...seededNames].sort());
     for (const name of TERRITORY_RULES) {
       expect(ruleByName(name), `sharing rule ${name} is not declared`).toBeTruthy();
     }
@@ -157,7 +144,7 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
       bad,
       'Seed addresses keep to ISO 3166-1 alpha-2 codes. Since #639 this is a DATA-QUALITY ' +
         'convention rather than a matching requirement — the spelling table in ' +
-        'src/objects/_territory.ts is there for what users type, and a name like "Germany" now ' +
+        'src/sales/objects/_territory.ts is there for what users type, and a name like "Germany" now ' +
         'classifies correctly — but a seed is authored, not typed, so it states the canonical ' +
         'code:\n  ' +
         bad.join('\n  '),
@@ -177,7 +164,7 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
     },
   );
 
-  it('projects a country onto every seeded account when the hook runs', async () => {
+  it('projects a country onto every seeded account when the hook runs', () => {
     const missing = projectedAccounts.filter((r) => typeof r.billing_country !== 'string' || !r.billing_country);
     expect(missing.map(nameOf), 'account_protection produced no billing_country for these seeds').toEqual([]);
   });
@@ -200,12 +187,12 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
     const divergent = projectedAccounts
       .filter((r) => r.territory !== territoryFor((r.billing_address as AnyRec | undefined)?.country))
       .map((r) => `${nameOf(r)}: hook says ${r.territory}`);
-    expect(divergent, `the hook and src/objects/_territory.ts disagree:\n  ${divergent.join('\n  ')}`).toEqual([]);
+    expect(divergent, `the hook and src/sales/objects/_territory.ts disagree:\n  ${divergent.join('\n  ')}`).toEqual([]);
   });
 
-  it('partitions the seeded accounts across NA, EU and neither', () => {
-    const na = covered('north_america_territory');
-    const eu = covered('europe_territory');
+  it('partitions the seeded accounts across NA, EU and neither', async () => {
+    const na = await covered('north_america_territory');
+    const eu = await covered('europe_territory');
     const outside = projectedAccounts
       .map(nameOf)
       .filter((name) => !na.includes(name) && !eu.includes(name));
@@ -236,12 +223,13 @@ describe('the demo dataset can actually exercise the territory rules (#638)', ()
     expect(both, `accounts covered by BOTH territories: ${both.join(', ')}`).toEqual([]);
   });
 
-  it('covers more than one country per territory where the mapping claims several', () => {
+  it('covers more than one country per territory where the mapping claims several', async () => {
     // A territory reachable from only ONE country in practice would still pass
     // every assertion above while leaving most of the mapping untested.
+    const na = await covered('north_america_territory');
     const countries = new Set(
       projectedAccounts
-        .filter((r) => covered('north_america_territory').includes(nameOf(r)))
+        .filter((r) => na.includes(nameOf(r)))
         .map((r) => String(r.billing_country)),
     );
     expect(
@@ -272,9 +260,15 @@ describe('every family module dataset is wired into CrmSeedData (#635 split)', (
     'service.seed': serviceSeed,
     'marketing.seed': marketingSeed,
     'revenue.seed': revenueSeed,
+    'opportunity-line-item.seed': lineItemSeed,
+    'price-book.seed': priceBookSeed,
+    'activity.seed': activitySeed,
+    'forecast.seed': forecastSeed,
+    'contract.seed': contractSeed,
     'psa.seed': psaSeed,
     'psa-round2.seed': psaRound2Seed,
     'psa-industry.seed': psaIndustrySeed,
+    'psa-industry-revenue.seed': psaIndustryRevenueSeed,
   };
 
   const isDataset = (value: unknown): value is Dataset =>
@@ -290,7 +284,7 @@ describe('every family module dataset is wired into CrmSeedData (#635 split)', (
   );
 
   it('exports datasets from the family modules at all', () => {
-    expect(declared.length, 'no seed datasets found in src/data/*.seed.ts').toBeGreaterThanOrEqual(16);
+    expect(declared.length, 'no seed datasets found in src/*/data/*.seed.ts').toBeGreaterThanOrEqual(16);
   });
 
   it('aggregates all of them, and nothing else', () => {
@@ -302,7 +296,7 @@ describe('every family module dataset is wired into CrmSeedData (#635 split)', (
       .map((d) => d.id);
     expect(
       missing,
-      `these datasets are authored but never seeded — add them to src/data/index.ts:\n  ${missing.join('\n  ')}`,
+      `these datasets are authored but never seeded — add them to CrmSeedData in objectstack.composition.ts:\n  ${missing.join('\n  ')}`,
     ).toEqual([]);
     const authored = new Set(declared.flatMap((d) => d.value.records));
     const orphans = aggregated.flatMap((d) => d.records.filter((r: AnyRec) => !authored.has(r)).map(() => d.object));

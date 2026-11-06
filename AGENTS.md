@@ -41,27 +41,78 @@ Writing an `emptyState` on every tile, or hand-tuning tile placement to dodge a 
 
 ## 🏗️ Project Architecture
 
-HotCRM is a **single ObjectStack marketplace app**, not a multi-package monorepo: `objectstack.config.ts` registers every metadata
-collection from a flat `src/` tree organised **by metadata type**, on the `@objectstack/runtime` dependency — ⛔ never built, patched or worked around here.
+HotCRM is **one ObjectStack release artifact carrying four packages** (ADR-0130 D4): `app.objectstack.hotcrm`, the `type: app` package
+(`src/sales/index.ts`), and three `type: module` packages — `app.objectstack.hotcrm.service`, `.revenue` and `.marketing`
+(`src/<dir>/index.ts`) — one `defineStack` each, composed by `objectstack.config.ts` with `composeStacks(…, { manifest: 'preserve' })`.
+One `package.json`, one `tsconfig.json`, one build — on the `@objectstack/runtime` dependency, ⛔ never built, patched or
+worked around here.
+
+**A directory under `src/` IS a package.** There is no `packages/` level and no `shared/`; the top-level directories under `src/` are
+exactly the packages, plus `docs/` (see the note below the tree).
 
 ```
 hotcrm/
-├── objectstack.config.ts   # App manifest — feeds each src/{type}/index.ts barrel to defineStack()
+├── objectstack.config.ts      # composeStacks() over the four package stacks — the artifact, nothing else
+├── objectstack.composition.ts # The four package stacks built; the composition knob
 ├── src/
-│   ├── objects/            # *.object.ts schemas + *.hook.ts lifecycle hooks
-│   ├── views/  pages/      # List views (*.view.ts) and page layouts (*.page.ts)
-│   ├── flows/              # Automation (*.flow.ts)
-│   ├── actions/            # UI actions + AI-callable tools (*.actions.ts)
-│   ├── dashboards/ reports/ datasets/   # Analytics metadata
-│   ├── skills/             # AI skills (*.skill.ts) — the app's only AI surface
-│   ├── profiles/ sharing/  # Permission sets (*.profile.ts) and sharing rules (*.sharing.ts)
-│   ├── translations/       # Locale packs: en · zh-CN · es-ES · ja-JP
-│   └── data/               # Seed data (defineDataset)
+│   ├── sales/              # The `type: app` package — account, contact, contract, lead, opportunity, forecast, task, event, event_attendee
+│   ├── service/            # The service module — case, knowledge_article, article_feedback
+│   ├── revenue/            # The revenue module — product, price_book, price_book_entry, opportunity_line_item, quote, quote_line_item
+│   ├── marketing/          # The marketing module — campaign, campaign_member
+│   └── docs/               # In-product package docs (ADR-0046) — see the note below
 ├── content/docs/           # Product documentation site (Fumadocs): en, zh-Hans, zh-Hant
 └── docs/                   # Internal maintainer documentation (docs/README.md is the full map)
 ```
 
-`src/` itself is the roster of what this app authors — open it rather than trust a list. ⛔ Do NOT create `packages/<x>/src/` paths: the multi-package layout is retired and archived under `docs/archive/`.
+Inside each package, the metadata-type subdirectories it uses, each with its own explicit file-by-file barrel:
+
+```
+src/sales/
+├── objects/       # *.object.ts schemas AND the *.hook.ts beside each one, plus hooks.ts (the package's hook barrel)
+├── views/ pages/  # List views (*.view.ts) and page layouts (*.page.ts)
+├── flows/         # Automation (*.flow.ts)
+├── actions/       # UI actions + AI-callable tools (*.actions.ts)
+├── dashboards/ reports/ datasets/   # Analytics metadata
+├── skills/        # AI skills (*.skill.ts) — the app's only AI surface
+├── profiles/ sharing/  # Permission sets (*.profile.ts) and sharing rules (*.sharing.ts)
+├── translations/  # Locale packs: en · zh-CN · es-ES · ja-JP
+├── apps/          # The app and its navigation
+├── mappings/ interfaces/
+└── data/          # Seed data (defineDataset)
+```
+
+`src/` itself is the roster of what this app authors — open it rather than trust a list. The four packages, and which objects each owns,
+are recorded in `docs/architecture/module-split-plan.md`; ⛔ do not restate that table in prose.
+
+A package of the artifact has one `index.ts` that calls `defineStack` with its manifest. Two seams cross between packages, both
+platform rules rather than conventions: a module's navigation reaches the app ONLY through its manifest's `navigationContributions`,
+aimed at a group the app declares (an app's own `navigation` may not name another package's object, and a contributed item lands
+after the group's own children); and the app package's permission sets, whole by the ADR-0130 2026-09-02 addendum, grant on module
+objects because the app stack is told the artifact's other objects (`artifactObjects`), which `composeStacks` verifies.
+
+**Three rules the layout exists to hold.**
+
+1. **A `*.hook.ts` sits beside the `*.object.ts` it names.** A hook may not attach to another package's object (ADR-0130 R4), and
+   co-location is what enforces that — you cannot write the file in the wrong place without it being obvious. Registration is
+   `<pkg>/objects/hooks.ts`.
+2. **Imports follow the dependency edges, and nothing else.** A file may import from **its own directory** or from **`src/sales/`** —
+   ⛔ never sideways between modules, ⛔ never upward. Sales is the app package every module depends on, so a source more than one
+   package needs has one deterministic home: the lowest package all its consumers depend on, which is `src/sales/`. ⛔ Never copy such
+   a file into a second package; one copy, imported along the edge.
+3. **An item lives with the object it is authored against** — view, page, action, dataset, report, sharing rule, seed rows, import
+   mapping, skill, hook, and a flow by its trigger object. Items with no single object (the app, `home` / `app_launcher` /
+   `utility_bar`, the cross-domain dashboards and skills, every permission set, the positions, the locale packs) are the app package's.
+
+⛔ Do NOT create `packages/<x>/src/` paths: that was the per-package-`package.json` monorepo, retired and archived under
+`docs/archive/`. This is not that — one `package.json`, one build — and the prohibition is about the retired shape, not about packages.
+
+**`src/docs/` is the platform's path, not a package's.** `objectstack build` compiles `<config dir>/src/docs/*.md` into the artifact's
+top-level `docs[]` (ADR-0046), registered under the artifact's own id. A per-package `src/<dir>/docs/` reaches a package's body only
+when `<dir>` is that package's id or the id's last dot-separated segment: `src/sales/` answers to neither (`app.objectstack.hotcrm`
+ends in `hotcrm`), so these four files stay at the top of `src/` rather than moving under `src/sales/`. Moving them there keeps the
+build at exit 0 behind one `docs/uncollected-directory` warning, and the artifact simply loses its `docs`. A boot logs a
+`[MetadataPlugin]` WARN that these four items are claimed by no package body: the platform's own builder put them there, the owner
+it reports is the app package, and ⛔ it is not an instruction to move them — it is reported upstream from #1907.
 
 ## 💻 Tech Stack & Protocol
 
@@ -70,18 +121,25 @@ hotcrm/
 2. **The `crm_` prefix is written out, everywhere.** Business object names are `snake_case` with an explicit `crm_` prefix
    (`crm_account`); the runtime injects nothing, so the name in source = at runtime = in the DB = in the REST URL = in the docs, and
    every reference — lookup / master-detail targets, cube `sql`, view, hook, action, navigation, dashboard and translation keys — uses
-   it. Platform objects keep `sys_*`; the file stays unprefixed (`src/objects/contract.object.ts` declares `name: 'crm_contract'`); the
-   roster is `src/objects/*.object.ts`, ⛔ never restated in prose. The `os lint` `naming/namespace-prefix` warning on non-object items
+   it. Platform objects keep `sys_*`; the file stays unprefixed (`src/sales/objects/contract.object.ts` declares `name: 'crm_contract'`); the
+   roster is `src/*/objects/*.object.ts`, ⛔ never restated in prose. The `os lint` `naming/namespace-prefix` warning on non-object items
    is advisory (ADR-0048): ⛔ do not mass-rename to chase it.
 3. **Data access is ObjectQL through `ctx.api`** — there is no `broker`. Shape:
    `ctx.api.object('crm_opportunity').find({ where: { amount: { $gt: 50000 } } })`; a `*.hook.ts` casts once
-   (`const api = ctx.api as HookApi | undefined`, from `src/objects/_hook-api.ts`), an action body calls it directly.
+   (`const api = ctx.api as HookApi | undefined`, from `src/sales/objects/_hook-api.ts` — every package's hooks import it along their edge into sales), an action body calls it directly.
    - **The predicate key is `where`.** `filter` is a live alias the engine folds to `where`, so the hazard is not silent loss but
      **mixing**: a query carrying both keys throws `Conflicting options … 'where', 'filter'`, and an empty `where: {}` is a different
-     value. `HookQuery` omits `filter` so the mix is a compile error; `test/hook-query-predicate.test.ts` pins the engine per method.
+     value. `HookQuery` omits `filter` so the mix is a compile error; the engine's behaviour per method is recorded in `_hook-api.ts`.
+   - **The method contract is the `_hook-api.ts` types**, ⛔ not memory of another stack: `count` takes `where` only, a read is capped
+     with `top`, and `update` is `(doc carrying its id, { where })` — each wrong spelling is a compile error there.
+   - **A hook handler and a `script` action body run body-only in a QuickJS sandbox, with no module scope.** Every constant, table and
+     helper a body reads is declared **inside** it (type-only imports are erased and fine) — a module-scope reference type-checks and
+     then fails the lowering, which `pnpm lint` (`os lint --strict`) refuses as `hook-body/not-lowerable`. An action body reaches data only under
+     the `capabilities` it declares (`api.read`, `api.write`). `ctx.user` is **absent** on system and seed writes — that absence is this
+     repo's system-write signal.
    - **Other surfaces spell their own key, and their own schema decides.** A `*.flow.ts` node `config` takes `filter:`; a page component's
      `filter` is its `ComponentPropsMap` entry (`@objectstack/spec/ui`) — `record:related_list` takes rule **objects** `[{ field, operator, value }]`; the AST array and `op:` are rejected by `objectstack build` and the list renders unfiltered (#1248).
-4. **AI-native.** AI-callable tools are `*.actions.ts`. The AI surface is skills-only — `src/skills/*.skill.ts` via `defineSkill()`,
+4. **AI-native.** AI-callable tools are `*.actions.ts`. The AI surface is skills-only — `src/*/skills/*.skill.ts` via `defineSkill()`,
    attached to a platform agent by `surface`. ⛔ Never author a `*.agent.ts` (#512, ADR-0063 §2).
 
 ## 🔒 Schema Validation Requirements
@@ -92,21 +150,23 @@ The authoring form is yours to get right; the enforcement point is fixed.
 **Author the file the way its neighbours are authored.** The form is **not uniform across metadata types**: open the file next to the
 one you are creating and copy its shape — the directory is the template. ⛔ Do not generalise from one directory to its neighbour; the
 `define*` names are the trap (`defineView()` / `defineSkill()` are the form for their directories; `defineFlow()`, exactly
-`FlowSchema.parse()`, is ⛔ not the form for `src/flows/`). Three forms exist:
+`FlowSchema.parse()`, is ⛔ not the form for a `flows/` directory). Three forms exist:
 
-1. **A validating constructor, called in the file.** `src/objects/*.object.ts` uses `ObjectSchema.create({ … })` (`@objectstack/spec/data`),
-   `src/views/*.view.ts` uses `defineView({ … })`, `src/skills/*.skill.ts` uses `defineSkill({ … })`. These reject at author time and
+1. **A validating constructor, called in the file.** `src/*/objects/*.object.ts` uses `ObjectSchema.create({ … })` (`@objectstack/spec/data`),
+   `src/*/views/*.view.ts` uses `defineView({ … })`, `src/*/skills/*.skill.ts` uses `defineSkill({ … })`. These reject at author time and
    name the unknown key back (`unknown key(s) — workflows`).
-2. **A typed object literal, no runtime call in the file.** `src/pages/*.page.ts` annotate with `Page`, `src/dashboards/*.dashboard.ts`
-   with `Dashboard` (both `@objectstack/spec/ui`), `src/flows/*.flow.ts` with `Automation.Flow` (`import type * as Automation from '@objectstack/spec/automation'`).
-3. **A plain object literal with no schema import.** `src/profiles/*.profile.ts` — this app's **permission sets**; ⛔ not
-   `*.permission.ts`, authored nowhere — and `src/sharing/*.sharing.ts`.
+2. **A typed object literal, no runtime call in the file.** `src/*/pages/*.page.ts` annotate with `Page`, `src/*/dashboards/*.dashboard.ts`
+   with `Dashboard` (both `@objectstack/spec/ui`), `src/*/flows/*.flow.ts` with `Automation.Flow` (`import type * as Automation from '@objectstack/spec/automation'`).
+3. **A plain object literal with no schema import.** `src/sales/profiles/*.profile.ts` — this app's **permission sets**; ⛔ not
+   `*.permission.ts`, authored nowhere — and `src/*/sharing/*.sharing.ts`.
 
-**Where the validation actually happens.** `objectstack.config.ts` hands every collection to `defineStack()`, which validates each against
-its `@objectstack/spec` schema; `pnpm validate` and `pnpm build` run it, and the platform parses again on boot. An unknown key on a page or a permission set fails `pnpm validate` with exit 1 though the file imports nothing.
+**Where the validation actually happens.** Each package's `defineStack()` (`src/<dir>/index.ts`) validates every
+collection it registers against its `@objectstack/spec` schema, and `composeStacks` in `objectstack.config.ts` re-checks the references that
+cross packages; `pnpm validate` and `pnpm build` run it, and the platform parses again on boot. An unknown key on a page or a permission set fails `pnpm validate` with exit 1 though the file imports nothing.
 
-**⚠️ A file missing from its barrel is validated by nothing.** Registration is explicit, file by file: each `src/{type}/index.ts`
-re-exports its files by name and `objectstack.config.ts` feeds those barrels to `defineStack()` — no glob discovery. A valid file that
+**⚠️ A file missing from its barrel is validated by nothing.** Registration is explicit, file by file: each `src/<pkg>/<type>/index.ts`
+re-exports its files by name; each module's `index.ts` registers that module's items by name, `objectstack.composition.ts` merges
+the app package's barrels into its stack, and `objectstack.config.ts` composes the four — no glob discovery. A valid file that
 never reaches the barrel is **silently ignored**: `pnpm validate` stays at exit 0 and names it nowhere. Exporting it is part of authoring it.
 
 **`XSchema.parse()` is a real API — for tests, not for `src/`.** `ObjectSchema`, `PageSchema`, `ViewSchema`, `FlowSchema`,
@@ -160,9 +220,10 @@ needed; (3) per-field enumeration only in the extreme case, with a comment namin
 ## ⚠️ Constraint Checklist
 
 - **Object Naming**: `crm_` prefix on every business object, written out (Tech Stack rule 2).
-- **i18n**: every new object ships in all four locale packs, `src/translations/{en,zh-CN,es-ES,ja-JP}.ts` — label, pluralLabel, every field and option label, view labels, navigation labels.
+- **i18n**: every new object ships in all four locale packs, `src/sales/translations/{en,zh-CN,es-ES,ja-JP}.ts` — label, pluralLabel, every field and option label, view labels, navigation labels.
 - **Docs**: every new object or feature gets a user-facing page under `content/docs/` for business users and admins — business concepts,
-  never a hand-copied machine roster; English first, then `.zh-Hans.mdx` and `.zh-Hant.mdx` beside it, under **Documentation discipline** below.
+  never a hand-copied machine roster; English first, then `.zh-Hans.mdx` and `.zh-Hant.mdx` beside it. A feature that adds a rule the
+  screens do not show also updates its package's **in-app docs** in the same PR (rule 7). Both under **Documentation discipline** below.
 - **Validation predicates must be TOTAL**: every `record.x` read in an authored CEL predicate (`validations[].condition`, `requiredWhen`,
   `readonlyWhen`, `visibleWhen`) carries a `has(record.x)` guard.
 - **Dependencies**: the `@objectstack/*` packages in `package.json` are version-locked and bumped together; keep `specVersion` in
@@ -197,8 +258,8 @@ navigation fact may be documented and guarded; a machine semantic layer may not.
   guard's ablation is the discriminator, not pack-carriage; measures are the same class and currently unguarded (#1618).
 - A Chinese heading carries an **explicit English anchor id**, and one anchor word is used across every language, so a link survives translation (#1359).
 - zh-Hant conventions are stated by their **real** reason, not a style preference: the app
-  ships **no Traditional locale** — `src/translations/` and the `supportedLocales` in
-  `objectstack.config.ts` carry none, so open them rather than trust a list — the console
+  ships **no Traditional locale** — `src/sales/translations/` and the `supportedLocales` in
+  `src/sales/index.ts` carry none, so open them rather than trust a list — the console
   therefore falls back to Simplified, and a Traditional page labels platform navigation in
   English rather than ship mixed Simplified/Traditional script (#1368). ⇒ With no Traditional
   pack to source from, a UI noun on a zh-Hant page takes, in order: (1) the zh-CN pack wording
@@ -208,6 +269,22 @@ navigation fact may be documented and guarded; a machine semantic layer may not.
   a Traditional translation. Each zh-Hant page carries one identical standing sentence saying
   so; ⛔ no guard asserts free prose (#1646 refused prose guards, #1755 measured an idle one).
   (#1767)
+
+**7. The in-app docs carry the rules the screens do not show, and a feature updates them in the same PR.** When a feature adds
+behaviour a user cannot read off the screen — an automatic assignment, a threshold, an SLA, who can see a record, what a metric
+counts — the same PR updates its own package's in-app page (ADR-0046), opened from *Help*; the screens themselves are not
+re-described (ADR-0051 §1). English first, `<name>.zh.md` beside it. A page files itself into its book by name prefix:
+
+- app package: `src/docs/` (the platform's path, above) — `crm_manual` (`crm_sales_*`, `crm_analytics_*`; Getting Started is the one
+  curated `pages` list) and `crm_admin_manual` (`crm_admin_*`, administrators only), both in `src/sales/books/`;
+- service: `src/service/docs/` — no book of its own; `crm_manual`'s Service group claims `crm_service_*`;
+- revenue: `src/revenue/docs/` — `crm_revenue_manual` (`crm_revenue_*`), `src/revenue/books/`;
+- marketing: `src/marketing/docs/` — `crm_marketing_manual` (`crm_marketing_*`), `src/marketing/books/`.
+
+A machine fact is embedded as a ```` ```metadata ```` block, ⛔ never hand-copied (rule 5); while the pinned platform refuses those
+blocks in this multi-package artifact, a lifecycle is a ```` ```mermaid ```` diagram held to its machine by
+`test/docs-lifecycle-diagrams.test.ts`. ⛔ A page in the app's books never links to a page of a module's own book (Revenue, Marketing):
+that book leaves with its module; the module's pages may link to the app's. (#2328)
 
 ## ⬆️ Platform Upgrades (ObjectStack version bumps)
 
@@ -238,7 +315,7 @@ FROM → TO for a breaking change); it ships as `CHANGELOG.md`. The lone excepti
 A seat may take a PR out of draft and arm auto-merge once every check on it has finished and none has failed. Arming **enqueues**:
 `main`'s ruleset carries a merge queue that performs the squash merge within seconds — ⛔ never merge by hand, and do not re-derive a
 wait from `min_entries_to_merge_wait_minutes`. A check that concluded `skipped` under a label, or never ran because a path filter
-excluded it, is not a failure. **Governed paths — `AGENTS.md`, `CLAUDE.md`, `.claude/**`, `.github/instructions/**` — govern the whole
+excluded it, is not a failure. **Governed paths — `AGENTS.md`, `CLAUDE.md`, `.claude/**` — govern the whole
 diff**, however small that part of it is: the PR stays a **draft** and is the maintainer's own merge; ⛔ a seat never flips it ready and never arms auto-merge on it. (#1742)
 
 ### Verifying UI in the browser

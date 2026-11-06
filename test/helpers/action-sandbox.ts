@@ -1,8 +1,7 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
+import { extractHookBody } from '@objectstack/cli/hook-body';
 import { QuickJSScriptRunner, actionBodyRunnerFactory, hookBodyRunnerFactory } from '@objectstack/runtime';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
 import { assertReferenceValueShapes, engineFlatInput } from './hook-harness';
 
 /**
@@ -52,64 +51,14 @@ import { assertReferenceValueShapes, engineFlatInput } from './hook-harness';
  * before that day's spring-forward, where a summer instant answers `240` — and
  * `getUTCDate` / `setUTCDate` exist, so a body may rely on them.
  *
- * `extractHookBody` is reached by a deep path because the CLI publishes no
- * public entry for it. Both packages are pinned to an exact version in
- * `package.json`, and if a platform upgrade moves the file the load fails —
- * loudly, on every test in this harness — rather than degrading to a lookalike
- * check. That is the contract, and it held: the 17.2.0 -> 17.3.0 upgrade broke
- * this import and the harness said so on the first typecheck.
- *
- * WHY THE LOAD IS WRITTEN THIS WAY (objectstack#15325). Through 17.2.0
- * `@objectstack/cli` published NO `exports` field, so
- * `@objectstack/cli/dist/utils/extract-hook-body.js` resolved like any path.
- * 17.3.0 introduces an `exports` map admitting exactly `.` and `./console`, so
- * that specifier is now dead in BOTH directions — `error TS2307` from `tsc`,
- * and `ERR_PACKAGE_PATH_NOT_EXPORTED` from Node at run time. (`./package.json`
- * is sealed too.) The file is still shipped; only the door is gone.
- *
- * So the root entry — which the map DOES admit — is resolved, and the extractor
- * is loaded by file URL relative to it. This keeps the platform's OWN
- * implementation as the thing under test. Writing a local copy of the extractor
- * is the one answer this harness must not take: its refusal rules are what 15+
- * comments across `src/objects/*.hook.ts` are written against, and a lookalike
- * would keep passing while diverging from the rule `os build` actually applies.
- *
- * ⛔ This is a STOPGAP, not the intended shape. `@objectstack/cli`'s own 17.3.0
- * changelog (entry `8c82289`) names the remedy for an out-of-repo consumer —
- * "ratify the subpath as public surface rather than read `dist/` paths" — and
- * applied it for `./console` only. objectstack#15325 asks for the same
- * ratification here. When it lands, delete this loader and import the subpath.
+ * `extractHookBody` is the CLI's own, imported from the public `./hook-body`
+ * subpath `@objectstack/cli` 18.x admits in its `exports` map — the
+ * ratification objectstack#15325 asked for. Writing a local copy of the
+ * extractor is the one answer this harness must not take: its refusal rules
+ * are what the comments across `src/<pkg>/objects/*.hook.ts` are written against,
+ * and a lookalike would keep passing while diverging from the rule `os build`
+ * actually applies.
  */
-
-type ExtractedBody = {
-  /** Pure function-body source (without the surrounding `(ctx) => {...}`). */
-  source: string;
-  capabilities: Array<'api.read' | 'api.write' | 'crypto.uuid' | 'log'>;
-  isExpression: boolean;
-};
-
-/**
- * The CLI's own `extractHookBody`, loaded past the sealed subpath.
- *
- * Top-level await: the harness must hold the real function before any test
- * calls {@link extractSandboxBody}, and every failure mode here throws at module
- * load — which is the loud failure the header promises, not a silent fallback.
- */
-const extractHookBody: (fn: (...a: unknown[]) => unknown, originLabel: string) => ExtractedBody =
-  await (async () => {
-    const cliEntry = createRequire(import.meta.url).resolve('@objectstack/cli');
-    const extractorUrl = new URL('./utils/extract-hook-body.js', pathToFileURL(cliEntry));
-    const mod = (await import(extractorUrl.href)) as {
-      extractHookBody?: (fn: (...a: unknown[]) => unknown, originLabel: string) => ExtractedBody;
-    };
-    if (typeof mod.extractHookBody !== 'function') {
-      throw new Error(
-        `@objectstack/cli no longer exposes extractHookBody at ${extractorUrl.href}. ` +
-          'See objectstack#15325 — this harness must run the platform extractor, never a copy.',
-      );
-    }
-    return mod.extractHookBody;
-  })();
 
 export type Rec = Record<string, any>;
 

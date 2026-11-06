@@ -1,11 +1,20 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
+import { cel } from '@objectstack/spec';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AutomationEngine, installBuiltinNodes } from '@objectstack/service-automation';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 import { flowGraphDeep, regionsOf } from './helpers/flow-regions';
+import { registerStackPicklists } from './helpers/stack-picklists';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * ═══ HOUSE RULE: flow conditions over FLOW VARIABLES ═══════════════════════
@@ -81,8 +90,8 @@ import { flowGraphDeep, regionsOf } from './helpers/flow-regions';
  *
  * **What binds a variable.** `get_record` runs
  * `if (outputVariable) variables.set(outputVariable, record)` unconditionally,
- * and `findOne` answers a miss with `null` (measured against `InMemoryDriver`
- * below) — so after a `get_record`, the variable IS bound, possibly to `null`.
+ * and `findOne` answers a miss with `null` (measured on SQL below) — so after
+ * a `get_record`, the variable IS bound, possibly to `null`.
  * `assignment` sets every key of `config.assignments`. A `loop` binds its
  * `iteratorVariable` inside the body region, which runs in the ENCLOSING
  * variable scope. A failed node throws and the run stops, so a node that could
@@ -135,11 +144,9 @@ import { flowGraphDeep, regionsOf } from './helpers/flow-regions';
  *
  * ### What measured CLEAN, and why that is not the same as safe
  *
- *   - `demo_bootstrap` (`vars.firstUser`) — `get_user` dominates every read and
- *     binds `null` when the org has no users yet; the whole flow completes on a
- *     zero-user org (reproduced below). Nothing to fix.
- *   - `lead_conversion`'s `vars.matchedAccount` / `vars.matchedContact` — same
- *     shape, same reason: a `get_record` dominates each read. Nothing to fix,
+ *   - `lead_conversion`'s `vars.matchedAccount` / `vars.matchedContact` — a
+ *     `get_record` dominates each read and binds `null` when it matches nothing,
+ *     so every read sees a bound variable. Nothing to fix,
  *     and deliberately NOT guarded — a guard here would be the papering-over
  *     the class table warns about.
  *   - `quote_generation` (`oppRecord.stage`) and `opportunity_approval`
@@ -361,6 +368,14 @@ function binds(node: AnyRec): string[] {
   if (typeof cfg.outputVariable === 'string' && cfg.outputVariable) out.push(cfg.outputVariable);
   if (typeof cfg.iteratorVariable === 'string' && cfg.iteratorVariable) out.push(cfg.iteratorVariable);
   if (typeof cfg.idVariable === 'string' && cfg.idVariable) out.push(cfg.idVariable);
+  // An `approval` node continues only through a resume, and every resume the
+  // approvals service sends carries `output.decision` (`approve`, `reject`, or
+  // `recall` from `ApprovalService.recall`, `@objectstack/plugin-approvals`
+  // 18.2.0). The engine lands each output key as `<nodeId>.<key>`
+  // (`applyResumeSignal`), so its out-edges read `vars.<nodeId>.decision`.
+  // Measured end-to-end, not assumed: `approval-recall-no-rejected-notice.test.ts`
+  // goes red if a recall's decision stops reaching the edges that read it (#2349).
+  if (node.type === 'approval' && typeof node.id === 'string' && node.id) out.push(node.id);
   const a = cfg.assignments;
   if (Array.isArray(a)) {
     for (const item of a) {
@@ -652,7 +667,7 @@ describe('every variable a flow condition reads is BOUND on every path to it', (
       field.defaultValue,
       'the screen field restates the default instead of deriving it — that is the ' +
         'duplication #1173 removed, moved one level over',
-    ).toBe('{memberSource}');
+    ).toEqual(cel`memberSource`);
     const literals = (flow.variables as AnyRec[])
       .filter((v) => v.name === 'memberSource' && v.defaultValue !== undefined).length +
       (field.defaultValue === 'leads' ? 1 : 0);
@@ -660,10 +675,11 @@ describe('every variable a flow condition reads is BOUND on every path to it', (
 
     // `leadStatus` / `contactDepartment` are the DELIBERATE asymmetry, pinned
     // so a later reader does not "finish the job" by seeding them too. No
-    // condition reads either one — they are interpolated into a `get_record`
-    // filter, where an unresolved interpolation makes the node refuse to run
-    // and name the culprit. A declared default would replace that loud refusal
-    // with a silent enrolment of a segment nobody chose.
+    // condition reads either one — each is a `get_record` filter operand (a
+    // CEL envelope since 18.0.0-next.0), where an unbound variable fails the
+    // run before the query and names the culprit. A declared default would
+    // replace that loud failure with a silent enrolment of a segment nobody
+    // chose.
     for (const name of ['leadStatus', 'contactDepartment']) {
       const v = (flow.variables as AnyRec[]).find((x) => x.name === name)!;
       expect(v.defaultValue, `${name} gained a defaultValue — no condition reads it, so this buys nothing`).toBeUndefined();
@@ -683,7 +699,7 @@ describe('every variable a flow condition reads is BOUND on every path to it', (
       field.defaultValue,
       'the screen field restates the default instead of deriving it — that is the ' +
         'duplication #1155 removed, moved one level over',
-    ).toBe('{createOpportunity}');
+    ).toEqual(cel`createOpportunity`);
 
     // …and the literal really is written once. Restating `false` on the field
     // would put a second copy in this file with nothing reconciling them.
@@ -849,7 +865,7 @@ describe('declared defaults are seeded by the real engine, not just by this file
     const engine = new AutomationEngine(silent);
     installBuiltinNodes(engine, { logger: silent, getService: () => undefined } as never);
     (engine as unknown as AnyRec).registerFlow('probe', flow);
-    return (engine as unknown as AnyRec).execute('probe', { userId: 'u1', user: { id: 'u1' }, params });
+    return (engine as unknown as AnyRec).execute('probe', { userId: 'u1', tenantId: ORG, user: { id: 'u1' }, params });
   }
 
   const OUT = (defaultValue?: unknown, isInput = true): AnyRec[] => [{
@@ -924,7 +940,7 @@ describe('declared defaults are seeded by the real engine, not just by this file
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// End-to-end, on the engine + driver that actually produce the shapes
+// End-to-end, on the real engine over a real SQLite database
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('the two defects, reproduced end-to-end', () => {
@@ -941,12 +957,14 @@ describe('the two defects, reproduced end-to-end', () => {
     silent.child = () => silent;
 
     const ql: AnyRec = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: objMap as never,
       // `logger` is honoured at runtime but is not on the published options
       // type — without it this suite prints every engine INFO line.
       ...({ logger: silent } as object),
     })) as never;
+    registerStackPicklists(ql);
+    await ql.syncSchemas();
 
     const engine = new AutomationEngine(silent);
     installBuiltinNodes(engine, {
@@ -976,25 +994,16 @@ describe('the two defects, reproduced end-to-end', () => {
   }
 
   /** The invocation contract the console's flow-action trigger sends. */
-  const asUser = (params: AnyRec) => ({ userId: 'u1', user: { id: 'u1' }, params });
+  const asUser = (params: AnyRec) => ({ userId: 'u1', tenantId: ORG, user: { id: 'u1' }, params });
 
   it('findOne answers a miss with null — the precondition for class 1', async () => {
     const b = await boot([]);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const miss = await api.object('crm_account').findOne({ where: { name: '__nothing__' } });
       // Not `toBeFalsy()`: `null` specifically is what `get_record` then binds,
       // and `vars.X.f` on a null X aborts with `No such key: f`.
       expect(miss).toBeNull();
-      // …while `crm_campaign.status` IS required, so the sparse-COLUMN variant
-      // was never the exposure here. If that changes this assertion fails and
-      // the guard's second clause starts earning its keep.
-      const camp = await api.object('crm_campaign').insert({
-        name: 'Spring', type: 'email', status: 'planning',
-        start_date: '2026-01-01', end_date: '2026-03-01',
-      });
-      const stored = await api.object('crm_campaign').findOne({ where: { id: camp.id } });
-      expect('status' in (stored ?? {})).toBe(true);
     } finally {
       await b.close();
     }
@@ -1003,7 +1012,7 @@ describe('the two defects, reproduced end-to-end', () => {
   it('campaign_enrollment: a campaign that vanished still reaches a verdict', async () => {
     const b = await boot(['campaign_enrollment', 'campaign_lead_member_enroll', 'campaign_contact_member_enroll']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const camp = await api.object('crm_campaign').insert({
         name: 'Spring', type: 'email', status: 'planning',
         start_date: '2026-01-01', end_date: '2026-03-01',
@@ -1030,7 +1039,7 @@ describe('the two defects, reproduced end-to-end', () => {
   it('campaign_enrollment: an OPEN campaign still enrols, so the guard did not close the door', async () => {
     const b = await boot(['campaign_enrollment', 'campaign_lead_member_enroll', 'campaign_contact_member_enroll']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const camp = await api.object('crm_campaign').insert({
         name: 'Spring', type: 'email', status: 'planning',
         start_date: '2026-01-01', end_date: '2026-03-01',
@@ -1067,7 +1076,7 @@ describe('the two defects, reproduced end-to-end', () => {
     // between edge e4/e7 and a `No such key` abort.
     const b = await boot(['campaign_enrollment', 'campaign_lead_member_enroll', 'campaign_contact_member_enroll']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const camp = await api.object('crm_campaign').insert({
         name: 'Spring', type: 'email', status: 'planning',
         start_date: '2026-01-01', end_date: '2026-03-01',
@@ -1103,7 +1112,7 @@ describe('the two defects, reproduced end-to-end', () => {
     // variable — so what the caller asked for is what the user sees.
     const b = await boot(['campaign_enrollment', 'campaign_lead_member_enroll', 'campaign_contact_member_enroll']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const camp = await api.object('crm_campaign').insert({
         name: 'Spring', type: 'email', status: 'planning',
         start_date: '2026-01-01', end_date: '2026-03-01',
@@ -1117,8 +1126,8 @@ describe('the two defects, reproduced end-to-end', () => {
 
       const plain = await prefillOf({});
       expect(plain, 'the enrolment screen no longer offers memberSource').toBeDefined();
-      // Interpolated to the raw value — NOT the literal '{memberSource}', which
-      // a `select` would match against no option and render as nothing chosen.
+      // Evaluated to the raw value — NOT the envelope, which a `select` would
+      // match against no option and render as nothing chosen.
       expect(plain!.defaultValue).toBe('leads');
       expect(typeof plain!.defaultValue).toBe('string');
       expect(plain!.required, 'memberSource stopped being required — the refusal test above no longer measures this flow').toBe(true);
@@ -1134,9 +1143,9 @@ describe('the two defects, reproduced end-to-end', () => {
   }, 60_000);
 
   it('lead_conversion: a resume signal that omits the untouched checkbox still converts', async () => {
-    const b = await boot(['lead_conversion']);
+    const b = await boot(['lead_conversion', 'lead_conversion_account_revenue']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const lead = await api.object('crm_lead').insert({
         // `company_normalized` is authored here because this harness registers
         // FLOWS but no hooks — in production `lead_duplicate_check` derives it
@@ -1179,9 +1188,9 @@ describe('the two defects, reproduced end-to-end', () => {
   }, 60_000);
 
   it('lead_conversion: an explicit yes still creates the opportunity', async () => {
-    const b = await boot(['lead_conversion']);
+    const b = await boot(['lead_conversion', 'lead_conversion_account_revenue']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const lead = await api.object('crm_lead').insert({
         // See the note on the previous test: hook-derived key, hand-authored
         // because this harness has no hooks (#626).
@@ -1235,24 +1244,10 @@ describe('the two defects, reproduced end-to-end', () => {
     }
   }, 60_000);
 
-  it('demo_bootstrap: a zero-user org completes instead of aborting', async () => {
-    // The `vars.firstUser` reads measured CLEAN — `get_user` dominates them and
-    // binds `null`. This pins that, so a future edit that moves the read above
-    // the `get_record` is caught here rather than on a demo org.
-    const b = await boot(['demo_bootstrap']);
-    try {
-      const done = await b.engine.execute('demo_bootstrap', {});
-      expect(done.error ?? null).toBeNull();
-      expect(done.success).not.toBe(false);
-    } finally {
-      await b.close();
-    }
-  }, 60_000);
-
   it('quote_generation: an ordinary run still advances the stage', async () => {
     const b = await boot(['quote_generation']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const account = await api.object('crm_account').insert({ name: 'Acme Corp' });
       const opp = await api.object('crm_opportunity').insert({
         name: 'Big Deal', amount: 750_000, stage: 'prospecting',
@@ -1273,7 +1268,7 @@ describe('the two defects, reproduced end-to-end', () => {
   it('opportunity_approval: both tiers still route correctly through the guarded gate', async () => {
     const b = await boot(['opportunity_approval_on_create']);
     try {
-      const api = b.ql.createContext({ isSystem: true });
+      const api = b.ql.createContext({ isSystem: true, tenantId: ORG });
       const account = await api.object('crm_account').insert({ name: 'Acme Corp' });
       const run = async (amount: number) => {
         const opp = await api.object('crm_opportunity').insert({

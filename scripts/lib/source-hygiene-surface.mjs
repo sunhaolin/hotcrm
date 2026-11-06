@@ -127,10 +127,13 @@ export const TEXT_SCANNED = ['content', '.changeset', 'docs', '.github', '.claud
  * check; the `.ts` members are read by the marker and copyright-header checks
  * as well (#1236).
  *
- * The three root `.ts` files are why this list exists at all:
- * `objectstack.config.ts` is the app manifest AGENTS.md calls the source of
- * truth, and `vitest.config.ts` / `playwright.config.ts` are the test entry
- * points — first-class TypeScript that no check read before #838. They joined
+ * The root `.ts` files are why this list exists at all:
+ * `objectstack.config.ts` is the artifact AGENTS.md calls the source of truth
+ * (`composeStacks` over the two ADR-0130 package stacks),
+ * `objectstack.composition.ts` builds those stacks from the packages' barrels
+ * (a separate module because the config may carry no named export), and
+ * `vitest.config.ts` / `playwright.config.ts` are the test entry points —
+ * first-class TypeScript that no check read before #838. They joined
  * the byte check there, and the two `.ts` checks in #1236, which derives
  * `rootTs` from this list where the checks are wired.
  *
@@ -187,6 +190,7 @@ export const ROOT_TEXT_FILES = [
   'LICENSE',
   'README.legacy.md',
   'README.md',
+  'objectstack.composition.ts',
   'objectstack.config.ts',
   'objectstack.manifest.json',
   'package.json',

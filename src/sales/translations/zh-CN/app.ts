@@ -1,0 +1,932 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { TranslationData } from '@objectstack/spec/system';
+
+/**
+ * 简体中文 (zh-CN) — every translation namespace EXCEPT `objects`:
+ * `apps`, `messages`, `dashboards`, `datasets`, `pages`, `flows`, `picklists`,
+ * `reports`, `positions`, `permissions`.
+ *
+ * SPLIT AXIS (#1311): translation NAMESPACE first, then CRM DOMAIN FAMILY.
+ * Everything that is not `objects` lives in `./app.ts`; `objects` — 69-78% of
+ * every bundle — is one file per CRM domain family, and a detail object
+ * follows its master. A new row goes in the file for ITS family, never in
+ * whichever file is already open: that is how one file re-grows past the 70%
+ * advisory band `pnpm hygiene` prints. Full rule and rationale:
+ * `src/sales/translations/zh-CN.ts`.
+ *
+ * A namespace `TranslationData` gains later lands here too, and the room is
+ * measured: this file is the smaller half of the bundle, and the schema bounds
+ * how many namespaces can ever arrive.
+ */
+export const appSurface: Omit<TranslationData, 'objects'> = {
+  apps: {
+    crm_enterprise: {
+      label: 'HotCRM',
+      description: '涵盖销售、服务和市场营销的客户关系管理系统',
+      // Keyed by navigation-node `id` (a flat keyspace regardless of depth).
+      navigation: {
+        // Demo (epic #2): the project-management, project-finance and master-data groups.
+        group_projects: { label: '项目管理' },
+        nav_presales_project: { label: '售前项目' },
+        nav_delivery_project: { label: '交付项目' },
+        nav_cost_plan: { label: '成本计划' },
+        nav_timesheet: { label: '工时表' },
+        nav_travel_cost: { label: '差旅成本' },
+        nav_business_trip: { label: '出差申请' },
+        nav_leave_request: { label: '请假申请' },
+        nav_budget_adjustment: { label: '预算调整' },
+        nav_project_cost_dashboard: { label: '项目成本' },
+        group_finance: { label: '项目财务' },
+        nav_invoice: { label: '开票' },
+        nav_collection: { label: '收款' },
+        nav_purchase_contract: { label: '采购合同' },
+        nav_sales_order: { label: '销售订单' },
+        nav_project_finance_dashboard: { label: '项目财务' },
+        group_master: { label: '主数据' },
+        nav_rate_card: { label: '费率卡' },
+        nav_travel_standard: { label: '差旅标准' },
+        nav_legal_entity: { label: '签约主体' },
+        // The group and its Events item are two words, as in every other pack
+        // (Activity / Events, Actividad / Eventos, 活動 / イベント). The item
+        // keeps 活动: it is `crm_event`'s own label, the heading of the page it
+        // opens. The group takes 互动, the word this pack already uses for the
+        // interactions it gathers (`crm_event`'s description, the 互动历史
+        // view, the Sales Activity tiles). #2060 item 13.
+        group_activity: { label: '互动' },
+        nav_event: { label: '活动' },
+        nav_activity_dashboard: { label: '销售活动' },
+        nav_my_calendar: { label: '我的日历' },
+        nav_home: { label: '首页' },
+        nav_sales_home: { label: '销售主页' },
+
+        group_sales: { label: '销售' },
+        group_order_to_cash: { label: '订单与回款' },
+        nav_lead: { label: '线索' },
+        nav_account: { label: '客户' },
+        nav_contact: { label: '联系人' },
+        nav_opportunity: { label: '商机' },
+        nav_contract: { label: '销售合同' },
+        nav_sales_dashboard: { label: '销售业绩' },
+
+        group_work: { label: '我的工作' },
+        nav_my_tasks: { label: '我的任务' },
+        nav_my_deals: { label: '我的商机' },
+        nav_my_leads: { label: '我的线索' },
+        nav_approval_requests: { label: '待我审批' },
+
+        group_marketing: { label: '市场营销' },
+
+        group_service: { label: '服务' },
+
+        group_insights: { label: '数据洞察' },
+        nav_crm_dashboard: { label: 'CRM 总览' },
+        nav_forecast: { label: '销售预测' },
+
+        group_reports: { label: '报表' },
+        nav_report_opportunities_by_stage: { label: '各阶段商机' },
+        nav_report_won_by_owner: { label: '各负责人成交商机' },
+        nav_report_pipeline_coverage: { label: '季度管道覆盖率' },
+        nav_report_funnel_by_owner: { label: '各负责人商机漏斗' },
+        nav_report_lead_inflow: { label: '每月线索跟进' },
+        nav_report_accounts_by_industry: { label: '客户行业与类型' },
+        nav_report_churn_signals: { label: '客户流失信号' },
+
+        group_help: { label: '帮助' },
+        nav_help_manual: { label: '使用手册' },
+        nav_help_admin: { label: '管理员手册' },
+      },
+    },
+  },
+  messages: {
+    'common.save': '保存',
+    'common.cancel': '取消',
+    'common.delete': '删除',
+    'common.edit': '编辑',
+    'common.create': '新建',
+    'common.search': '搜索',
+    'common.filter': '筛选',
+    'common.export': '导出',
+    'common.back': '返回',
+    'common.confirm': '确认',
+    'nav.sales': '销售',
+    'nav.service': '服务',
+    'nav.marketing': '营销',
+    'nav.products': '产品',
+    'nav.analytics': '数据分析',
+    'success.saved': '记录保存成功',
+    'success.converted': '线索转化成功',
+    'confirm.delete': '确定要删除此记录吗？',
+    'confirm.convert_lead': '将此线索转化为客户、联系人和商机？',
+    'error.required': '此字段为必填项',
+    'error.load_failed': '数据加载失败',
+  },
+  dashboards: {
+    // Demo (epic #2): project cost and project finance.
+    project_cost_dashboard: {
+      label: '项目成本',
+      description: '各交付项目的预算基线、计划与实际成本',
+      widgets: {
+        total_budget: { title: '总预算', description: '已审批预算基线合计' },
+        total_labor_actual: { title: '人工实际', description: '已审批工时的人工成本' },
+        total_travel_actual: { title: '差旅实际', description: '归集到项目的差旅费用' },
+        active_projects: { title: '进行中项目', description: '当前进行中的交付项目数' },
+        plan_vs_actual_by_project: { title: '各项目预算 vs 实际', description: '每个交付项目的基线、计划与人工实际' },
+        burn_by_project: { title: '各项目预算消耗', description: '每个项目的基线、实际与消耗率' },
+      },
+    },
+    project_finance_dashboard: {
+      label: '项目财务',
+      description: '各交付项目的合同额、开票、收款、采购与订单',
+      widgets: {
+        contract_total: { title: '合同额合计', description: '各项目合同额之和' },
+        invoiced_total: { title: '已开票', description: '已开具发票金额（不含作废）' },
+        collected_total: { title: '已收款', description: '已收到的款项' },
+        purchase_total: { title: '采购合同', description: '分包与软硬件采购合同金额（不含已终止）' },
+        finance_by_project: { title: '各项目合同额 vs 开票 vs 收款', description: '每个交付项目的合同额、已开票与已收款' },
+        finance_table: { title: '项目财务明细', description: '合同额、开票、收款、开票率、回款率、采购与订单、进度' },
+      },
+    },
+    sales_activity_dashboard: {
+      label: '销售活动',
+      description: '谁在和客户沟通、频率如何，以及哪些客户已经沉默',
+      widgets: {
+        interactions_held: { title: '已记录互动', description: '真实发生过的通话与会议' },
+        meetings_booked: { title: '已预约会议', description: '已排入日历但尚未举行的会议' },
+        customer_minutes: { title: '客户接触分钟数', description: '面向客户的总时长' },
+        tasks_completed: { title: '已完成任务', description: '已闭环的跟进事项——活动的另一半' },
+        activity_by_rep: { title: '按销售代表统计的活动', description: '每位负责人记录的互动数' },
+        activity_by_week: { title: '每周活动量', description: '每周互动数' },
+        activity_mix: { title: '活动构成', description: '通话、会议与演示的占比' },
+        activity_by_record_type: { title: '活动落在哪里', description: '漏斗的哪个环节获得了关注' },
+        deal_activity: { title: '商机上的互动', description: '关联到商机的已记录互动' },
+        open_deals_for_activity: { title: '进行中的商机', description: '仍在推进的商机数' },
+        quiet_accounts_30: { title: '沉默 30 天以上', description: '一个月内没有任何互动记录的活跃客户' },
+        quiet_accounts_60: { title: '沉默 60 天以上', description: '两个月无联系——风险阈值' },
+        quiet_accounts_90: { title: '沉默 90 天以上', description: '整整一个季度没有联系' },
+      },
+    },
+    crm_overview_dashboard: {
+      label: 'CRM 总览',
+      description: '收入指标、管道分析与商机洞察',
+      widgets: {
+        total_revenue: { title: '总收入（所选期间）', description: '所选期间内的已成交收入' },
+        active_deals: { title: '进行中商机（所选期间）', description: '预计在所选期间内成交的进行中商机' },
+        won_deals: { title: '赢单数（所选期间）', description: '所选期间内赢单的商机数' },
+        avg_deal_size: { title: '平均订单金额（所选期间）', description: '所选期间内已成交商机的平均金额' },
+        lead_source: { title: '线索来源', description: '按获客渠道统计的管道金额' },
+        pipeline_by_stage: { title: '阶段管道分布', description: '按阶段统计的进行中商机金额' },
+        top_products: { title: '各类别目录价合计', description: '按产品类别汇总的目录价，不是销售额' },
+        pipeline_by_owner: { title: '按负责人统计管道', description: '各销售负责人的进行中管道金额与商机数' },
+      },
+    },
+    executive_dashboard: {
+      label: '高管总览',
+      description: '面向管理层的收入、客户与管道高阶指标',
+      widgets: {
+        total_revenue_ytd: { title: '年度累计收入', description: '本年度已成交收入' },
+        total_accounts: { title: '活跃客户', description: '至少存在一项活跃关系的客户' },
+        total_contacts: { title: '联系人总数', description: '通讯录中的联系人' },
+        open_leads: { title: '未转化线索', description: '漏斗中尚未转化的线索' },
+        revenue_trend: { title: '收入趋势', description: '过去 12 个月的已成交收入' },
+        revenue_by_industry: { title: '行业收入分布', description: '本年度已成交收入按客户行业拆分' },
+        pipeline_by_stage: { title: '阶段管道分布', description: '按阶段统计的进行中商机金额' },
+        new_accounts_by_month: { title: '新增客户', description: '过去 6 个月的客户创建节奏' },
+        accounts_by_industry: { title: '按行业统计客户', description: '各行业的年营收总额与客户数' },
+      },
+    },
+    sales_dashboard: {
+      label: '销售业绩',
+      description: '管道分析、赢率趋势及销售代表绩效',
+      widgets: {
+        total_pipeline_value: { title: '进行中管道（所选期间）', description: '预计在所选期间内成交的进行中商机金额合计' },
+        closed_won_qtd: { title: '本季度已成交', description: '本季度已赢得的收入' },
+        open_opportunities: { title: '进行中商机（所选期间）', description: '预计在所选期间内成交的进行中商机' },
+        avg_deal_size: { title: '平均订单金额（本季度）', description: '本季度已成交商机的平均金额' },
+        pipeline_by_stage: { title: '阶段管道分布', description: '按阶段统计的进行中商机金额' },
+        pipeline_by_forecast_category: { title: '预测类别管道分布', description: '按预测类别统计的进行中管道金额' },
+        lead_source_breakdown: { title: '线索来源分布', description: '按来源统计的线索数量' },
+        open_pipeline_by_owner: { title: '按负责人统计进行中管道', description: '各销售负责人的进行中管道金额、商机数与平均赢单概率' },
+        quota_attainment_by_rep: { title: '按销售代表统计配额达成', description: '各销售代表本季度配额、已成交收入与达成率。每晚的预测快照建好本季度记录、经理填好配额后才有数据' },
+        pipeline_stage_by_source: { title: '阶段 × 线索来源', description: '按阶段和来源交叉统计进行中商机金额' },
+        win_rate_12m: { title: '赢率（近 12 个月）', description: '近 12 个月已结单商机中赢单所占的比例' },
+        won_deals_12m: { title: '赢单数（近 12 个月）', description: '赢率的分子' },
+        lost_deals_12m: { title: '丢单数（近 12 个月）', description: '赢率分母的另一半' },
+        win_rate_by_owner: { title: '按销售代表统计赢/丢单', description: '近 12 个月各销售代表的赢单数、丢单数与赢率' },
+        win_rate_by_lead_source: { title: '按线索来源统计赢/丢单', description: '近 12 个月哪些来源带来的商机真正成交' },
+        loss_reason_breakdown: { title: '丢单原因分析', description: '近 12 个月丢单按原因分布' },
+      },
+    },
+  },
+  // `title` / `subtitle` translate the page's `page:header`; `title` falls back
+  // to `label` when omitted, so it is authored only where the two differ.
+  // Header strings carrying `{field}` tokens keep the token spelling verbatim —
+  // the console substitutes on the raw key, so a translated token resolves to
+  // nothing and the header renders blank.
+  datasets: {
+    // Demo (epic #2): project cost and project finance.
+    project_cost_metrics: {
+      label: '项目成本指标',
+      description: '各交付项目的预算基线、计划与实际成本',
+      dimensions: {
+        project: { label: '项目' },
+        status: { label: '项目状态' },
+        impl_cost_center: { label: '实施成本中心' },
+        department: { label: '对应部门' },
+        account: { label: '客户' },
+        planned_end: { label: '计划结束' },
+      },
+      measures: {
+        project_count: { label: '项目数' },
+        baseline_total: { label: '预算基线' },
+        planned_total: { label: '计划总额' },
+        labor_total: { label: '人工实际' },
+        travel_total: { label: '差旅实际' },
+        active_count: { label: '进行中项目' },
+        burn_ratio: { label: '预算消耗' },
+      },
+    },
+    project_finance_metrics: {
+      label: '项目财务指标',
+      description: '各交付项目的合同额、开票、收款、采购与订单',
+      dimensions: {
+        project: { label: '项目' },
+        status: { label: '项目状态' },
+        department: { label: '对应部门' },
+        account: { label: '客户' },
+        planned_end: { label: '计划结束' },
+      },
+      measures: {
+        project_count: { label: '项目数' },
+        contract_total: { label: '合同额' },
+        invoiced_total: { label: '已开票' },
+        collected_total: { label: '已收款' },
+        purchase_total: { label: '采购合同' },
+        order_total: { label: '销售订单' },
+        labor_total: { label: '人工实际' },
+        travel_total: { label: '差旅实际' },
+        avg_progress: { label: '平均进度' },
+        invoice_ratio: { label: '开票率' },
+        collection_ratio: { label: '回款率' },
+      },
+    },
+    account_metrics: {
+      label: '客户指标',
+      description: '按行业与类型统计客户数量的语义层',
+      dimensions: {
+        industry: {
+          label: '行业',
+        },
+        type: {
+          label: '类型',
+        },
+        created_at: {
+          label: '创建时间',
+        },
+      },
+      measures: {
+        account_count: {
+          label: '客户数',
+        },
+        annual_revenue_sum: {
+          label: '年营收',
+        },
+      },
+    },
+    contact_metrics: {
+      label: '联系人指标',
+      description: '统计联系人数量的语义层',
+      measures: {
+        contact_count: {
+          label: '联系人数',
+        },
+      },
+    },
+    event_metrics: {
+      label: '活动指标',
+      description: '统计会议、通话与互动新近度的语义层',
+      dimensions: {
+        owner: {
+          label: '负责人',
+        },
+        related_to_type: {
+          label: '关联对象',
+        },
+        start_datetime: {
+          label: '活动周',
+        },
+        status: {
+          label: '状态',
+        },
+        type: {
+          label: '活动类型',
+        },
+      },
+      measures: {
+        avg_minutes: {
+          label: '平均时长',
+        },
+        event_count: {
+          label: '活动数',
+        },
+        total_minutes: {
+          label: '总分钟数',
+        },
+      },
+    },
+    forecast_metrics: {
+      label: '销售预测指标',
+      description: '按负责人统计配额、达成率与管道覆盖倍数的语义层',
+      dimensions: {
+        owner: {
+          label: '负责人',
+        },
+        period: {
+          label: '周期类型',
+        },
+        period_label: {
+          label: '周期',
+        },
+        period_start: {
+          label: '周期开始',
+        },
+      },
+      measures: {
+        attainment: {
+          label: '达成率',
+        },
+        closed_sum: {
+          label: '已成交',
+        },
+        commit_sum: {
+          label: '承诺',
+        },
+        pipeline_sum: {
+          label: '销售管道',
+        },
+        quota_sum: {
+          label: '配额',
+        },
+      },
+    },
+    lead_metrics: {
+      label: '线索指标',
+      description: '统计线索数量的语义层',
+      dimensions: {
+        created_at: {
+          label: '创建时间',
+        },
+        last_contacted_date: {
+          label: '最近联系',
+        },
+        lead_source: {
+          label: '来源',
+        },
+        status: {
+          label: '状态',
+        },
+      },
+      measures: {
+        lead_count: {
+          label: '线索数',
+        },
+      },
+    },
+    opportunity_metrics: {
+      label: '商机指标',
+      description: '统计销售管道数量与金额的语义层',
+      dimensions: {
+        account_industry: {
+          label: '客户行业',
+        },
+        close_date: {
+          label: '预计成交日',
+        },
+        close_quarter: {
+          label: '成交季度',
+        },
+        forecast_category: {
+          label: '预测类别',
+        },
+        lead_source: {
+          label: '线索来源',
+        },
+        loss_reason: {
+          label: '失单原因',
+        },
+        owner: {
+          label: '负责人',
+        },
+        stage: {
+          label: '阶段',
+        },
+        type: {
+          label: '商机类型',
+        },
+        win_reason: {
+          label: '赢单原因',
+        },
+      },
+      measures: {
+        avg_amount: {
+          label: '平均单笔金额',
+        },
+        avg_probability: {
+          label: '平均赢单概率',
+        },
+        decided_count: {
+          label: '已定局商机',
+        },
+        lost_amount: {
+          label: '失单金额',
+        },
+        lost_count: {
+          label: '失单数',
+        },
+        opp_count: {
+          label: '商机数',
+        },
+        total_amount: {
+          label: '总金额',
+        },
+        win_rate: {
+          label: '赢单率',
+        },
+        won_amount: {
+          label: '赢单金额',
+        },
+        won_count: {
+          label: '赢单数',
+        },
+      },
+    },
+    task_metrics: {
+      label: '任务指标',
+      description: '统计任务工作量与完成情况的语义层',
+      dimensions: {
+        due_date: {
+          label: '截止日期',
+        },
+        is_completed: {
+          label: '已完成',
+        },
+        is_overdue: {
+          label: '已逾期',
+        },
+        priority: {
+          label: '优先级',
+        },
+        priority_rank: {
+          label: '紧急度',
+        },
+        status: {
+          label: '状态',
+        },
+        type: {
+          label: '类型',
+        },
+      },
+      measures: {
+        avg_progress: {
+          label: '平均进度',
+        },
+        task_count: {
+          label: '任务数',
+        },
+      },
+    },
+  },
+  pages: {
+    // The contract's two record pages (#2317): its working page and its print page.
+    contract_detail_page: {
+      label: '合同详情',
+      description: '合同的记录页：使用系统生成的布局，不覆盖任何插槽。',
+    },
+    contract_print_page: {
+      label: '合同文档',
+      description: '可打印的合同文档：签约方、期限、金额、计费、条款与签署栏。',
+    },
+    account_detail_page: {
+      label: '客户详情',
+      description: '插槽式客户记录页——自定义页头 + 常驻讨论区。',
+      title: '{name}',
+      subtitle: '{industry} · {type}',
+      components: {
+        account_chatter: { label: '讨论' },
+      },
+    },
+    account_workbench: {
+      label: '客户工作台',
+      description: '面向销售团队的精选客户列表：仅提供快捷筛选，不含视图管理。',
+    },
+    lead_detail_page: {
+      label: '线索详情',
+      description: '完整的线索详情页，包含关键信息、明细与相关记录。',
+      title: '{last_name}{first_name}',
+      subtitle: '{company}',
+      components: {
+        lead_duplicate_alert_confirmed: { label: '已确认重复提醒' },
+        lead_duplicate_alert_suspected: { label: '疑似重复提醒' },
+        lead_highlights: { label: '关键信息' },
+        lead_path: { label: '线索状态进度' },
+        main_tabs: { label: '线索信息标签页' },
+        lead_details: { label: '线索明细' },
+        related_accordion: { label: '相关记录' },
+        related_tasks: { title: '待办任务', label: '任务' },
+        lead_activity: { label: '活动时间线' },
+        lead_history: { label: '字段历史' },
+      },
+    },
+    opportunity_detail_page: {
+      label: '商机详情',
+      description: '完整的商机详情页，包含阶段进度、关键信息、明细与相关列表。',
+      title: '{name}',
+      subtitle: '{crm_account}',
+      components: {
+        opp_highlights: { label: '关键信息' },
+        opp_stage_path: { label: '商机阶段进度' },
+        opp_approval_pending_manager: { label: '等待销售经理审批' },
+        opp_approval_pending_director: { label: '等待销售经理和销售总监审批' },
+        opp_details: { label: '商机明细' },
+        // `page:tabs` item labels, keyed by each item's `value` (spec 18.1.0,
+        // `pages.PAGE.components.TABS.items.VALUE.label`).
+        opp_main_tabs: { items: { details: { label: '明细' }, related: { label: '相关' }, activity: { label: '互动' } } },
+      },
+    },
+    sales_home_page: {
+      label: '销售主页',
+      description: '销售团队主页，汇总关键指标、我的待办工作与即将到来的活动',
+      components: {
+        kpi_revenue_won: {
+          label: '总收入（全部期间）',
+        },
+        kpi_deals_won: {
+          label: '赢单数（全部期间）',
+        },
+        kpi_pipeline_value: {
+          label: '进行中管道（全部期间）',
+        },
+        kpi_open_leads: {
+          label: '开放线索',
+        },
+        home_upcoming_events: {
+          label: '📅 即将开始 · 最近优先',
+        },
+        key_metrics: { title: '关键绩效指标', label: '关键指标' },
+        // `page:tabs` item labels, keyed by each item's `value` (#2284, spec 18.1.0,
+        // `pages.PAGE.components.TABS.items.VALUE.label`).
+        home_tabs: {
+          label: '主页标签页',
+          items: {
+            my_leads: { label: '我的线索' },
+            my_open_deals: { label: '我的进行中商机' },
+            my_open_tasks: { label: '我的待办任务' },
+          },
+        },
+        home_my_leads: { label: '我的线索' },
+        home_my_deals: { label: '我的进行中商机' },
+        home_my_tasks: { label: '我的待办任务' },
+        upcoming_events: { title: '即将开始的活动', label: '即将开始的活动' },
+      },
+    },
+  },
+  // Screen-flow copy (#1210, #1975). Keyed `flows.<flow>.label`,
+  // `screens.<node>.title` and `screens.<node>.fields.<field>.{label,placeholder}`
+  // — the keys `os lint`'s `i18n/missing-flow` names, read by the console's
+  // flow runner since @objectstack 17.7.0 (the spec's `flows` liveness row is
+  // `live` there). A screen with no authored `title` is headed by its node
+  // `label` (the executor's `config.title ?? node.label`, measured on
+  // 18.0.0-next.0), so each `screens.<node>.title` translates that node label,
+  // never the flow label: the dialog shows the flow label as its eyebrow above
+  // the title, and the two differ on `lead_conversion`, `quote_generation` and
+  // `campaign_enrollment` (#2096). Since
+  // 18.0.0-next.0 three more surfaces are keys the engine reads in the run's
+  // locale, and `i18n/missing-flow` names each missing one: a select field's
+  // `options.<value>` (worded as the object field's own option in this pack),
+  // an authored screen `description`, and a refusing `end` node's
+  // `refusals.<node>.message`. A translated description or message is a text
+  // slot like the one it translates, so a hole in it is `{{ }}`.
+  flows: {
+    // The nine PSA approval flows (fork, `psa-approvals.flow.ts`): one `review` node each.
+    lead_approval: { label: '线索审批', approvals: { review: { label: '审批人审核' } } },
+    opportunity_initiation: { label: '商机立项审批（演示）', approvals: { review: { label: '审批人审核' } } },
+    presales_project_approval: { label: '售前立项审批', approvals: { review: { label: '审批人审核' } } },
+    delivery_project_approval: { label: '交付立项审批', approvals: { review: { label: '审批人审核' } } },
+    timesheet_approval: { label: '工时审批', approvals: { review: { label: '审批人审核' } } },
+    budget_adjustment_approval: { label: '预算调整审批', approvals: { review: { label: '审批人审核' } } },
+    business_trip_approval: { label: '出差审批', approvals: { review: { label: '审批人审核' } } },
+    leave_request_approval: { label: '请假审批', approvals: { review: { label: '审批人审核' } } },
+    cost_plan_approval: { label: '成本计划审批', approvals: { review: { label: '审批人审核' } } },
+    // Approval flows (#2060 item 13, C-15): the flow's own `label`, and each
+    // `approval` node's step label under `approvals.<node>.label` (spec 18.1.0),
+    // the step name the approval request shows the submitter and the approvers.
+    account_approval: {
+      label: '客户审批',
+      approvals: {
+        account_review: { label: '客户审核' },
+      },
+    },
+    lead_conversion_approval: {
+      label: '线索转化审批',
+      approvals: {
+        conversion_review: { label: '线索转化审核' },
+      },
+    },
+    opportunity_approval: {
+      label: '大额商机审批',
+      approvals: {
+        manager_review: { label: '销售经理审核' },
+        director_signoff: { label: '销售总监签批' },
+      },
+    },
+    opportunity_approval_on_create: {
+      label: '大额商机审批（创建时）',
+      approvals: {
+        manager_review: { label: '销售经理审核' },
+        director_signoff: { label: '销售总监签批' },
+      },
+    },
+    opportunity_qualification_approval: {
+      label: '商机立项审批',
+      approvals: {
+        qualification_review: { label: '立项审核' },
+      },
+    },
+    opportunity_status_change_approval: {
+      label: '商机状态变更审批',
+      approvals: {
+        status_review: { label: '状态变更审核' },
+      },
+    },
+    lead_conversion: {
+      label: '线索转化流程',
+      screens: {
+        screen_1: {
+          title: '转化详情',
+          // The duplicate warning's text is a variable the flow assigns; this
+          // key can only carry the hole that shows it. The account notice
+          // after it is translated here (#2073 item 8): exactly one of the two
+          // holes holds a name, and each hole's `default:` is the OTHER
+          // branch's words, so the sentence stays name-first. Keep both holes,
+          // in this order, with a `default:` each (see `screen_1` in
+          // `lead-conversion.flow.ts`).
+          description: '{{duplicateWarning}} {{ existingAccountName | default:"没有你能查看的客户与该线索的公司匹配，因此转化会新建一个客户，名称为 " }}{{ newAccountName | default:" 是该线索将加入的现有客户" }}。',
+          fields: {
+            createOpportunity: { label: '是否创建商机？' },
+            opportunityName: { label: '商机名称' },
+            opportunityAmount: { label: '商机金额' },
+            closeDate: { label: '预计成交日期' },
+          },
+        },
+        // The result screen (#2297). Same two-hole shape as `screen_1`: exactly
+        // one hole holds the account's name, and each `default:` is the OTHER
+        // state's words. Keep both holes, in this order, with a `default:` each
+        // (see `result` in `lead-conversion.flow.ts`).
+        result: {
+          title: '线索已转化',
+          description: '{{ pendingApprovalAccountName | default:"没有待处理的客户审批：" }}{{ noApprovalAccountName | default:" 正在等待销售经理的客户审批" }}。',
+          fields: {
+            accountLink: { label: '客户' },
+            contactLink: { label: '联系人' },
+            opportunityLink: { label: '商机' },
+          },
+        },
+      },
+      refusals: {
+        refuse_confirmed_duplicate: {
+          message:
+            '转化被拒绝。该线索的「重复状态」为「已确认重复」：审核人已将其与现有记录比对，并记录为重复。转化会为同一买家再创建一个客户、联系人和商机。本线索的「重复线索管理」部分列出了保留的记录；请改为以重复为由将此线索设为「未通过」。只有审核人修改该结论后才能重新转化。',
+        },
+        refuse_unapproved: {
+          message:
+            '转化被拒绝。该线索尚未获准转化。必须由审批人批准后，才能转化为客户、联系人和商机；线索上的「转化审批」字段显示该决定仍在待审批还是已被驳回。在此期间请继续跟进该线索——它的任何内容都没有被冻结。',
+        },
+        refuse_no_match_key: {
+          message:
+            '转化被拒绝。该线索的公司没有匹配键，因此转化无法判断它属于哪个客户，也不会去猜测：猜测可能会把联系人和商机归到另一个客户名下。保存线索的「公司」会重新生成匹配键，请重新保存后再转化。尚未创建任何记录。',
+        },
+        refuse_nonpositive_amount: {
+          message:
+            '转化被拒绝：商机金额必须大于零。尚未创建任何内容。请填写这笔交易的金额后重新转化该线索，或不勾选「是否创建商机？」，以不创建商机的方式转化。',
+        },
+      },
+    },
+    schedule_followup: {
+      label: '安排跟进',
+      screens: {
+        screen_1: {
+          title: '安排跟进',
+          fields: {
+            subject: { label: '下一步做什么？' },
+            dueDate: { label: '截止日期' },
+            activityType: {
+              label: '活动类型',
+              options: { call: '电话', email: '邮件', meeting: '会议', follow_up: '跟进', demo: '演示', other: '其他' },
+            },
+            priority: { label: '优先级', options: { low: '低', normal: '普通', high: '高', urgent: '紧急' } },
+            notes: { label: '备注' },
+          },
+        },
+      },
+    },
+  },
+  // Shared option lists (`src/<pkg>/picklists/*.picklist.ts`), translated ONCE:
+  // every field that references a list (`Field.select({ picklist })`) inherits
+  // these option labels, so a field-level `options` entry exists only for a
+  // field with inline options of its own.
+  picklists: {
+    salutation: {
+      label: '称谓',
+      options: { mr: '先生', ms: '女士', mrs: '夫人', dr: '博士', prof: '教授' },
+    },
+    industry: {
+      label: '行业',
+      options: {
+        technology: '科技', software: '软件 / SaaS', finance: '金融',
+        healthcare: '医疗', retail: '零售', manufacturing: '制造',
+        education: '教育', real_estate: '房地产', media: '传媒娱乐',
+        logistics: '物流', hospitality: '酒店旅游', energy: '能源公用事业',
+        government: '政府', nonprofit: '非营利', other: '其他',
+      },
+    },
+    lead_source: {
+      label: '线索来源',
+      options: {
+        web: '网站', referral: '推荐', event: '活动 / 展会',
+        webinar: '线上研讨会', partner: '合作伙伴', advertisement: '广告',
+        paid_search: '付费搜索', social: '社交媒体', content: '内容 / 博客',
+        cold_call: '陌生拜访', email_campaign: '邮件营销', other: '其他',
+      },
+    },
+    payment_terms: {
+      label: '付款条款',
+      options: {
+        net_15: '15 天账期', net_30: '30 天账期', net_60: '60 天账期',
+        net_90: '90 天账期', due_on_receipt: '货到付款',
+      },
+    },
+    related_to_type: {
+      label: '关联对象类型',
+      options: {
+        crm_account: '客户', crm_contact: '联系人', crm_opportunity: '商机',
+        crm_lead: '线索', crm_case: '工单',
+      },
+    },
+  },
+  // Report index and report page headings (`reports[].label` / `description`).
+  reports: {
+    accounts_by_industry_type: {
+      label: '客户行业与类型',
+      description: '按行业和类型交叉统计客户的矩阵报表',
+    },
+    customer_churn_signals: {
+      label: '客户流失信号',
+      description: '四个堆叠的预警面板，用于主动挽留客户：客户成功经理标记为有风险或正在流失的客户、近期没有活动的活跃客户、沉寂的高价值客户，以及最近丢单的商机。',
+      // Joined-report block headings (translatable since @objectstack/spec 18.3.0).
+      blocks: {
+        csm_flagged_accounts: {
+          label: '客户成功经理标记的客户',
+          description: '客户成功经理手动标记为有风险或正在流失的客户，按类型分组——基于人的判断，与活动时钟无关。',
+        },
+        at_risk_accounts: {
+          label: '有风险的客户',
+          description: '60 天以上没有活动的活跃客户，按行业分组。',
+        },
+        silent_high_value: {
+          label: '沉寂的高价值客户',
+          description: '90 天以上没有动静的战略客户和企业客户，按类型分组。',
+        },
+        recently_closed_lost: {
+          label: '最近丢单的商机',
+          description: '最近 30 天内丢单的商机——在客户彻底流失之前查明原因。',
+        },
+      },
+    },
+    lead_inflow_by_month_source: {
+      label: '每月线索跟进',
+      description: '每月已联系线索的数量，按获客渠道细分',
+    },
+    opportunities_by_stage: {
+      label: '各阶段商机',
+      description: '按阶段分组汇总商机',
+    },
+    opportunity_funnel_owner_stage: {
+      label: '各负责人商机漏斗',
+      description: '每位销售代表逐阶段的管道漏斗',
+    },
+    pipeline_coverage_by_quarter: {
+      label: '季度管道覆盖率',
+      description: '按预测类别统计进行中的管道金额，并按预计成交季度分段',
+    },
+    won_opportunities_by_owner: {
+      label: '各负责人成交商机',
+      description: '按负责人分组的已成交商机',
+    },
+  },
+  // Setup → Position Holders (`src/sales/sharing/positions.ts`).
+  positions: {
+    executive: {
+      label: '高管',
+      description: '公司管理层：可查看整个销售管道中每一笔进行中的大额商机，商机仍归原商机团队负责。',
+    },
+    sales_director: {
+      label: '销售总监',
+      description: '领导销售组织，对最大的商机做最终签批，并可查看每一笔进行中的大额商机。',
+    },
+    sales_manager: {
+      label: '销售经理',
+      description: '管理销售团队：审批新客户、线索转化和大额商机，并可编辑每一个活跃客户。',
+    },
+    sales_rep: {
+      label: '销售代表',
+      description: '日常跟进线索和商机，并从「线索受理」队列接收新线索。',
+    },
+    service_director: {
+      label: '服务总监',
+      description: '统管客户服务，在服务经理处理期间可查看每一个未关闭的严重工单。',
+    },
+    service_manager: {
+      label: '服务经理',
+      description: '负责升级处理池：升级的工单会交给此岗位，可编辑每一个未关闭的严重工单。',
+    },
+    service_agent: {
+      label: '客服专员',
+      description: '处理客户工单，从「支持受理」队列接收新工单，并认领仍在队列中等候的工单。',
+    },
+    marketing_director: {
+      label: '市场总监',
+      description: '领导市场营销，可编辑每一个进行中的营销活动，无论负责人是谁。',
+    },
+    marketing_manager: {
+      label: '市场经理',
+      description: '管理营销活动，可编辑每一个进行中的营销活动，无论负责人是谁。',
+    },
+    marketing_user: {
+      label: '市场专员',
+      description: '日常策划和执行营销活动及其成员。',
+    },
+    na_sales_team: {
+      label: '北美销售团队',
+      description: '北美区域团队：可编辑北美区域内的每一个客户。',
+    },
+    eu_sales_team: {
+      label: '欧洲销售团队',
+      description: '欧洲区域团队：可编辑欧洲（EMEA）区域内的每一个客户。',
+    },
+    system_admin: {
+      label: '系统管理员',
+      description: '管理本应用并持有系统管理员权限集；该权限集按对象授予的导出权限，是业务数据离开本应用的唯一途径。',
+    },
+  },
+  // Studio → All Metadata Types → Permission Set (`src/sales/profiles/*.profile.ts`).
+  permissions: {
+    crm_user: {
+      label: 'CRM 用户',
+      description: '每位成员的默认权限：自己的线索、客户、商机和活动，以及只读的目录数据；没有删除、导出、查看全部或任何系统权限。',
+    },
+    guest_portal: {
+      label: '访客（公开表单）',
+      description: '公开的网页转线索和网页转工单表单的匿名访客：只能提交新线索或新工单，不能查看、编辑或删除任何记录。',
+    },
+    marketing_user: {
+      label: '市场专员',
+      description: '市场人员：管理营销活动及其成员，可查看所有线索、联系人、客户和商机用于圈定目标，但看不到工单，也不能删除任何 CRM 记录。',
+    },
+    sales_manager: {
+      label: '销售经理',
+      description: '销售经理：可查看、编辑、重新分配和删除每位销售代表的线索、客户、商机、报价单和活动，但没有系统管理权限。',
+    },
+    sales_rep: {
+      label: '销售代表',
+      description: '销售代表：经营自己名下的线索、客户、商机、报价单和活动，可查看目录数据，但不能删除任何客户记录。',
+    },
+    service_agent: {
+      label: '客服专员',
+      description: '客服专员和服务经理：处理自己的工单，可查看工单背后的客户、联系人和线索并撰写知识文章，但看不到商机。',
+    },
+    system_admin: {
+      label: '系统管理员',
+      description: '单组织部署的运营者：完全控制每一条业务记录，并负责用户、安全模型和系统设置的管理。',
+    },
+  },
+  // Doc book titles and group headings (translatable since @objectstack/spec 18.3.0).
+  books: {
+    crm_manual: {
+      label: 'HotCRM 使用手册',
+      description: 'HotCRM 在销售和服务中如何运作：界面背后的规则。',
+      groups: {
+        start: { label: '入门' },
+        sales: { label: '销售' },
+        service: { label: '服务' },
+        analytics: { label: '分析' },
+      },
+    },
+    crm_admin_manual: {
+      label: 'HotCRM 管理员手册',
+      description: '上线、权限、每一个自动化阈值和数据导入——面向管理员。',
+      groups: {
+        admin: { label: '管理' },
+      },
+    },
+  },
+};

@@ -3,8 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import { compileCelToFilter } from '@objectstack/formula';
 import { parseFilterAST } from '@objectstack/spec/data';
-import stack from '../objectstack.config';
-import { CLOSED_CASE_STATUSES } from '../src/objects/_case-assignment';
+import stack from './helpers/composed-stack';
+import { CLOSED_CASE_STATUSES } from '../src/service/objects/_case-assignment';
 
 /**
  * ═══ ONE predicate for "no longer live work" on `crm_case` (#1145) ══════════
@@ -24,6 +24,8 @@ import { CLOSED_CASE_STATUSES } from '../src/objects/_case-assignment';
  *   | `unassigned_triage` (view)        | `is_closed == false`      |
  *   | `case_unassigned_triage_sharing`  | `is_closed == false`      |
  *   | `case_auto_assign` load balancing | `status $nin [...]`       |
+ *   (both deleted in #2395; `case_intake_assignment`'s `load` took the
+ *   load-balancing row's place, and the triage view reads the queue)
  *   | `case_escalation_reassign`        | `status $nin [...]`       |
  *   | `case_sla_monitor` (flow)         | `status $nin [...]`       |
  *
@@ -83,9 +85,10 @@ import { CLOSED_CASE_STATUSES } from '../src/objects/_case-assignment';
  * `plugin-sharing`'s seeder calls) and the set is read off the result. That
  * survives a future re-spelling of any one consumer and still holds the set.
  *
- * `test/unassigned-case-triage-reach.test.ts` is the behavioural half — it
- * boots the real stack on both drivers and asks what an agent can actually see
- * and claim. This file is the metadata half, and neither replaces the other.
+ * `test/ownership-queues.test.ts` is the behavioural half for intake — it boots
+ * the real stack and asks which case the platform hands to whom, and what an
+ * agent can see and claim. This file is the metadata half, and neither
+ * replaces the other.
  */
 
 type AnyRec = Record<string, any>;
@@ -153,6 +156,8 @@ const caseViews = views.find((v) => v.list?.data?.object === 'crm_case');
 const sharingRules: AnyRec[] = ((stack as AnyRec).sharingRules ?? []) as AnyRec[];
 const flows: AnyRec[] = ((stack as AnyRec).flows ?? []) as AnyRec[];
 const hooks: AnyRec[] = ((stack as AnyRec).hooks ?? []) as AnyRec[];
+const dashboards: AnyRec[] = ((stack as AnyRec).dashboards ?? []) as AnyRec[];
+const assignmentRules: AnyRec[] = ((stack as AnyRec).assignmentRules ?? []) as AnyRec[];
 
 /** A view's `filter[]`, lowered rule by rule into one `$and`. */
 function loweredViewFilter(viewName: string): unknown {
@@ -167,6 +172,19 @@ function loweredSharingCondition(ruleName: string): unknown {
   const rule = sharingRules.find((r) => r.name === ruleName);
   if (!rule) return undefined;
   const source = typeof rule.condition === 'string' ? rule.condition : String(rule.condition?.source ?? '');
+  const compiled = compileCelToFilter(source, { variables: {} });
+  return compiled.ok ? compiled.filter : undefined;
+}
+
+/**
+ * An assignment-rule entry's `load` (CEL), through the compiler the platform's
+ * least_loaded strategy itself calls to count each member's open work.
+ */
+function loweredAssignmentLoad(ruleName: string, entryName: string): unknown {
+  const rule = assignmentRules.find((r) => r.name === ruleName);
+  const entry = ((rule?.entries ?? []) as AnyRec[]).find((e) => e.name === entryName);
+  if (!entry?.load) return undefined;
+  const source = typeof entry.load === 'string' ? entry.load : String(entry.load?.source ?? '');
   const compiled = compileCelToFilter(source, { variables: {} });
   return compiled.ok ? compiled.filter : undefined;
 }
@@ -191,11 +209,17 @@ function flowFilters(flowName: string): unknown[] {
   return found;
 }
 
+/** One dashboard widget's `filter` — already a lowered `FilterCondition`. */
+function widgetFilter(dashboardName: string, widgetId: string): unknown {
+  const dashboard = dashboards.find((d) => d.name === dashboardName);
+  return ((dashboard?.widgets ?? []) as AnyRec[]).find((w) => w.id === widgetId)?.filter;
+}
+
 /**
  * The `$nin` a sandboxed hook body spells INLINE.
  *
  * `_case-assignment.ts` exports `CLOSED_CASE_STATUSES`, but the L2 sandbox
- * gives a handler no module scope, so the two load-balancing handlers write the
+ * gives a handler no module scope, so the escalation load-balancing handler writes the
  * literals out. Read them off the REGISTERED handler rather than off the file,
  * so a hook that fell out of the stack fails this lookup instead of passing on
  * the strength of a source file nothing mounts.
@@ -212,6 +236,23 @@ function hookInlineStatusExclusions(hookName: string): string[] | undefined {
   // One handler stating the concept two different ways is the very defect.
   if (new Set(sets).size !== 1) return [`INCONSISTENT: ${sets.join(' | ')}`];
   return sets[0].split(',');
+}
+
+/**
+ * The status list a sandboxed hook body declares INLINE as `const <name> = [...]`.
+ *
+ * The membership-test sibling of {@link hookInlineStatusExclusions}: a hook
+ * that asks "has this write taken the case OUT of live work?" tests the status
+ * against a list rather than querying with `$nin`, and the sandbox makes it
+ * write that list out too. Read off the REGISTERED handler, for the same reason.
+ */
+function hookInlineStatusList(hookName: string, constName: string): string[] | undefined {
+  const hook = hooks.find((h) => h.name === hookName);
+  if (!hook) return undefined;
+  const body = String(hook.handler ?? '');
+  const match = new RegExp(`const\\s+${constName}\\s*=\\s*\\[([^\\]]*)\\]`).exec(body);
+  if (!match) return undefined;
+  return [...match[1].matchAll(/['"]([^'"]+)['"]/g)].map((s) => s[1]).sort();
 }
 
 /**
@@ -234,14 +275,19 @@ const LIVE_WORK_CONSUMERS: { name: string; surface: string; excluded: () => stri
     excluded: () => excludedValues(loweredViewFilter('my_open_cases'), 'status'),
   },
   {
-    name: 'case_unassigned_triage_sharing',
-    surface: 'sharing condition (CEL) — src/sharing/case.sharing.ts',
-    excluded: () => excludedValues(loweredSharingCondition('case_unassigned_triage_sharing'), 'status'),
+    // The manager's escalation queue (#2245). It filtered on `is_escalated`
+    // alone, a stamp that never clears, so a closed escalation stayed listed.
+    name: 'escalated_cases',
+    surface: 'view filter[] — src/service/views/case.view.ts',
+    excluded: () => excludedValues(loweredViewFilter('escalated_cases'), 'status'),
   },
   {
-    name: 'case_auto_assign',
-    surface: 'load-balancing count — src/objects/_case-assignment.ts',
-    excluded: () => hookInlineStatusExclusions('case_auto_assign'),
+    // The platform's intake routing (#2395): least_loaded counts each agent's
+    // cases matching `load`. A resolved case counting as load would starve the
+    // agent who closes the most.
+    name: 'case_intake_assignment',
+    surface: 'assignment rule load (CEL) — src/service/assignment-rules/case.assignment-rule.ts',
+    excluded: () => excludedValues(loweredAssignmentLoad('case_intake_assignment', 'least_loaded_agent'), 'status'),
   },
   {
     name: 'case_escalation_reassign',
@@ -257,6 +303,22 @@ const LIVE_WORK_CONSUMERS: { name: string; surface: string; excluded: () => stri
         .filter((s) => s.length > 0);
       return sets.length === 0 ? undefined : [...new Set(sets.flat())].sort();
     },
+  },
+  {
+    // The close-time breach stamp (#2070) is the sweep's other half: the sweep
+    // judges a case while it is live work, the stamp on the write that ends
+    // it. A status in one set and not the other would be judged twice or never.
+    name: 'case_sla_defaults',
+    surface: 'close-time breach stamp — src/service/objects/case.hook.ts',
+    excluded: () => hookInlineStatusList('case_sla_defaults', 'settledStatuses'),
+  },
+  {
+    // The SLA Violations tile's open-case branch (#2070): beside the flag, it
+    // counts a case still live work whose due date has passed — the sweep's
+    // own selection, read at query time. Only that branch excludes statuses.
+    name: 'sla_violations',
+    surface: 'dashboard widget filter — src/service/dashboards/service.dashboard.ts',
+    excluded: () => excludedValues(widgetFilter('service_dashboard', 'sla_violations'), 'status'),
   },
 ];
 
@@ -309,13 +371,12 @@ describe('the "no longer live work" predicate is ONE set, and the roster is by n
     // above would also pass a consumer that excluded the right statuses AND
     // additionally narrowed on the flag.
     const offenders: string[] = [];
-    for (const name of ['unassigned_triage', 'sla_at_risk', 'my_open_cases']) {
+    for (const name of ['unassigned_triage', 'sla_at_risk', 'my_open_cases', 'escalated_cases']) {
       const fields = narrowedFields(loweredViewFilter(name));
       if (fields.includes('is_closed')) offenders.push(`${name} (view filter)`);
     }
-    for (const name of ['case_unassigned_triage_sharing']) {
-      const fields = narrowedFields(loweredSharingCondition(name));
-      if (fields.includes('is_closed')) offenders.push(`${name} (sharing condition)`);
+    if (narrowedFields(loweredAssignmentLoad('case_intake_assignment', 'least_loaded_agent')).includes('is_closed')) {
+      offenders.push('case_intake_assignment (assignment load)');
     }
     expect(
       offenders,
@@ -382,6 +443,19 @@ const NOT_LIVE_WORK: { name: string; surface: 'view' | 'sharing'; why: string }[
       'See `src/sharing/case.sharing.ts` for the reasoning beside the rule.',
   },
 ];
+
+describe('escalated_cases keeps its own narrowing beside the live-work set (#2245)', () => {
+  it('still selects on is_escalated == true', () => {
+    // The status set above is asserted on its own; this is the other half of
+    // the tab's contract, so dropping the escalation narrowing while keeping
+    // the status rule (every open case on the "Escalated Cases" tab) is red.
+    const rules: AnyRec[] = (caseViews?.listViews?.escalated_cases?.filter ?? []) as AnyRec[];
+    expect(rules.filter((r) => r.field === 'is_escalated')).toEqual([
+      { field: 'is_escalated', operator: 'equals', value: true },
+    ]);
+    expect(narrowedFields(loweredViewFilter('escalated_cases'))).toEqual(['is_escalated', 'status']);
+  });
+});
 
 describe('the boundary of the set — what deliberately still keys on is_closed', () => {
   it.each(NOT_LIVE_WORK.map((e) => [e.name, e] as const))(

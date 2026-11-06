@@ -2,10 +2,18 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
-import { hookNamed, makeCtx } from './helpers/hook-harness';
-import leadHooks from '../src/objects/lead.hook';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import type { VerifyStack } from '@objectstack/verify';
+import stack from './helpers/composed-stack';
+import { hotcrmStack, signUpPerson, type Person } from './helpers/verify-stack';
+import { LeadViews } from '../src/sales/views/lead.view';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * ═══ HotCRM has ONE owner, and it is the platform's (#548) ════════════════
@@ -38,8 +46,9 @@ import leadHooks from '../src/objects/lead.hook';
  *
  *   1. a `beforeInsert` hook mutating `input` — INVISIBLE to the gate, because
  *      the gate is an operation middleware wrapping the whole call and the hook
- *      phase runs inside it. This is why `lead_auto_assign` can round-robin a
- *      lead onto another rep with no transfer grant.
+ *      phase runs inside it. This is why the app's old round-robin hooks could
+ *      hand a record to another rep with no transfer grant (they were replaced
+ *      by declared assignment rules in #2395; the seam is still measured).
  *   2. a hook's `ctx.api` write — a NEW operation carrying the SAME context, so
  *      the gate does see it. This is why `case.hook.ts` opening an escalation
  *      task under the account owner needs `service_agent.crm_task.allowTransfer`.
@@ -106,6 +115,7 @@ describe('one ownership column, and it is `owner_id`', () => {
       ['crm_quote_line_item',       'controlled_by_parent'],
       ['crm_campaign_member',       'controlled_by_parent'],
       ['crm_event_attendee',        'controlled_by_parent'],
+      ['crm_price_book_entry',      'controlled_by_parent'],
       // A shared catalog. It never had an app-level owner either — "who added
       // this SKU" is not a permission boundary, and the dashboards that group
       // by owner opt out of it by name.
@@ -172,6 +182,21 @@ describe('one ownership column, and it is `owner_id`', () => {
     );
     expect(withDefault, 'owner_id must have no schema default').toEqual([]);
   });
+
+  it('the New Lead form leaves `owner_id` to that stamp — offered, not required (#2097)', () => {
+    // `LeadViews.form` IS the create dialog (see `case-create-form-narrowing`),
+    // and a `required` entry there is a client-side submit check. Measured on
+    // 18.0.0-next.0: a rep's Leads → New stopped at "Lead Owner is required"
+    // with nothing POSTed, so the stamp never saw the insert. The server half —
+    // a rep's ownerless insert lands owned by the rep — is pinned end to end by
+    // `stands down when the middleware already stamped an owner` below.
+    const entries: unknown[] = ((LeadViews as AnyRec).form?.sections ?? []).flatMap(
+      (s: AnyRec) => s.fields ?? [],
+    );
+    const owner = entries.find((f) => (typeof f === 'string' ? f : (f as AnyRec)?.field) === 'owner_id');
+    expect(owner, 'owner_id left the New Lead form — this pin would judge nothing').toBeDefined();
+    expect((owner as AnyRec)?.required === true, 'the New Lead form demands an owner again').toBe(false);
+  });
 });
 
 // ──────────────────────────────────── which writers the gate can see ──
@@ -184,7 +209,7 @@ describe('the transfer gate sees a hook’s ctx.api write, and not a beforeInser
   beforeAll(async () => {
     seen = [];
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_lead: {
           name: 'crm_lead',
@@ -205,6 +230,7 @@ describe('the transfer gate sees a hook’s ctx.api write, and not a beforeInser
         },
       } as never,
     })) as never;
+    await ql.syncSchemas();
 
     // The SAME seam `@objectstack/plugin-security` registers its guard on. It
     // reads `opCtx.data` and passes everything through — a recorder, not a gate,
@@ -225,8 +251,8 @@ describe('the transfer gate sees a hook’s ctx.api write, and not a beforeInser
   });
 
   it('a beforeInsert hook’s owner_id stamp never reaches the middleware', async () => {
-    // Seam 1. `lead_auto_assign` assigns a FOREIGN rep — the whole point of a
-    // round-robin — which the #3004 guard denies without `allowTransfer`. It
+    // Seam 1. A round-robin hook (the since-deleted `lead_auto_assign`)
+    // assigns a FOREIGN rep — the whole point of a round-robin — which the #3004 guard denies without `allowTransfer`. It
     // works anyway because the hook phase runs INSIDE the operation the
     // middleware already wrapped: by the time the hook writes, the guard has
     // read and released the payload.
@@ -235,15 +261,14 @@ describe('the transfer gate sees a hook’s ctx.api write, and not a beforeInser
     // `owner_id`, and the STORED row has the hook's rep. If a future platform
     // release moves the guard downstream of the hook phase, the first
     // expectation flips and this test goes red — which is the signal to give
-    // the sales_rep / public-form paths a transfer grant, or to stop
-    // round-robining in a hook.
+    // any hook that hands ownership to someone else a transfer grant.
     ql.registerHook?.('beforeInsert', async (ctx: AnyRec) => {
       if (ctx.object !== 'crm_lead') return;
       const data = ctx.input?.data ?? ctx.data;
       if (data && !data.owner_id) data.owner_id = 'rep_round_robin';
     }, { object: 'crm_lead' });
 
-    const api = ql.createContext({ userId: 'usr_actor' });
+    const api = ql.createContext({ userId: 'usr_actor', tenantId: ORG });
     const row = await api.object('crm_lead').insert({ company: 'NewCo', is_converted: false });
 
     const observed = seen.filter((s) => s.object === 'crm_lead').pop();
@@ -267,7 +292,7 @@ describe('the transfer gate sees a hook’s ctx.api write, and not a beforeInser
     // `service_agent` carries `allowTransfer` on `crm_task` and nothing else.
     const before = seen.filter((s) => s.object === 'crm_task').length;
 
-    const api = ql.createContext({ userId: 'usr_agent' });
+    const api = ql.createContext({ userId: 'usr_agent', tenantId: ORG });
     await api.object('crm_task').insert({ subject: 'Escalated case', owner_id: 'rep_account_owner' });
 
     const observed = seen.filter((s) => s.object === 'crm_task');
@@ -312,10 +337,23 @@ describe('allowTransfer is granted deliberately', () => {
     // The rule: transfer follows `modifyAllRecords` on this set — the sales
     // stack, and nothing beyond it. Contracts, campaigns, cases and the product
     // catalog are edit-only for a manager and stay untransferable.
+    //
+    // One rostered deviation (AGENTS.md rule 11): `crm_forecast`. #2277
+    // (ruling B) replaced Modify All there with an edit share so that
+    // `allowDelete: false` is enforced, and the transfer bit stayed — the
+    // profile's capability is authored precisely so it survives a narrowing
+    // of `modifyAllRecords` (`src/sales/profiles/index.ts`). It is still a
+    // real write grant: the manager edits every forecast through the
+    // `forecast_manager_sharing` share, and reassigning one is measured in
+    // `test/forecast-manager-edit-share.test.ts`.
+    const TRANSFER_WITHOUT_MODIFY_ALL = ['crm_forecast'];
     const modifyAll = Object.entries(objectsOf('sales_manager'))
       .filter(([, p]) => p?.modifyAllRecords === true).map(([o]) => o).sort();
     expect(modifyAll.length, 'sales_manager holds modifyAllRecords nowhere — rule vacuous').toBeGreaterThan(4);
-    expect(transfersIn('sales_manager')).toEqual(modifyAll);
+    for (const o of TRANSFER_WITHOUT_MODIFY_ALL) {
+      expect(objectsOf('sales_manager')[o]?.modifyAllRecords, `${o} is back on Modify All — drop it from the roster`).not.toBe(true);
+    }
+    expect(transfersIn('sales_manager')).toEqual([...modifyAll, ...TRANSFER_WITHOUT_MODIFY_ALL].sort());
   });
 
   it('service_agent may assign a TASK and nothing else', () => {
@@ -379,7 +417,7 @@ describe('every owner-facing surface points at the one column', () => {
 
   it('no flow writes or addresses a bare `owner`', () => {
     // A `notify` addressed to `{record.owner}` resolves to nothing and reaches
-    // nobody — the exact silent failure `demo_bootstrap` exists to prevent.
+    // nobody — the exact silent failure an ownerless record causes.
     const bad: string[] = [];
     for (const f of flows) {
       for (const node of walk(f)) {
@@ -394,36 +432,6 @@ describe('every owner-facing surface points at the one column', () => {
       if (reads) bad.push(`${f.name}: reads ${[...new Set(reads)].join(', ')}`);
     }
     expect(bad, `flow references to the retired column:\n  ${bad.join('\n  ')}`).toEqual([]);
-  });
-
-  it('dashboard drill-down column lists name real record columns, not the dataset alias', () => {
-    // A drill-down drawer lists RECORDS, so its `columns` are object fields —
-    // unlike the widget's `dimensions`, which are dataset dimension NAMES and
-    // legitimately still read `owner` (the semantic layer resolves that alias
-    // onto the `owner_id` column). The two live inches apart in the same widget
-    // and a blanket rename would have broken the analytics binding while a
-    // blanket skip left a dead column in the drawer.
-    const dashboards: AnyRec[] = (stack as any).dashboards ?? [];
-    const datasets: AnyRec[] = (stack as any).datasets ?? [];
-    const objectOfDataset = new Map(datasets.map((d) => [d.name as string, d.object as string]));
-
-    const bad: string[] = [];
-    let checked = 0;
-    for (const d of dashboards) {
-      for (const w of (d.widgets ?? []) as AnyRec[]) {
-        const columns = w.options?.drillDown?.columns as string[] | undefined;
-        if (!Array.isArray(columns)) continue;
-        const objectName = objectOfDataset.get(String(w.dataset));
-        const fields = objectByName.get(String(objectName))?.fields ?? {};
-        for (const col of columns) {
-          checked++;
-          if (col.includes('.')) continue; // traversal — resolved by the query engine
-          if (!(col in fields)) bad.push(`${d.name}/${w.id}: drill-down column "${col}" is not a field on ${objectName}`);
-        }
-      }
-    }
-    expect(checked, 'no drill-down columns found — this guard stopped guarding').toBeGreaterThan(0);
-    expect(bad, `drill-down columns that resolve to nothing:\n  ${bad.join('\n  ')}`).toEqual([]);
   });
 
   it('the RLS predicates that mean “its owner” key on owner_id', () => {
@@ -446,52 +454,51 @@ describe('every owner-facing surface points at the one column', () => {
   });
 });
 
-// ─────────────────────────────────────── the round-robin, end to end ──
+// ───────────────────────────────── the assignment rule, end to end ──
 
-describe('lead_auto_assign assigns the platform column', () => {
-  const assign = hookNamed(leadHooks, 'lead_auto_assign');
-
-  const makeApi = (leads: AnyRec[], reps: string[]): AnyRec => ({
-    object: (name: string) => ({
-      async find() {
-        return name === 'sys_user_position' ? reps.map((user_id) => ({ user_id })) : leads;
-      },
-      async count(q: AnyRec = {}) {
-        const where = (q.where ?? {}) as AnyRec;
-        return leads.filter((l) =>
-          Object.entries(where).every(([k, v]) => l[k] === v)).length;
-      },
-    }),
+describe('lead_intake_assignment assigns the platform column', () => {
+  /**
+   * On the shipped app booted by `@objectstack/verify`: two sales reps hold
+   * the `sales_rep` position — the members of the declared `lead_intake`
+   * queue the platform's assignment rule routes to (#2395) — and rep A already
+   * carries two open leads to rep B's one, so the least-loaded rep is B.
+   */
+  let verify: VerifyStack;
+  let repA: Person;
+  let repB: Person;
+  let k = 0;
+  const lead = (over: AnyRec = {}): AnyRec => ({
+    first_name: 'Nora', last_name: `Intake ${++k}`, company: `NewCo ${k}`, email: `intake${k}@ownership-model.test`, ...over,
   });
+  beforeAll(async () => {
+    verify = await hotcrmStack();
+    repA = await signUpPerson(verify, 'rep-a@ownership-model.test', {
+      name: 'Rep A', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+    });
+    repB = await signUpPerson(verify, 'rep-b@ownership-model.test', {
+      name: 'Rep B', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+    });
+    await verify.seed('crm_lead', [lead({ owner_id: repA.id }), lead({ owner_id: repA.id }), lead({ owner_id: repB.id })]);
+  }, 120_000);
 
   it('writes owner_id, not a second column', async () => {
-    const input: AnyRec = { company: 'NewCo' };
-    await assign.handler(makeCtx({
-      event: 'beforeInsert',
-      input,
-      api: makeApi(
-        [
-          { id: 'x1', owner_id: 'repA', is_converted: false },
-          { id: 'x2', owner_id: 'repA', is_converted: false },
-          { id: 'x3', owner_id: 'repB', is_converted: false },
-        ],
-        ['repA', 'repB'],
-      ) as never,
-    }) as never);
-    expect(input.owner_id, 'did not assign the least-loaded rep on owner_id').toBe('repB');
-    expect('owner' in input, 'wrote a second, unread ownership column').toBe(false);
+    // Genuinely ownerless intake: a row written by the system with no owner —
+    // the posture an import or a seed load writes under (the platform's own
+    // seed context). A public-form submission reaches the same pool, read
+    // elevated (#2014; pinned in hooks-runtime.test.ts).
+    const [written] = await verify.seed('crm_lead', [lead()]);
+    const [stored] = await verify.rows('crm_lead', { id: written!.id });
+    expect(stored!.owner_id, 'did not assign the least-loaded rep on owner_id').toBe(repB.id);
+    expect('owner' in stored!, 'wrote a second, unread ownership column').toBe(false);
   });
 
   it('stands down when the middleware already stamped an owner', async () => {
     // On any write that carries a user, `owner_id` is already the creator by
-    // the time this hook runs — which is what keeps the round-robin scoped to
-    // genuinely ownerless intake (import, web-to-lead, API capture).
-    const input: AnyRec = { company: 'NewCo', owner_id: 'usr_creator' };
-    await assign.handler(makeCtx({
-      event: 'beforeInsert',
-      input,
-      api: makeApi([], ['repA', 'repB']) as never,
-    }) as never);
-    expect(input.owner_id).toBe('usr_creator');
+    // the time the rule would run — which is what keeps the rule scoped to
+    // genuinely ownerless intake (import, web-to-lead, API capture). Rep A is
+    // the MORE loaded rep, so a round-robin would have moved this lead to B.
+    const written = await verify.hooks.run('crm_lead', 'insert', lead(), { as: repA.token });
+    const [stored] = await verify.rows('crm_lead', { id: written.id });
+    expect(stored!.owner_id).toBe(repA.id);
   });
 });

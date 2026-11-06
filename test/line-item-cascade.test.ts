@@ -2,8 +2,16 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import stack from './helpers/composed-stack';
+import { registerStackPicklists } from './helpers/stack-picklists';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * Deleting an itemised opportunity or quote must work (#727).
@@ -95,8 +103,8 @@ describe('the line-item objects declare cascade on their parent lookup', () => {
    * lookup on a line item". `crm_product` stays on the default, which the same
    * escalation turns into `restrict`: retiring a catalog product must never
    * shred the priced history of the deals that sold it. `product.hook.ts` says
-   * the same thing in its own `beforeDelete` ("Set is_active=false to retire
-   * instead"), and the engine-level answer below proves the restrict survives
+   * the same thing in its own `beforeDelete` ("To retire it instead, turn off
+   * Active"), and the engine-level answer below proves the restrict survives
    * independently of that hook.
    */
   it.each([
@@ -128,7 +136,7 @@ describe('deleting an itemised parent', () => {
 
   beforeEach(async () => {
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_opportunity_line_item: OPP_LINE_ITEM,
         crm_quote_line_item: QUOTE_LINE_ITEM,
@@ -138,7 +146,9 @@ describe('deleting an itemised parent', () => {
         crm_product: byName('crm_product'),
       } as never,
     })) as never;
-    api = ql.createContext({ isSystem: true });
+    registerStackPicklists(ql);
+    await ql.syncSchemas();
+    api = ql.createContext({ isSystem: true, tenantId: ORG });
   });
   afterEach(async () => {
     await ql?.close();

@@ -10,9 +10,15 @@ import { REPO_ROOT } from './helpers/repo-root';
 /**
  * The README headline figures are the gate's, within the ruled buffer (#1187).
  *
- * The README banner states HotCRM's positioning claim as two measured numbers:
- * business semantics ~81k tokens, interaction layer ~39k. That claim is the
- * first thing a reader sees and the reason a developer keeps reading, and for
+ * The README banner states HotCRM's size claim as two measured numbers, the
+ * business semantics and the interaction layer — of the SALES package, which is
+ * the surface #1905 put the gate on (「token 门禁： 放到 sales」) and the unit
+ * ADR-0130 §1.3(b) makes the claim about: *a CRM sales module fits whole in an AI
+ * context window*. Since #2205 the README opens on the platform's positioning
+ * ("the ontology is the software", quoted) and the size claim sits under it in a
+ * `> [!NOTE]` callout: a blockquote on purpose, because `bannerText` below reads
+ * every `>` line of the README and nothing else. It is still the claim a
+ * developer reads first and the reason one keeps reading, and for
  * months nothing checked it — the banner said "~170k tokens (~18,000 lines)", a
  * hand measurement of a tree that had since moved, and no test, gate or reviewer
  * could have noticed. #1183 built the measurement
@@ -58,8 +64,8 @@ import { REPO_ROOT } from './helpers/repo-root';
  * a size the app does not have — the ratchet owns the growth budget, alone, and
  * a raise there sits on the maintainer floor where it always did.
  *
- *   business semantics  banner ~118k -> band 112,100–123,900 · ceiling 125,000
- *   interaction layer   banner ~48k -> band 45,600–50,400 · ceiling 51,000
+ *   business semantics  banner ~103k -> band 97,850–108,150 · ceiling 109,000
+ *   interaction layer   banner ~40k -> band 38,000–42,000 · ceiling 46,500
  *
  * ⚠️ The ceiling column is still worked out per row, and still pinned to
  * `CEILINGS` below — that is what stops the README quoting a ceiling the gate no
@@ -85,6 +91,31 @@ import { REPO_ROOT } from './helpers/repo-root';
  * both rows read back off the README banner, the imported `BUFFER` and the
  * committed `CEILINGS`, so the next re-anchoring reddens this file instead of
  * quietly falsifying it (#1335).
+ *
+ * ## ⚠️ The gate ceilings four packages now; this rule reads ONE of them
+ *
+ * #1928 gave `src/service/`, `src/revenue/` and `src/marketing/` their own
+ * three ceilings each (「1928 门禁 改为 多 sales 模块的门禁」). None of that
+ * is this rule's business. The banner is a claim about the package a customer
+ * installs — ADR-0130 §1.3(b) — so `CEILINGS` deliberately still exposes the
+ * APP package's three rows under bare labels, and the gate's `--json` still
+ * carries them under a top-level `scopes` key, which is what the `measured`
+ * block below reads. ⛔ Do not re-point either at the full twelve-row table:
+ * this rule would then check a README sentence about sales against, say,
+ * `src/marketing`'s ceiling, and the two would pass or fail for reasons that
+ * have nothing to do with each other. `test/source-token-ratchet.test.ts` pins
+ * both halves of that split from the producer side.
+ *
+ * The only figure a ceiling move touches here is the ceiling column of the
+ * table above: #1928's re-anchoring carried `business semantics` from 53,000
+ * to 55,000, and #1951's ruled raise carried it from 55,000 to 59,000 — both
+ * under a ruling quoted in the gate's own header. Neither moved a band edge,
+ * because neither moved the banner — 「解耦:banner 钉实测,ceiling 独立」 is
+ * exactly the decoupling that lets one move without the other, and #1951 is
+ * that decoupling paying off: the ceiling rose 4,000 tokens and this rule had
+ * nothing to restate, because the reading the banner is pinned to did not
+ * move at all. #2031's ×1.5 grant (「hotcrm token 上限提升 50%」) moved the
+ * column again, to 88,500 and 46,500, and again no band edge.
  *
  * ## The measurement is the gate's, not a copy of it
  *

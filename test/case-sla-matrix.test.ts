@@ -1,11 +1,15 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
-import caseHooks from '../src/objects/case.hook';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import caseHooks from '../src/service/objects/case.hook';
 import {
-  CASE_SLA_HOURS, CASE_SLA_DEFAULT_TIER, CASE_SLA_PRIORITIES, CASE_SLA_TIERS, caseSlaHours,
-} from '../src/objects/_case-sla';
-import { makeHarness, makeDeniedApi, makeCtx, hookNamed, type Rec } from './helpers/hook-harness';
+  CASE_SLA_CALENDAR_HOURS, CASE_SLA_DEFAULT_TIER, CASE_SLA_PRIORITIES, CASE_SLA_TIERS, caseSlaCalendarHours,
+} from '../src/service/objects/_case-sla';
+import { extractHookBody } from '@objectstack/cli/hook-body';
+import type { VerifyStack } from '@objectstack/verify';
+import {
+  hotcrmStack, signUpPerson, guestInsert, systemUpdate, recordEngineWrites, type Person,
+} from './helpers/verify-stack';
 
 /**
  * The SLA policy matrix, pinned cell by cell (#595).
@@ -23,21 +27,43 @@ import { makeHarness, makeDeniedApi, makeCtx, hookNamed, type Rec } from './help
  * there (see `_line-item-price-fill.ts`; the same forced duplication is what
  * `test/priority-rank-parity.test.ts` guards for `priority_rank`).
  *
- * So this file asserts the numbers by RUNNING THE SHIPPED HANDLER, not by
- * reading the constant it also imports. Change a cell in one copy and the
- * matching case below goes red; change one in both and the explicit expected
- * table at the top goes red. There is no edit that moves a deadline quietly.
+ * So this file asserts the numbers by RUNNING THE SHIPPED HOOK, not by
+ * reading the constant it also imports: a service agent logs a case through
+ * the engine's write door (`hooks.run`) on the app booted by
+ * `@objectstack/verify`, on an account of each tier written as the system, and
+ * the deadline asserted is the one the engine stored. Change a cell in one
+ * copy and the matching case below goes red; change one in both and the
+ * explicit expected table at the top goes red. There is no edit that moves a
+ * deadline quietly.
  */
 
 type AnyRec = Record<string, any>;
 
-const hook = hookNamed(caseHooks as AnyRec[], 'case_sla_defaults') as AnyRec;
+type Rec = Record<string, any>;
+
+const hook = (caseHooks as AnyRec[]).find((h) => h.name === 'case_sla_defaults') as AnyRec;
 const HOUR = 3_600_000;
+
+let verify: VerifyStack;
+let agent: Person;
+/** One account per tier, written as the system. */
+const accountByTier: Record<string, string> = {};
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  agent = await signUpPerson(verify, 'agent@case-sla-matrix.test', {
+    name: 'SLA Agent', positions: ['service_agent'], permissionSets: ['service_agent'],
+  });
+  for (const tier of CASE_SLA_TIERS) {
+    const [account] = await verify.seed('crm_account', [{ name: `Tier ${tier} Co`, tier }]);
+    accountByTier[tier] = String(account!.id);
+  }
+}, 120_000);
 
 /**
  * The matrix, written out longhand.
  *
- * Deliberately NOT derived from `CASE_SLA_HOURS` — a test that recomputes its
+ * Deliberately NOT derived from `CASE_SLA_CALENDAR_HOURS` — a test that recomputes its
  * expectation from the thing under test proves only that the code is
  * self-consistent. These sixteen numbers are the policy, spelled out where a
  * reviewer reads them.
@@ -50,33 +76,26 @@ const EXPECTED: Record<string, Record<string, number>> = {
   low: { strategic: 96, enterprise: 120, mid_market: 168, smb: 168 },
 };
 
-/** Run the real handler for a case on an account of `tier`; return the stamp. */
+/**
+ * A case logged on an account of `tier` (or on `accountId`, or on none) — by
+ * the agent, or by an anonymous web-to-case submitter — and the deadline the
+ * engine stored for it.
+ */
 const stampFor = async (
   priority: string,
   tier: string | undefined,
-  overrides: { api?: AnyRec; accountId?: string | null } = {},
-): Promise<{ input: Rec; dueMs: number | undefined; atMs: number }> => {
-  const harness = makeHarness({
-    crm_account: tier === undefined ? [] : [{ id: 'acct_1', name: 'Demo Co', tier }],
-  });
-  const accountId = overrides.accountId === undefined ? 'acct_1' : overrides.accountId;
-  const input: Rec = { subject: 'Something broke', priority };
-  if (accountId) input.crm_account = accountId;
+  overrides: { guest?: boolean; accountId?: string | null } = {},
+): Promise<{ row: Rec; dueMs: number | undefined; atMs: number }> => {
+  const accountId = overrides.accountId === undefined ? (tier ? accountByTier[tier] : undefined) : overrides.accountId;
+  const doc: Rec = { subject: `Something broke ${++k}`, description: 'It stopped working.', priority };
+  if (accountId) doc.crm_account = accountId;
   const atMs = Date.now();
-  await hook.handler(
-    makeCtx({
-      event: 'beforeInsert',
-      input,
-      user: { id: 'user_1' },
-      api: (overrides.api ?? harness.api) as never,
-    }),
-  );
-  const raw = input.sla_due_date;
-  return {
-    input,
-    dueMs: typeof raw === 'string' ? new Date(raw).getTime() : undefined,
-    atMs,
-  };
+  const written = overrides.guest
+    ? await guestInsert(verify, 'crm_case', doc)
+    : await verify.hooks.run('crm_case', 'insert', doc, { as: agent.token });
+  const [row] = await verify.rows('crm_case', { id: written.id });
+  const raw = row!.sla_due_date;
+  return { row: row!, dueMs: typeof raw === 'string' ? new Date(raw).getTime() : undefined, atMs };
 };
 
 /** Assert a stamp lands `hours` from the moment the handler ran. */
@@ -96,16 +115,16 @@ describe('the matrix covers every declared priority and tier', () => {
   it('has a row per case priority and a cell per account tier', () => {
     // A new tier option on `crm_account` or a new case priority must be given a
     // policy, not silently inherit one.
-    expect(Object.keys(CASE_SLA_HOURS).sort()).toEqual([...CASE_SLA_PRIORITIES].sort());
+    expect(Object.keys(CASE_SLA_CALENDAR_HOURS).sort()).toEqual([...CASE_SLA_PRIORITIES].sort());
     for (const priority of CASE_SLA_PRIORITIES) {
-      expect(Object.keys(CASE_SLA_HOURS[priority]).sort(), `row ${priority}`).toEqual(
+      expect(Object.keys(CASE_SLA_CALENDAR_HOURS[priority]).sort(), `row ${priority}`).toEqual(
         [...CASE_SLA_TIERS].sort(),
       );
     }
   });
 
   it('names the same options the account object declares', async () => {
-    const stack = (await import('../objectstack.config')).default as AnyRec;
+    const stack = (await import('./helpers/composed-stack')).default as AnyRec;
     const account = (stack.objects ?? []).find((o: AnyRec) => o.name === 'crm_account');
     const options = (account?.fields?.tier?.options ?? []).map((o: AnyRec) => o.value);
     expect(options.sort()).toEqual([...CASE_SLA_TIERS].sort());
@@ -122,7 +141,7 @@ describe.each(Object.keys(EXPECTED))('%s priority', (priority) => {
     async (tier) => {
       const hours = EXPECTED[priority][tier];
       // Both copies of the table, and then the behaviour itself.
-      expect(CASE_SLA_HOURS[priority as never][tier as never], `constant cell ${priority}×${tier}`).toBe(hours);
+      expect(CASE_SLA_CALENDAR_HOURS[priority as never][tier as never], `constant cell ${priority}×${tier}`).toBe(hours);
       expectHours(await stampFor(priority, tier), hours, `${priority}×${tier}`);
     },
   );
@@ -134,8 +153,8 @@ describe('every priority now gets a clock', () => {
     // `sla_due_date < now`, so a blank date made three of four priorities
     // permanently invisible to the breach sweep.
     for (const priority of CASE_SLA_PRIORITIES) {
-      const { input } = await stampFor(priority, 'enterprise');
-      expect(input.sla_due_date, `${priority} got no SLA clock`).toBeTruthy();
+      const { row } = await stampFor(priority, 'enterprise');
+      expect(row.sla_due_date, `${priority} got no SLA clock`).toBeTruthy();
     }
   });
 
@@ -149,14 +168,19 @@ describe('every priority now gets a clock', () => {
     }
   });
 
-  it('a critical case needs no account and no api at all', async () => {
+  it('a critical case needs no account and no read at all', async () => {
     // The flat row means the tier lookup is skipped entirely for critical, so
-    // this path is byte-for-byte the old behaviour — including under the
-    // user-less / api-less contexts the other runtime tests drive.
-    const input: Rec = { priority: 'critical' };
-    const at = Date.now();
-    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: { id: 'user_1' } }));
-    expectHours({ dueMs: new Date(input.sla_due_date as string).getTime(), atMs: at }, 4, 'critical, no api');
+    // this path is byte-for-byte the old behaviour.
+    expectHours(await stampFor('critical', undefined, { accountId: null }), 4, 'critical, no account');
+  });
+
+  it('an anonymous critical is capped at high first, and takes the high row (#2368)', async () => {
+    // A guest may not choose Critical: the guest branch caps it before the
+    // matrix is read, so the anonymous submitter, who can read nothing, gets
+    // the no-account (`smb`) cell of the HIGH row.
+    const res = await stampFor('critical', undefined, { guest: true });
+    expect(res.row.priority).toBe('high');
+    expectHours(res, EXPECTED.high.smb, 'critical capped, anonymous, no account');
   });
 });
 
@@ -166,100 +190,86 @@ describe('tier resolution falls back the way the docs say', () => {
   });
 
   it('uses the smb column when the account carries no tier', async () => {
-    const harness = makeHarness({ crm_account: [{ id: 'acct_1', name: 'Unclassified' }] });
-    const input: Rec = { priority: 'medium', crm_account: 'acct_1' };
-    const at = Date.now();
-    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: { id: 'user_1' }, api: harness.api }));
-    expectHours({ dueMs: new Date(input.sla_due_date as string).getTime(), atMs: at }, EXPECTED.medium.smb, 'blank tier');
+    // Every write applies the field's `smb` default, so a blank tier is a
+    // migration's leftover — cleared here by the system.
+    const [account] = await verify.seed('crm_account', [{ name: `Unclassified ${++k}`, tier: 'strategic' }]);
+    await systemUpdate(verify, 'crm_account', { id: account!.id, tier: null });
+    expectHours(await stampFor('medium', undefined, { accountId: String(account!.id) }), EXPECTED.medium.smb, 'blank tier');
   });
 
   it('uses the smb column when the account cannot be read at all', async () => {
     // The anonymous web-to-case grant can create a case and read nothing else.
     // A denial there must neither reject the submission nor invent a tighter
     // deadline than the customer's contract — it degrades to the loosest cell.
-    const res = await stampFor('high', 'strategic', { api: makeDeniedApi() as never });
+    const res = await stampFor('high', 'strategic', { guest: true });
+    expect(res.row.crm_account, 'the submission lost its account — this would be the no-account path').toBe(accountByTier.strategic);
     expectHours(res, EXPECTED.high.smb, 'denied read');
   });
 
-  it('uses the smb column for a tier value the matrix does not know', async () => {
-    expectHours(await stampFor('low', 'platinum'), EXPECTED.low.smb, 'unknown tier');
+  it('a tier value the matrix does not know cannot be stored at all', async () => {
+    // `tier` is a select: the engine refuses an undeclared value on every
+    // writer, so no account ever carries one to a case. The lookup the hook
+    // mirrors still falls back for one.
+    await expect(verify.seed('crm_account', [{ name: `Platinum ${++k}`, tier: 'platinum' }]))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(caseSlaCalendarHours('low', 'platinum')).toBe(EXPECTED.low.smb);
   });
 });
 
 describe('the rules the matrix does not change', () => {
-  it('stamps nothing for an unrecognised priority', async () => {
+  it('stamps nothing for an unrecognised priority — no case can carry one', async () => {
     // Same refusal-to-invent as the `0` unranked sentinel: a priority nobody
-    // wrote a policy for gets no deadline rather than a guessed one.
-    const { input } = await stampFor('blocker', 'strategic');
-    expect(input.sla_due_date).toBeUndefined();
-    expect(caseSlaHours('blocker', 'strategic')).toBeUndefined();
+    // wrote a policy for gets no deadline rather than a guessed one. On the
+    // shipped app `priority` is a select, so the engine refuses `blocker`
+    // before any hook runs; the table answers no clock for it.
+    await expect(stampFor('blocker', 'strategic')).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(caseSlaCalendarHours('blocker', 'strategic')).toBeUndefined();
   });
 
   it('stamps nothing when the write already carries a due date', async () => {
-    const harness = makeHarness({ crm_account: [{ id: 'acct_1', tier: 'strategic' }] });
-    const input: Rec = { priority: 'critical', crm_account: 'acct_1', sla_due_date: '2026-01-01T00:00:00.000Z' };
-    await hook.handler(makeCtx({ event: 'beforeInsert', input, user: { id: 'user_1' }, api: harness.api }));
-    expect(input.sla_due_date).toBe('2026-01-01T00:00:00.000Z');
+    const written = await verify.hooks.run('crm_case', 'insert', {
+      subject: `Pre-dated ${++k}`, description: 'Due date agreed on the phone.', priority: 'critical',
+      crm_account: accountByTier.strategic, sla_due_date: '2026-01-01T00:00:00.000Z',
+    }, { as: agent.token });
+    expect((await verify.rows('crm_case', { id: written.id }))[0]!.sla_due_date).toBe('2026-01-01T00:00:00.000Z');
   });
 
-  it('never overwrites a deadline the record already has', async () => {
-    // A service manager may renegotiate a due date; a later edit to the case
-    // must not silently pull it back to the matrix default.
-    const harness = makeHarness({ crm_account: [{ id: 'acct_1', tier: 'strategic' }] });
-    const input: Rec = { priority: 'critical', status: 'in_progress' };
-    await hook.handler(
-      makeCtx({
-        event: 'beforeUpdate',
-        input,
-        previous: { crm_account: 'acct_1', priority: 'high', sla_due_date: '2026-01-01T00:00:00.000Z' },
-        user: { id: 'user_1' },
-        api: harness.api,
-      }),
-    );
-    expect(input.sla_due_date).toBeUndefined();
+  it('never moves a deadline the record already has to a later one', async () => {
+    // A service manager may renegotiate a due date. A priority raise re-derives
+    // the deadline only when the new window ends sooner than the stored date
+    // (#2073, `test/case-sla-priority-change.test.ts`), so a stored date that
+    // is already earlier — here, long past — survives the raise untouched.
+    const { row } = await stampFor('high', 'strategic');
+    await systemUpdate(verify, 'crm_case', { id: row.id, sla_due_date: '2026-01-01T00:00:00.000Z' });
+    await verify.hooks.run('crm_case', 'update', { id: row.id, priority: 'critical', status: 'in_progress' }, { as: agent.token });
+    expect((await verify.rows('crm_case', { id: row.id }))[0]!.sla_due_date).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('reads the tier through the account named on the PREVIOUS row', async () => {
     // A priority edit carries no `crm_account` in its input; the tier still has
-    // to come from the account the case already hangs off.
-    const harness = makeHarness({ crm_account: [{ id: 'acct_1', tier: 'strategic' }] });
-    const input: Rec = { priority: 'medium' };
-    const at = Date.now();
-    await hook.handler(
-      makeCtx({
-        event: 'beforeUpdate',
-        input,
-        previous: { crm_account: 'acct_1', priority: 'low' },
-        user: { id: 'user_1' },
-        api: harness.api,
-      }),
-    );
-    expectHours(
-      { dueMs: new Date(input.sla_due_date as string).getTime(), atMs: at },
-      EXPECTED.medium.strategic,
-      'tier off previous',
-    );
+    // to come from the account the case already hangs off. The case's own clock
+    // is cleared first (by the system), so the edit is what stamps it.
+    const { row } = await stampFor('low', 'strategic');
+    await systemUpdate(verify, 'crm_case', { id: row.id, sla_due_date: null });
+    const atMs = Date.now();
+    await verify.hooks.run('crm_case', 'update', { id: row.id, priority: 'medium' }, { as: agent.token });
+    const due = (await verify.rows('crm_case', { id: row.id }))[0]!.sla_due_date as string;
+    expectHours({ dueMs: new Date(due).getTime(), atMs }, EXPECTED.medium.strategic, 'tier off previous');
   });
 
-  it('asks the account only for its tier, and only by id', async () => {
-    // `findOne`/`count` silently ignore a `filter` key and answer about the
-    // wrong row (see `_hook-api.ts`) — the harness throws on it, so this also
-    // pins that the lookup uses `where`.
-    const harness = makeHarness({ crm_account: [{ id: 'acct_1', tier: 'enterprise' }] });
-    await hook.handler(
-      makeCtx({
-        event: 'beforeInsert',
-        input: { priority: 'medium', crm_account: 'acct_1' },
-        user: { id: 'user_1' },
-        api: harness.api,
-      }),
-    );
-    // Reads are not recorded as calls; what matters is that no WRITE happened.
-    expect(harness.callsFor('crm_account'), 'the SLA hook must not write to accounts').toEqual([]);
+  it('asks the account only for its tier, and never writes to it', async () => {
+    // The lookup reads; what matters here is that no WRITE reaches the account.
+    const recorder = recordEngineWrites(verify);
+    try {
+      await stampFor('medium', 'enterprise');
+      expect(recorder.of('crm_account'), 'the SLA hook must not write to accounts').toEqual([]);
+    } finally {
+      recorder.restore();
+    }
   });
 });
 
-describe('the clock is calendar hours, stated out loud', () => {
+describe('the clock is calendar hours, carried by the code', () => {
   it('adds elapsed milliseconds, so a DST transition cannot shorten an SLA', async () => {
     // `setHours(getHours() + n)` does LOCAL calendar arithmetic: across a
     // transition "+4 hours" becomes 3 or 5 real hours, and the 168h Low clock
@@ -269,22 +279,39 @@ describe('the clock is calendar hours, stated out loud', () => {
     expect(res.dueMs! - res.atMs).toBeLessThan(168 * HOUR + 60_000);
   });
 
-  it('says so in the source, where the numbers are', async () => {
-    // The one thing a reader of this table must not have to infer. There is no
-    // business-hours calendar on the platform, so a Friday-5pm P1 is due at
-    // 9pm the same Friday — documenting that is part of the deliverable, not
-    // decoration around it.
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const { REPO_ROOT } = await import('./helpers/repo-root');
-    for (const file of ['src/objects/_case-sla.ts', 'src/objects/case.hook.ts']) {
-      const source = readFileSync(join(REPO_ROOT, file), 'utf8');
-      expect(source, `${file} must state the calendar-hours assumption`).toMatch(
-        /CALENDAR HOURS|CALENDAR hours/,
+  describe('on a fixed Friday 17:00 clock, on a real write', () => {
+    // The deadline is computed by the hook on a real insert — the shipped app
+    // booted through `@objectstack/verify`'s handle, a service agent logging
+    // the case. Only `Date` is faked (the bare `vi.useFakeTimers()` would stall
+    // the engine's own timers). UTC on purpose: the stamp is elapsed time, so
+    // the host zone cannot move it.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-02T17:00:00.000Z')); // a Friday
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each([
+      // A business-hours clock would push every one of these past the weekend.
+      ['critical', '2026-10-02T21:00:00.000Z'], // 4 h — the same Friday night
+      ['medium', '2026-10-04T17:00:00.000Z'], // 48 h — due on the Sunday
+      ['low', '2026-10-09T17:00:00.000Z'], // 168 h — the weekend counted in full
+    ])('%s, no account (the smb column), is due at %s', async (priority, due) => {
+      const stored = await verify.hooks.run(
+        'crm_case', 'insert',
+        { subject: 'Something broke', description: 'Logged on a Friday evening.', priority },
+        { as: agent.token },
       );
-      expect(source, `${file} must say the app has no business-hours calendar`).toMatch(
-        /business-hours calendar/,
-      );
-    }
+      expect(stored.sla_due_date).toBe(due);
+    });
+  });
+
+  it('names the unit in the identifier the shipped body carries', () => {
+    // The body cannot import `CASE_SLA_CALENDAR_HOURS` (imported above), so it
+    // carries its own name for the unit — in the source `objectstack build` ships.
+    const { source } = extractHookBody(hook.handler, `hook '${String(hook.name)}'`);
+    expect(source).toMatch(/\bconst slaCalendarHours\b/);
   });
 });

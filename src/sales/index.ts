@@ -1,0 +1,201 @@
+// Copyright (c) 2026 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { defineStack, type ObjectStackDefinition, type ObjectStackDefinitionInput } from '@objectstack/spec';
+import { PrintServicePlugin } from '@objectstack/service-print';
+
+/**
+ * Everything the app package REGISTERS, as opposed to what it IS.
+ *
+ * The identity keys are not in it and cannot be passed: `manifest`, `requires`
+ * and `i18n` are this package's own statement about itself, and `packages`
+ * belongs to the artifact envelope one level up.
+ */
+export type HotCrmAppCollections = Omit<
+  ObjectStackDefinitionInput,
+  'manifest' | 'packages' | 'requires' | 'i18n'
+>;
+
+/**
+ * `app.objectstack.hotcrm` — the App package of this artifact, and the sales
+ * module (ADR-0130 D4, `module-split-plan.md` decision 4).
+ *
+ * ADR-0019 requires exactly one `type: 'app'` package per artifact and the
+ * artifact takes its identity from it; nothing requires that package to be an
+ * empty shell, and the platform's own two-package fixture
+ * (`examples/app-multi-package`) says the opposite — its App package owns the
+ * customer object and the navigation. So sales IS the app: it keeps the id
+ * `app.objectstack.hotcrm`, owns the customer core and the activity objects,
+ * the app and its navigation GROUPS, the cross-domain dashboards and skills,
+ * the permission sets, the positions, the four locale packs, the import
+ * mappings, and every source file more than one package needs.
+ *
+ * ## Why this file takes its collections instead of importing them
+ *
+ * `objectstack.composition.ts` assembles them, and two reasons keep it there.
+ * The `HOTCRM_COMPOSITION` knob selects this package's permission sets and
+ * seed families at the root (below). And the two `artifact*` options are read
+ * off the module stacks: a file under `src/sales/` may not import from a
+ * module directory (AGENTS.md *Project Architecture* rule 2: own directory or
+ * `src/sales/`, never sideways), so they are computed in the root module,
+ * which may see every package.
+ *
+ * ## `artifactObjects` — the permission sets stay whole here
+ *
+ * ADR-0130's 2026-09-02 addendum keeps every permission set WHOLE in the
+ * `type: 'app'` package: a set is authored per ROLE, so no module owns one. The
+ * app package also owns objects of its own, so `defineStack` would otherwise
+ * read a grant on `crm_case` as a grant on an object "not defined in objects".
+ * `artifactObjects` is the platform's answer to exactly that (objectstack#18202):
+ * the names the OTHER packages of this artifact own, against which this
+ * package's `permissions[].objects` and `data[].object` — and those two
+ * reference classes only — are resolved. Measured on 17.7.0: without it, the
+ * seven sets' 18 grants on `crm_case`, `crm_knowledge_article` and
+ * `crm_article_feedback` are refused ("defineStack cross-reference validation
+ * failed (18 issues)"); with it, none. The claim is verified, not trusted: a
+ * grant naming an object no package of the artifact defines is still refused,
+ * by `composeStacks`' artifact pass, even when the name is listed here. A hook
+ * or an app navigation entry on another package's object stays refused;
+ * navigation crosses only through the module's `navigationContributions`.
+ *
+ * ## `artifactFlows` — three actions launch a module's flow
+ *
+ * `generate_quote` on `crm_opportunity` launches revenue's `quote_generation`;
+ * `create_campaign` on `crm_lead` and `add_contact_to_campaign` on
+ * `crm_contact` launch marketing's `campaign_lead_member_enroll` and
+ * `campaign_contact_member_enroll`. `defineStack` checks a `type: 'flow'`
+ * action's target against this package's own `flows`, widened by
+ * `artifactFlows` — the flow names the other packages of this artifact
+ * register (objectstack#25514, released in 18.2.0). Measured on 18.2.0:
+ * without it, those three actions are refused ("defineStack cross-reference
+ * validation failed (3 issues)"); with it, none. Verified like
+ * `artifactObjects`: a target that resolved only through the list and that no
+ * package defines is refused by `composeStacks`. The dashboard half of the
+ * same fix needs no option — the CRM Overview List Price by Category tile binds
+ * revenue's `product_metrics`, which `os validate` now resolves against the
+ * artifact's packages.
+ *
+ * ## What is deliberately NOT here
+ *
+ * The `HOTCRM_COMPOSITION` knob (#1361). It selects permission sets and seed
+ * families, and it is resolved once at the root and handed down already
+ * applied — `objectstack.composition.ts` carries the full audit of what the
+ * knob changes and why, because the answer is about the ARTIFACT, not about
+ * this package.
+ */
+export const createHotCrmAppStack = (
+  collections: HotCrmAppCollections,
+  options: { artifactObjects: readonly string[]; artifactFlows: readonly string[] },
+): ObjectStackDefinition =>
+  defineStack({
+    manifest: {
+      id: 'app.objectstack.hotcrm',
+      namespace: 'crm',
+      version: '6.1.0',
+      type: 'app',
+      name: 'HotCRM',
+      description: 'AI-Native CRM for the ObjectStack marketplace — Accounts, Contacts, Leads, Opportunities, Cases, Knowledge, Forecasts, Campaigns, Contracts.',
+      // ADR-0087 protocol handshake (ADR-0025 §3.2): the metadata/runtime
+      // protocol major this app's metadata is authored against. Only the major
+      // participates in the check — a runtime on a different major refuses the
+      // load with a structured OS_PROTOCOL_INCOMPATIBLE diagnostic (naming the
+      // `objectstack migrate meta` replay) instead of failing deep in a schema
+      // parse. Bump together with `specVersion` on every platform upgrade
+      // (docs/MAINTENANCE.md §3) — `test/docs-declared-versions.test.ts` now
+      // enforces that pairing against `objectstack.manifest.json` instead of
+      // trusting this comment, because two platform upgrades in a row (rc.2, then
+      // rc.3) moved the manifest and left this line behind (#728). Every package
+      // of this artifact states the same protocol; `src/service/index.ts`
+      // repeats it for the same reason.
+      engines: { protocol: '^18.3.0' },
+    },
+
+    // ─── Platform capabilities this app needs ─────────────────────────
+    // The runtime resolves each capability name to a built-in service plugin
+    // and auto-loads it (with extras like Automation's node packs). No need
+    // to hand-instantiate plugins or pass `--preset` flags. See
+    // packages/cli/src/commands/serve.ts CAPABILITY_PROVIDERS for the
+    // complete map; explicit `plugins: [...]` always shadows the resolver.
+    // `auth` enables the auth/login surface (login/register) via @objectstack/plugin-auth.
+    // `ui`   serves the unified Console shell and CRM apps under /_console/
+    //        (login at /_console/login). ObjectStack 7.x replaced the legacy
+    //        /_studio/ and /_account/ mounts with this single /_console/ surface.
+    // Both are required for a clickable login flow when running `objectstack start`
+    // off the compiled artifact.
+    // Note: the foundational slate (queue, job, cache, settings, email,
+    // storage) is auto-injected by the CLI for every non-`minimal`
+    // preset — see `ALWAYS_CAPS` in packages/cli/src/commands/serve.ts.
+    // Listed below only the *opt-in* capabilities this stack actually
+    // wants on top of that slate.
+    // `triggers` installs the record-change + schedule trigger providers that
+    // actually fire autolaunched flows (record_change & schedule types). Without
+    // it the `automation` engine registers flows but nothing ever launches them.
+    // Schedule triggers run via the job service (in the always-on slate).
+    //
+    // This is the APP package's slate. `defineStack` validates capabilities per
+    // stack, so `src/service/index.ts` declares the four its own metadata needs
+    // itself, and the artifact's slate is the union of the two lists.
+    //
+    // `ai` is deliberately NOT listed. ObjectStack 11.3.0 (ADR-0025 S2) removed
+    // `@objectstack/service-ai` from the open edition — the AI runtime now ships
+    // only in the closed cloud package, and the framework CLI does not depend on
+    // it. Under ObjectStack 16, `requires: ['ai']` is a *fail-fast* capability:
+    // the serve command hard-aborts boot when the package is absent, so keeping it
+    // here would break `objectstack start`/`dev` for this open-edition app (the AI
+    // block runs before every other capability resolves). The AI metadata is
+    // unaffected — the skills still validate, build into the artifact, and run
+    // wherever a runtime provides the `ai` tier (cloud's objectos-runtime). There
+    // are no app-authored agents: they were retired in #512 and the surface is
+    // skills-only (ADR-0063 §2); skills attach to a platform agent by `surface`.
+    // A local open-edition boot simply omits the AI service and hides its console
+    // surface. To run AI locally, declare `@objectstack/service-ai` (cloud) in
+    // package.json — its mere presence best-effort auto-loads it.
+    // `hierarchy-security` is the ONE enterprise-edition capability this app
+    // declares. It was introduced for #880 — `sales_manager` authored
+    // `writeScope: 'own_and_reports'` on `crm_contract`, an ADR-0057 HIERARCHY
+    // scope resolved by the `hierarchy-scope-resolver` service that ships only
+    // in `@objectstack/security-enterprise`, and `defineStack` refuses such a
+    // grant unless the capability is declared. Since #549 `crm_contract` is
+    // `controlled_by_parent` under the account, that scope is inert and is no
+    // longer authored; the app currently authors NO hierarchy scope at all.
+    //
+    // The declaration STAYS. Maintainer ruling 2026-08-31 (#1378, pinned by
+    // `test/hierarchy-read-depth.test.ts`): nothing is removed from `requires[]`.
+    // Maintainer ruling, 2026-08-11, verbatim: 「本项目是元数据app，在企业版运行就
+    // 具备企业版相关的能力，不重复开发。」 The app states what it MEANS and the
+    // edition supplies the capability, rather than approximating it with a broader
+    // open-edition value.
+    //
+    // UNLIKE `ai` above, this is SAFE to declare on an open-edition boot and does
+    // NOT fail fast. Verified against `@objectstack/cli`'s serve command: the
+    // capability resolver looks the token up in `CAPABILITY_PROVIDERS`, finds no
+    // entry, and because `hierarchy-security` IS in the known
+    // `PLATFORM_CAPABILITY_TOKENS` vocabulary it takes the deliberate "stay quiet"
+    // branch — no warning, no abort — since the capability arrives via an explicit
+    // enterprise plugin in `plugins[]`. Only tier-gated tokens (ai / ai-studio /
+    // i18n / ui / auth) have the dedicated hard-abort blocks the note above
+    // describes. `objectstack validate` does print one informational line naming
+    // the package to install; that is expected output, not a defect to silence.
+    requires: ['automation', 'triggers', 'analytics', 'auth', 'ui', 'approvals', 'sharing', 'hierarchy-security'],
+
+    // The locale configuration is the ARTIFACT's, and `i18n` is a
+    // `'single'`-disposition key: two stacks declaring different values make
+    // `composeStacks` throw, and declaring identical ones twice is a second
+    // place to drift. It lives on the App package, alone.
+    i18n: {
+      defaultLocale: 'en',
+      supportedLocales: ['en', 'zh-CN', 'ja-JP', 'es-ES'],
+      fallbackLocale: 'en',
+    },
+
+    // `@objectstack/service-print`'s door, `POST /api/v1/print/records`, which
+    // Print Contract (`print_contract`, on this package's `crm_contract`) and
+    // the revenue module's Print Quote both call. It is mounted HERE, once: a
+    // stack's `plugins` concatenate across `composeStacks` (an envelope key,
+    // not a package body), so a second copy in a module would mount the door
+    // twice, and the app package is the one every module depends on (AGENTS.md
+    // Project Architecture rule 2), so a module's print keeps its door without
+    // the app depending on that module (#2317; it lived in revenue for #2312).
+    plugins: [new PrintServicePlugin()],
+
+    ...collections,
+  }, { artifactObjects: options.artifactObjects, artifactFlows: options.artifactFlows });

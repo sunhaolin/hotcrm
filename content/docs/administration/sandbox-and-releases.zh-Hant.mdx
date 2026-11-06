@@ -9,7 +9,7 @@ description: 安全地進行設定變更 —— HotCRM 今天真正的發布管�
 
 切勿直接在生產中進行設定變更。本頁介紹安全的工作流：在沙箱中建構、測試、打包、提升到生產，必要時回滾。
 
-**下文點名的這些畫面，一個也不存在。** Setup 裡沒有 *Sandbox Management*，沒有 *Change Packages*，也沒有 *Git Sync* 入口 —— 它的導覽是 Overview、Apps、People & Organization、Access Control、Approvals、Configuration、Diagnostics、Integrations、Advanced，而這些分組底下沒有任何東西能開出一個租戶或攢出一個變更集。下面寫的是發布管理*應有*的形態，之所以保留，是因為它講的紀律是對的。HotCRM 今天真正的做法是：它的中繼資料就是 `src/` 下的 TypeScript，在 git 裡審查，隨應用一起發布；已安裝的套件列在 **Setup → Packages**。（平台未附繁體中文語言包，主控台介面會回退為簡體中文，因此本頁的導覽路徑一律以英文標示，以免簡繁混用。）
+**下文點名的這些畫面，一個也不存在。** Setup 裡沒有 *Sandbox Management*，沒有 *Change Packages*，也沒有 *Git Sync* 入口 —— 它的導覽是 Overview、Apps、People & Organization、Access Control、Approvals、Configuration、Diagnostics、Integrations、Advanced，而這些分組底下沒有任何東西能開出一個租戶或攢出一個變更集。下面寫的是發布管理*應有*的形態，之所以保留，是因為它講的紀律是對的。HotCRM 今天真正的做法是：它的中繼資料就是 `src/` 下的 TypeScript，在 git 裡審查，隨應用一起發布；已安裝的套件列在 **Setup → Installed Apps**（選 *Show all*）。（平台未附繁體中文語言包，主控台介面會回退為簡體中文，因此本頁的導覽路徑一律以英文標示，以免簡繁混用。）
 
 > **下面每一條斷言都被實測過，而且大多數沒能存活。** 本頁逐條對照應用自身的中繼資料
 > （`src/`、`objectstack.config.ts`）與已安裝的 `@objectstack/*` 套件（spec 17.0.0-rc.6）
@@ -45,7 +45,7 @@ production | sandbox | development | test | staging | preview | trial
 
 並沒有這樣一個畫面。開出一個環境是 ObjectStack Cloud 控制面的事，不是本租戶 Setup 裡的某一頁；Setup 裡唯一與雲相關的入口是 **Setup → Cloud Connection**。
 
-有一件事值得知道，因為它是這個應用真正能表達的唯一一條環境軸：在 `objectstack.config.ts` 裡宣告的種子資料是**按環境區分**的。每個 `data[]` 條目接受一個 `env` 清單，而這套詞彙恰好只有三個取值：
+有一件事值得知道，因為它是這個應用真正能表達的唯一一條環境軸：應用各個套件註冊的種子資料是**按環境區分**的。每個 `data[]` 條目接受一個 `env` 清單，而這套詞彙恰好只有三個取值：
 
 ```
 data: [{ object: 'crm_account', env: ['prod', 'dev', 'test'], records: [...] }]
@@ -102,7 +102,7 @@ data: [{ object: 'crm_account', env: ['prod', 'dev', 'test'], records: [...] }]
 
 設計意圖是這樣的：一個*變更包 → 新建*的畫面，填名稱與描述，用手動 / 按標籤 / 自上次打包以來自動這三種方式新增元件，再**驗證**一致性並**儲存**。
 
-並沒有這樣一個畫面。這裡的「包」是平台自己的單位 —— 列在 **Setup → Packages** 和 **Studio → Packages** —— 而 HotCRM 自己的中繼資料是在建構時從原始碼打包的，從不在介面裡拼裝。
+並沒有這樣一個畫面。這裡的「包」是平台自己的單位 —— 列在 **Setup → Installed Apps** 和 **Studio → Packages** —— 而 HotCRM 自己的中繼資料是在建構時從原始碼打包的，從不在介面裡拼裝。
 
 ### 部署包
 
@@ -139,7 +139,7 @@ tiers devPlugins runtimeModule
 | AI 技能、知識庫設定 | ⚠️ `skills` 是鍵；**不存在知識庫設定這個鍵** —— 知識文章就是普通記錄 |
 | 審批流程 | ⚠️ **沒有這個鍵。** 獨立的 `approvals` 堆疊欄位在 ObjectStack 7.4 被移除；審批是帶 `approval` 節點的 `flows`（ADR-0019），因此按流程打包 |
 | 電子郵件範本 | ✅ `emailTemplates` 是鍵 —— 儘管本應用一個都沒寫 |
-| **資料記錄** | ❌ → **✅ 寫錯了，而且這條值得糾正。** `data` 是頂層工件鍵，HotCRM 透過它發布了 21 個種子族。記錄完全可以打包，還能按環境區分（`env: ['prod','dev','test']`），並帶 upsert `mode` 與 `externalId` |
+| **資料記錄** | ❌ → **✅ 寫錯了，而且這條值得糾正。** `data` 是頂層工件鍵，HotCRM 透過它發布了 20 個種子族。記錄完全可以打包，還能按環境區分（`env: ['prod','dev','test']`），並帶重放 `mode` 與 `externalId`：二十個族中有十九個只插入一次（`ignore`），預測快照用 `upsert` |
 | **檔案** | ✅ ❌ 判定正確 —— 沒有檔案鍵，而且**不存在檔案同步 API** 可用；那條建議指向的是空的 |
 | **使用者帳戶** | ✅ ❌ 判定正確 —— 沒有使用者鍵。SCIM 作為平台面確實存在（`sys_scim_provider`），但在本租戶裡沒有任何畫面 |
 

@@ -2,12 +2,19 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AutomationEngine, installBuiltinNodes } from '@objectstack/service-automation';
 import type * as Automation from '@objectstack/spec/automation';
-import * as allFlows from '../src/flows';
-import { ContractExpirationFlow } from '../src/flows/contract-expiration.flow';
+import { allFlows } from '../objectstack.composition';
+import { ContractExpirationFlow } from '../src/sales/flows/contract-expiration.flow';
 import { flowNodesDeep, regionsOf } from './helpers/flow-regions';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 type Flow = Automation.Flow;
 type AnyRec = Record<string, any>;
@@ -65,6 +72,19 @@ type AnyRec = Record<string, any>;
  * disagreement is load-bearing: the automation template evaluator knows
  * `TODAY()`, ObjectQL's filter vocabulary knows `{today}`. Either half moving
  * breaks the flows, so both halves are pinned below.
+ *
+ * ### Since 18.0.0-next.0: the token is gone, the question is not
+ *
+ * 18.0.0-next.0 retires the template dialect from flow value slots, a filter
+ * operand included (the spec's `flow-value-slot-template-dialect-refused`
+ * entry): `{TODAY()}` there is refused at registration, and every shipped date
+ * window is the CEL value envelope the entry prescribes — `isoDate(today())`,
+ * `isoDate(daysAgo(n))`, `isoDate(daysFromNow(n))` — evaluated before the
+ * query, on the UTC calendar the macro used. What #1107 asked is unchanged:
+ * does the query layer receive a date it understands, or a token it refuses?
+ * So everything below still EXECUTES; what the census reads is the envelope,
+ * and the refusal of the retired spelling is pinned where its pass-through
+ * used to be.
  */
 
 // ══════════════════════════════════════════════════ shipped-metadata census ══
@@ -74,19 +94,27 @@ interface TokenSite {
   node: string;
   /** Dotted path to the condition inside `config.filter`. */
   path: string;
-  /** The template string as authored, e.g. `{TODAY() - 45}`. */
+  /** The date as authored: a CEL envelope's source, e.g. `isoDate(daysAgo(14))`. */
   template: string;
 }
 
+/** The retired template token — refused at registration since 18.0.0-next.0. */
 const TODAY_TOKEN = /\{\s*TODAY\s*\(\s*\)/;
 
-/** Every `{TODAY()…}` string inside a node's `config.filter`, with its path. */
+/** A CEL value envelope computing "today" or a day offset from it. */
+const DATE_ENVELOPE = /\b(?:today|daysAgo|daysFromNow)\s*\(/;
+
+/** Every date envelope (or surviving `{TODAY()…}` string) inside a node's `config.filter`, with its path. */
 const filterTokens = (value: unknown, path: string[] = []): { path: string; template: string }[] => {
   if (typeof value === 'string') {
     return TODAY_TOKEN.test(value) ? [{ path: path.join('.') || '(root)', template: value }] : [];
   }
   if (Array.isArray(value)) return value.flatMap((v, i) => filterTokens(v, [...path, String(i)]));
   if (value && typeof value === 'object') {
+    const source = (value as AnyRec).dialect === 'cel' ? (value as AnyRec).source : undefined;
+    if (typeof source === 'string') {
+      return DATE_ENVELOPE.test(source) ? [{ path: path.join('.') || '(root)', template: source }] : [];
+    }
     return Object.entries(value as AnyRec).flatMap(([k, v]) => filterTokens(v, [...path, k]));
   }
   return [];
@@ -95,7 +123,7 @@ const filterTokens = (value: unknown, path: string[] = []): { path: string; temp
 /**
  * Walk a flow's nodes, including every control-flow region, collecting filter
  * tokens. `regionsOf` rather than a bare `config.body` read: a loop body is one
- * `try_catch` guard since `src/flows/_guarded-iteration.ts`, and the reads this
+ * `try_catch` guard since `src/sales/flows/_guarded-iteration.ts`, and the reads this
  * censuses sit inside its `try` region.
  */
 const censusOf = (flowName: string, nodes: AnyRec[]): TokenSite[] =>
@@ -107,16 +135,22 @@ const censusOf = (flowName: string, nodes: AnyRec[]): TokenSite[] =>
     return [...here, ...nested];
   });
 
-// `src/flows/index.ts` exports every flow twice — once by name and once inside
-// the `allFlows` array `defineStack()` consumes. The ARRAY is the registered
-// set, so it is the one censused; taking `Object.values()` of the module would
-// count each flow twice and quietly weaken the per-site assertions below.
-const flows: Flow[] = ((allFlows as AnyRec).allFlows ?? []) as Flow[];
+// Each package's `flows/index.ts` exports its flows by name;
+// `objectstack.composition.ts` assembles them into the `allFlows` array
+// `defineStack()` consumes. The ARRAY is the registered set, so it is the one
+// censused — taking `Object.values()` of a barrel module would count each flow
+// once per package and quietly weaken the per-site assertions below.
+const flows: Flow[] = allFlows as unknown as Flow[];
 
 const CENSUS: TokenSite[] = flows.flatMap((f) => censusOf(f.name, (f as AnyRec).nodes ?? []));
 
-describe('census: which shipped flow filters carry {TODAY()}', () => {
-  it('at least one live sweep filters on the token', () => {
+describe('census: which shipped flow filters compute a date', () => {
+  it('no shipped flow filter still carries the retired {TODAY()} token', () => {
+    // 18.0.0-next.0 refuses it at registration, so a survivor would not load.
+    expect(CENSUS.filter((s) => TODAY_TOKEN.test(s.template))).toEqual([]);
+  });
+
+  it('at least one live sweep filters on a computed date', () => {
     // The premise of every execution below. If this ever empties out, the
     // executions stop proving anything and this file must be re-scoped rather
     // than left passing over an empty set.
@@ -238,15 +272,9 @@ describe('{TODAY()} through a real ObjectQL + real AutomationEngine', () => {
   let data: AnyRec;
 
   const seedContracts = async () => {
-    // ⛔ No `tenantId` here. From @objectstack/driver-memory 17.4.0 the in-memory
-    // driver REFUSES any call the engine hands a tenant scope
-    // (`MemoryMultiTenantUnsupportedError`, objectstack#16589): it has no
-    // row-level tenant isolation, so answering would read across organizations.
-    // This fixture holds one implicit tenant and measures nothing about tenancy,
-    // so the honest shape is not to ask an unisolating driver to isolate. ⛔ Do
-    // NOT reach for `tenancy: { enabled: false }` instead — the refusal names that
-    // as the wrong answer for data that really is per-organization.
-    const api: AnyRec = ql.createContext({ isSystem: true, userId: 'u1' } as never);
+    // No `tenantId` here: this fixture holds one implicit tenant and measures
+    // nothing about tenancy.
+    const api: AnyRec = ql.createContext({ isSystem: true, tenantId: ORG, userId: 'u1' } as never);
     await api.object('crm_contract').insert({
       id: 'k_past', contract_number: 'C-1', status: 'activated', end_date: ymd(-3), owner_id: 'rep1',
     });
@@ -270,9 +298,10 @@ describe('{TODAY()} through a real ObjectQL + real AutomationEngine', () => {
 
   beforeAll(async () => {
     ql = await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: OBJECTS,
     });
+    await ql.syncSchemas();
     seen = [];
     const anyQl = ql as AnyRec;
     // A thin recorder over the SAME object the runtime registers as `'data'`,
@@ -416,15 +445,9 @@ describe('{TODAY()} through a real ObjectQL + real AutomationEngine', () => {
     // 2. The rows really moved — the query selected, and only the right ones.
     //    `k_today` is the boundary row and `k_future` the control; either one
     //    flipping means the resolved value was not today.
-    // ⛔ No `tenantId` here. From @objectstack/driver-memory 17.4.0 the in-memory
-    // driver REFUSES any call the engine hands a tenant scope
-    // (`MemoryMultiTenantUnsupportedError`, objectstack#16589): it has no
-    // row-level tenant isolation, so answering would read across organizations.
-    // This fixture holds one implicit tenant and measures nothing about tenancy,
-    // so the honest shape is not to ask an unisolating driver to isolate. ⛔ Do
-    // NOT reach for `tenancy: { enabled: false }` instead — the refusal names that
-    // as the wrong answer for data that really is per-organization.
-    const api: AnyRec = ql.createContext({ isSystem: true, userId: 'u1' } as never);
+    // No `tenantId` here: this fixture holds one implicit tenant and measures
+    // nothing about tenancy.
+    const api: AnyRec = ql.createContext({ isSystem: true, tenantId: ORG, userId: 'u1' } as never);
     const rows: AnyRec[] = await api.object('crm_contract').find({ where: {} });
     const byId = Object.fromEntries(rows.map((r) => [r.id, r.status]));
     expect(byId).toEqual({
@@ -446,10 +469,11 @@ describe('{TODAY()} through a real ObjectQL + real AutomationEngine', () => {
     expect(notifications.length).toBe(2);
   });
 
-  it('ANSWER A: every shipped {TODAY()} filter site resolves before the query', async () => {
-    // The census, executed. A new flow that filters on the token is covered the
-    // day it is written — including offset spellings (`{TODAY() - 45}`), which
-    // are a different branch of the template evaluator than the bare call.
+  it('ANSWER A: every shipped computed-date filter site resolves before the query', async () => {
+    // The census, executed. A new flow that filters on a computed date is
+    // covered the day it is written — including offset spellings
+    // (`isoDate(daysAgo(14))`), which call a different function than the bare
+    // `isoDate(today())`.
     expect(CENSUS.length).toBeGreaterThan(0);
 
     for (const site of CENSUS) {
@@ -512,24 +536,33 @@ describe('{TODAY()} through a real ObjectQL + real AutomationEngine', () => {
     expect(JSON.stringify(issued!.where)).toMatch(/\{[^"{}]*\}/);
   });
 
-  it('TEETH: a token NEITHER layer knows fails the run instead of querying', async () => {
-    // The other outcome, and the one `{TODAY()}` would fall into if a future
-    // release dropped it from the template evaluator: unresolved AND not a
-    // known filter token, so `resolveNodeFilter` refuses the node rather than
-    // silently dropping the condition and widening the sweep. The `success:
-    // false` assertion in the census case above is what would catch that — here
-    // it is, catching it.
-    // ⚠️ The refusal MESSAGE changed on the 17.2.0 -> 17.3.0 upgrade; the
-    // refusal itself did not. Through 17.2.0 the node was refused for being
-    // unresolved ("resolved to nothing and were dropped"). Platform 17.3.0
-    // (objectstack#11060) refuses one step earlier and more precisely: the
-    // value-expression evaluator now knows its own closed vocabulary, so an
-    // unknown NAME is named as such instead of being reported as an empty
-    // resolution. What this case guards — `success: false`, and nothing
-    // reaching the query layer — is asserted on both sides of that wording.
-    const { run, issued } = await runProbe({ $lt: '{TOMORROW()}' });
+  it.each([['{TOMORROW()}'], ['{TODAY()}']])(
+    'TEETH: a single-brace flow token in a filter, %s, is refused before any query',
+    async (token) => {
+      // The other outcome. Through 17.x a token NEITHER layer knew
+      // (`{TOMORROW()}`) refused the node at run time (`unknown function`,
+      // 17.3.0's objectstack#11060) and `{TODAY()}` was resolved by the
+      // template pre-pass. 18.0.0-next.0 refuses BOTH one step earlier still:
+      // a single-brace token in a filter operand is the retired template
+      // dialect, so the flow is refused at registration and never runs — which
+      // is what the census case above would meet if a shipped site regressed to
+      // the token. Nothing reaches the query layer either way.
+      const before = seen.length;
+      await expect(runProbe({ $lt: token })).rejects.toThrow(/invalid expression/);
+      expect(seen.slice(before).find((q) => q.object === 't_probe'), 'a refused flow must not reach the query layer').toBeUndefined();
+    },
+  );
+
+  it('TEETH: a date envelope that fails to evaluate fails the run instead of querying', async () => {
+    // The run-time half the registration refusal cannot cover: a well-formed
+    // envelope whose evaluation faults (here, an unbound variable) fails the
+    // run before the query, rather than dropping the condition and widening
+    // the sweep. The `success` assertion in the census case catches exactly
+    // this.
+    const before = seen.length;
+    const run: AnyRec = await runProbe({ $lt: { dialect: 'cel', source: 'isoDate(addDays(today(), offsetDays))' } })
+      .then((probe) => probe.run, (e: unknown) => ({ success: false, error: String(e) }));
     expect(run?.success).toBe(false);
-    expect(String(run?.error)).toMatch(/unknown function 'TOMORROW'|resolved to nothing and were dropped/);
-    expect(issued, 'a refused node must not reach the query layer at all').toBeUndefined();
+    expect(seen.slice(before).find((q) => q.object === 't_probe'), 'a failed operand must not reach the query layer').toBeUndefined();
   });
 });

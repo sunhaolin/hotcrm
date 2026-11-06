@@ -4,16 +4,23 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
-import { CrmTranslations } from '../src/translations';
-import leadHooks from '../src/objects/lead.hook';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import stack from './helpers/composed-stack';
+import { CrmTranslations } from '../src/sales/translations';
+import leadHooks from '../src/sales/objects/lead.hook';
 import {
+  Lead,
   DUPLICATE_OF_TYPE_AUTHORABLE_OPTIONS,
   DUPLICATE_OF_TYPE_ERASED,
-  DUPLICATE_OF_TYPE_OPTIONS,
-} from '../src/objects/_picklists';
+} from '../src/sales/objects/lead.object';
 import { REPO_ROOT } from './helpers/repo-root';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * Soft lead dedupe (#598) — a returning prospect is RECORDED, not rejected.
@@ -38,6 +45,13 @@ import { REPO_ROOT } from './helpers/repo-root';
  */
 
 type AnyRec = Record<string, any>;
+
+/**
+ * The full COLUMN vocabulary — the authorable set plus the tombstone — read off
+ * the field itself, which is where it is declared (#2000 retired the separate
+ * `DUPLICATE_OF_TYPE_OPTIONS` constant: one field owns the list).
+ */
+const DUPLICATE_OF_TYPE_OPTIONS = (Lead.fields.duplicate_of_type.options ?? []) as AnyRec[];
 
 const objects: AnyRec[] = (stack as any).objects ?? [];
 const lead = objects.find((o) => o.name === 'crm_lead') as AnyRec;
@@ -67,19 +81,23 @@ const LEAD_BASE = {
 // ─────────────────────────────────── the engine, with the real schema ──
 
 /**
- * A real ObjectQL over the in-memory driver, carrying `crm_lead` + `crm_contact`
- * exactly as the app declares them.
+ * A real ObjectQL over a real SQLite database, carrying `crm_lead` +
+ * `crm_contact` exactly as the app declares them.
  *
- * The in-memory driver is not a convenience here, it is part of the test: it
- * stores only the columns a row was written with, so a lead created without the
- * duplicate fields comes back WITHOUT those keys. That is the record shape that
- * used to make the validation abort (`No such key`) and be skipped.
+ * A lead created without the duplicate fields comes back with those columns
+ * NULL. The shape that used to make the validation abort (`No such key`) and be
+ * skipped — the keys ABSENT, as `driver-memory` stored them until the #2092
+ * ruling moved every test onto SQL — is swept per predicate in
+ * `object-validation-predicates.test.ts`.
  */
-const makeEngine = () =>
-  ObjectQL.create({
-    datasources: { default: new InMemoryDriver({ persistence: false }) },
+const makeEngine = async () => {
+  const ql = await ObjectQL.create({
+    datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
     objects: { crm_lead: lead, crm_contact: contact } as never,
   });
+  await ql.syncSchemas();
+  return ql;
+};
 
 describe('a repeated email is recorded, not rejected', () => {
   let ql: Awaited<ReturnType<typeof makeEngine>>;
@@ -98,7 +116,7 @@ describe('a repeated email is recorded, not rejected', () => {
   });
 
   it('accepts the same address twice — the acceptance case for the dropped constraint', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const first = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'Ada@Acme.IO' });
     const second = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'ada@acme.io ' });
 
@@ -108,13 +126,13 @@ describe('a repeated email is recorded, not rejected', () => {
   });
 
   it('stores both under one canonical address, whatever the visitor typed', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api.object('crm_lead').insert({ ...LEAD_BASE, email: '  Grace@Hopper.NAVY ' });
     expect(row.email).toBe('grace@hopper.navy');
   });
 
   it('flags and links the second lead to the first', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const first = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'repeat@acme.io' });
     const second = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'REPEAT@acme.io' });
 
@@ -127,7 +145,7 @@ describe('a repeated email is recorded, not rejected', () => {
   });
 
   it('points at the contact when the prospect already became one', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const person = await api.object('crm_contact').insert({
       // `crm_account` is a required master-detail on crm_contact; this engine
       // carries no crm_account, so the id is a stand-in for a real parent.
@@ -151,7 +169,7 @@ describe('disqualifying as a duplicate must name the survivor', () => {
 
   beforeAll(async () => {
     ql = await makeEngine();
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     // Written WITHOUT any duplicate_* column, on purpose — see makeEngine().
     survivor = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'survivor@acme.io' });
     target = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'target@acme.io' });
@@ -162,7 +180,7 @@ describe('disqualifying as a duplicate must name the survivor', () => {
 
   /** Try to close `target` as unqualified with the given duplicate fields. */
   const disqualify = (doc: AnyRec) => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     return api.object('crm_lead').update(
       { id: target.id, status: 'unqualified', disqualification_reason: 'duplicate', ...doc },
       { where: { id: target.id } },
@@ -202,7 +220,7 @@ describe('disqualifying as a duplicate must name the survivor', () => {
       duplicate_of_lead: survivor.id,
       duplicate_status: 'confirmed',
     });
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const saved = await api.object('crm_lead').findOne({ where: { id: target.id } });
     expect(saved?.disqualification_reason).toBe('duplicate');
     expect(saved?.duplicate_of_type).toBe('crm_lead');
@@ -211,7 +229,7 @@ describe('disqualifying as a duplicate must name the survivor', () => {
   });
 
   it('leaves every other disqualification reason alone', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const other = await api.object('crm_lead').insert({ ...LEAD_BASE, email: 'nofit@acme.io' });
     await expect(
       api.object('crm_lead').update(
@@ -222,7 +240,7 @@ describe('disqualifying as a duplicate must name the survivor', () => {
   });
 
   it('rejects the same mistake on INSERT, not only on update', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     await expect(
       api.object('crm_lead').insert({
         ...LEAD_BASE,
@@ -324,10 +342,18 @@ describe('the duplicate link is declarative metadata', () => {
     // The lesson of `cannot_edit_converted` (#575 B1) and `revenue_positive`
     // (#571): two implementations of one rule, one of them dead and free to
     // drift. The hook may WRITE a suspicion; it may not adjudicate one.
-    const hookSource = readFileSync(join(REPO_ROOT, 'src/objects/lead.hook.ts'), 'utf8')
+    const uncommented = readFileSync(join(REPO_ROOT, 'src/sales/objects/lead.hook.ts'), 'utf8')
       .split('\n')
       .map((line) => (/^\s*(\/\/|\*|\/\*)/.test(line) ? '' : line))
       .join('\n');
+    // The converted-lead lock names every field it holds by its label (#2338
+    // item 14), this one included; a label is not an adjudication. Exactly that
+    // one named table is left out of the scan — a `{…}` with no nested brace —
+    // so the strip cannot widen to code that reads the field.
+    const LABEL_TABLE = /const FIELD_LABELS: Record<string, string> = \{[^{}]*\};/g;
+    expect(uncommented.match(LABEL_TABLE), 'the label table, exactly once').toHaveLength(1);
+    const hookSource = uncommented.replace(LABEL_TABLE, '');
+    expect(hookSource, 'the scan still reads the lock').toContain('Cannot change ${named}');
     expect(hookSource).not.toContain('disqualification_reason');
     expect(hookSource).not.toMatch(/throw new Error\([^)]*duplicate/i);
   });
@@ -349,8 +375,9 @@ describe('the predicates are TOTAL — they return a verdict for every record sh
    * The unguarded first draft of these rules therefore let a lead be closed as
    * a duplicate with no survivor named — silently, and only on update. The
    * `has(...)` guards are what make the predicate answer instead of abort;
-   * the engine test above is the proof they work, and this is the reminder of
-   * why they cannot be "simplified" away.
+   * the no-keys sweep in `object-validation-predicates.test.ts` is the proof
+   * they work, and this is the reminder of why they cannot be "simplified"
+   * away.
    */
   it('guards every field reference in the disqualification rule', () => {
     const source = celSource(rule?.condition);
@@ -512,12 +539,12 @@ describe('the erased tombstone is unauthorable, and has exactly one writer', () 
     // silent route this pin exists to refuse.
     expect(hits, `expected 2 occurrences, got:\n${hits.join('\n')}`).toHaveLength(2);
     expect(hits.map((h) => h.split(':')[0]).sort()).toEqual([
-      'src/objects/_picklists.ts',
-      'src/objects/lead.hook.ts',
+      'src/sales/objects/lead.hook.ts',
+      'src/sales/objects/lead.object.ts',
     ]);
     // The hook's one occurrence STAMPS the value; it is not a comparison that
     // happens to mention it.
-    const stamp = hits.find((h) => h.startsWith('src/objects/lead.hook.ts'))!;
+    const stamp = hits.find((h) => h.startsWith('src/sales/objects/lead.hook.ts'))!;
     expect(stamp).toContain(`duplicate_of_type = '${DUPLICATE_OF_TYPE_ERASED}'`);
   });
 
@@ -527,7 +554,7 @@ describe('the erased tombstone is unauthorable, and has exactly one writer', () 
     // at authoring time and arrives as `undefined` (see the SLA matrix note in
     // `case.hook.ts`). Two spellings is the platform's constraint, not a
     // shortcut — so they are pinned together instead.
-    const hookSource = readFileSync(join(REPO_ROOT, 'src/objects/lead.hook.ts'), 'utf8');
+    const hookSource = readFileSync(join(REPO_ROOT, 'src/sales/objects/lead.hook.ts'), 'utf8');
     expect(hookSource).toContain(`input.duplicate_of_type = '${DUPLICATE_OF_TYPE_ERASED}';`);
     expect(DUPLICATE_OF_TYPE_OPTIONS.map((o) => o.value)).toContain(DUPLICATE_OF_TYPE_ERASED);
   });

@@ -4,14 +4,15 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import { CrmApp } from '../src/apps/crm.app';
-import { ServiceDashboard } from '../src/dashboards/service.dashboard';
-import { CaseDataset } from '../src/datasets/case.dataset';
+import { servedApp } from './helpers/composed-stack';
+import { CrmApp } from '../src/sales/apps/crm.app';
+import { ServiceDashboard } from '../src/service/dashboards/service.dashboard';
+import { CaseDataset } from '../src/service/datasets/case.dataset';
 import {
   CasesByStatusPriorityReport,
   CasesOpenedByDayPriorityReport,
   SlaPerformanceReport,
-} from '../src/reports/case.report';
+} from '../src/service/reports/case.report';
 
 /**
  * The service index page's "Standard dashboards & reports" section, pinned to
@@ -65,7 +66,9 @@ type AnyRec = Record<string, any>;
 const NAV_LABEL: string = (() => {
   const walk = (nodes: AnyRec[]): AnyRec[] =>
     nodes.flatMap((n) => [n, ...walk((n.children ?? []) as AnyRec[])]);
-  const item = walk(((CrmApp as AnyRec).navigation ?? []) as AnyRec[]).find(
+  // The SERVED navigation: `nav_service_dashboard` reaches the app through the
+  // service module's `navigationContributions`, folded in as the console does.
+  const item = walk((servedApp((CrmApp as AnyRec).name).navigation ?? []) as AnyRec[]).find(
     (n) => n.dashboardName === ServiceDashboard.name,
   );
   if (!item?.label) throw new Error('no navigation item binds service_dashboard — pin out of date');
@@ -191,9 +194,9 @@ describe('service/index names the dashboard and reports that exist (#948)', () =
     it('does not resurrect the claims #948 removed', () => {
       const text = section();
       expect(retired.filter((phrase) => text.includes(phrase))).toEqual([]);
-      // `SLA Performance` alone is the retired short name; the report is
-      // `SLA Performance Report`.
-      expect(text).not.toMatch(/SLA Performance(?!\s+Report)/);
+      // `SLA Performance` is a retired name; the report is `SLA on Closed
+      // Cases`, which states its base (#2370).
+      expect(text).not.toMatch(/SLA Performance/);
     });
 
     it('states why an agent ranking cannot be built, not merely that it is absent', () => {
@@ -255,7 +258,7 @@ describe('the source facts those four bullets now rest on (#948)', () => {
 
   it('the daily-inflow report puts priority in the rows and the day in the columns', () => {
     expect(CasesOpenedByDayPriorityReport.rows).toEqual(['priority']);
-    expect(CasesOpenedByDayPriorityReport.columns).toEqual(['created_date']);
-    expect(CasesOpenedByDayPriorityReport.label).toBe('Cases Opened by Priority × Day');
+    expect(CasesOpenedByDayPriorityReport.columns).toEqual(['created_at']);
+    expect(CasesOpenedByDayPriorityReport.label).toBe('Cases Opened by Day');
   });
 });

@@ -2,10 +2,16 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL, applySystemFields } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
 import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
-import stack from '../objectstack.config';
-import { quotes } from '../src/data/revenue.seed';
+import stack from './helpers/composed-stack';
+import { quotes } from '../src/revenue/data/revenue.seed';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * A quote may not be PRESENTED without a recipient (#1017, from #714 / PR #1013).
@@ -17,7 +23,8 @@ import { quotes } from '../src/data/revenue.seed';
  * `crm_contract.crm_contact` is `required` + `notNull`, so a contact-less quote
  * that reached `accepted` could never draft its contract. Since #1013 that
  * failure is honest (`Primary Contact is required`, and it no longer swallows
- * the close-won leg) — but `quote_on_accepted` is `async: true` +
+ * the close-won leg) — but the draft (`quote_accepted_contract_draft` since
+ * #2014) is `async: true` +
  * `onError: 'log'`, so the accepting write still answers 200 and the refusal
  * lands in a server log with no human in front of it.
  *
@@ -33,10 +40,12 @@ import { quotes } from '../src/data/revenue.seed';
  * `win-loss-capture.test.ts`), and `requiredWhen` has its own version of that
  * failure — a predicate that cannot evaluate is SKIPPED with a warning, so an
  * unguarded `record.status == "presented"` would read as enforced and require
- * nothing. So the refusal is driven through a real ObjectQL on both driver
- * shapes: `InMemoryDriver`, whose stored rows OMIT unwritten columns (the shape
- * that makes an unguarded predicate abort), and a real SQLite database, whose
- * rows are column-complete with NULLs.
+ * nothing. So the refusal is driven through a real ObjectQL over a real
+ * SQLite database, whose rows are column-complete with NULLs — the shape a
+ * deployed install stores. The absent-key shape (a sparse datasource such as
+ * `driver-mongodb`) is held per predicate by the totality sweep in
+ * `object-validation-predicates.test.ts`, which evaluates every rule against a
+ * record with no keys at all.
  *
  * Each refusal is asserted by its SUBSTANCE, not by "it threw": the envelope's
  * `code` (`VALIDATION_FAILED`, which `@objectstack/runtime`'s
@@ -100,9 +109,12 @@ const expectContactRequired = (env: ReturnType<typeof envelope>) => {
 // ─────────────────────────────────────────── the declared shape of the gate ──
 
 describe('the gate is declared where the platform can act on it', () => {
-  it('requires the contact exactly from `presented` onward', () => {
+  it('requires the contact on the write INTO `presented` or `accepted`, and while `presented`', () => {
+    // A gate, not an invariant (#2161, ruling A): an ALREADY-accepted quote is
+    // past it, so the engine's referential clear can free a deleted contact
+    // (#720). `test/accepted-quote-frees-contact.test.ts` drives both halves.
     expect(celSource(quote.fields.crm_contact.requiredWhen)).toBe(
-      'has(record.status) && (record.status == "presented" || record.status == "accepted")',
+      'has(record.status) && (record.status == "presented" || (record.status == "accepted" && (previous == null || !has(previous.status) || previous.status != "accepted")))',
     );
   });
 
@@ -146,7 +158,7 @@ describe('the gate is declared where the platform can act on it', () => {
   });
 });
 
-// ──────────────────────────── enforcement, on a driver with SPARSE records ──
+// ──────────────────────────────────────── enforcement, on a real engine ──
 
 const DRAFT = {
   name: 'Gate Probe',
@@ -157,34 +169,25 @@ const DRAFT = {
   total_price: 1234,
 };
 
-describe('the write is REFUSED, not warned about (in-memory driver)', () => {
+describe('the write is REFUSED, not warned about', () => {
   let ql: AnyRec;
 
   beforeAll(async () => {
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: { crm_quote: quote } as never,
     })) as never;
+    await ql.syncSchemas();
   });
   afterAll(async () => {
     await ql?.close();
   });
 
   const newDraft = async (name = 'Gate Probe') => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api.object('crm_quote').insert({ ...DRAFT, name });
     return { api, row };
   };
-
-  it('stores no key for a column it was never given — the precondition', async () => {
-    const { api, row } = await newDraft('Sparse Precondition');
-    const stored = await api.object('crm_quote').findOne({ where: { id: row.id } });
-    // Not `toBeNull()`: the key is ABSENT. That is the record shape that makes
-    // an unguarded predicate abort, and the reason this driver is the one the
-    // enforcement tests run on.
-    expect('crm_contact' in (stored ?? {})).toBe(false);
-    expect(stored?.status).toBe('draft');
-  });
 
   it('refuses to PRESENT a quote with no contact, and the quote stays draft', async () => {
     const { api, row } = await newDraft('No Recipient');
@@ -213,7 +216,7 @@ describe('the write is REFUSED, not warned about (in-memory driver)', () => {
     // The path a data import, a seed file or an AI-authored write takes. On
     // insert the engine fills absent fields with null rather than omitting
     // them, so this exercises a different branch of the same rule.
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const env = await refusal(() =>
       api.object('crm_quote').insert({ ...DRAFT, name: 'Born Presented', status: 'presented' }),
     );
@@ -223,7 +226,7 @@ describe('the write is REFUSED, not warned about (in-memory driver)', () => {
   it('refuses to blank the contact out of a quote that is already presented', async () => {
     // Otherwise the contract would hold for exactly one write: present with a
     // contact, then clear it.
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api
       .object('crm_quote')
       .insert({ ...DRAFT, name: 'Recipient Eraser', crm_contact: 'con_stub', status: 'presented' });
@@ -238,7 +241,7 @@ describe('the write is REFUSED, not warned about (in-memory driver)', () => {
   // ── the positive cases: the gate must not fire on anything else ──
 
   it('presents a quote that HAS a contact', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api
       .object('crm_quote')
       .insert({ ...DRAFT, name: 'Proper Quote', crm_contact: 'con_stub' });
@@ -280,7 +283,7 @@ describe('the write is REFUSED, not warned about (in-memory driver)', () => {
     // The merged shape of an already-presented quote carries `presented`, so
     // the predicate is live on EVERY later write to that record — it must be
     // satisfied by the contact the record already has, not re-demanded.
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api
       .object('crm_quote')
       .insert({ ...DRAFT, name: 'Presented Then Edited', crm_contact: 'con_stub', status: 'presented' });
@@ -294,9 +297,10 @@ describe('the write is REFUSED, not warned about (in-memory driver)', () => {
 // ────────────────────── the same contract on a real SQL database ──────────
 
 describe('the write is REFUSED on a real SQLite database too', () => {
-  // The in-memory driver hands back sparse records; a SQL driver hands back a
-  // full row with NULLs. Those are different inputs to the same predicate, and
-  // "which driver is underneath" is not something a marketplace app chooses.
+  // The column-complete precondition, pinned: a SQL driver hands back a full
+  // row with NULLs, and the predicate must refuse on that shape. (Its sparse
+  // twin ran on `driver-memory` until the #2092 ruling moved every test onto
+  // SQL; the no-keys shape is swept in `object-validation-predicates.test.ts`.)
   let ql: AnyRec;
 
   beforeAll(async () => {
@@ -322,12 +326,11 @@ describe('the write is REFUSED on a real SQLite database too', () => {
   });
 
   it('refuses the presentation and leaves the row where it was', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api.object('crm_quote').insert({ ...DRAFT, name: 'SQL Probe' });
 
     const stored = await api.object('crm_quote').findOne({ where: { id: row.id } });
-    // The opposite precondition to the in-memory suite: here the key IS
-    // present and null. Both shapes must reach the same verdict.
+    // The column-complete shape: the key IS present, and null.
     expect('crm_contact' in (stored ?? {})).toBe(true);
     expect(stored?.crm_contact ?? null).toBeNull();
 
@@ -341,7 +344,7 @@ describe('the write is REFUSED on a real SQLite database too', () => {
   });
 
   it('presents the quote once the contact is on it', async () => {
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const row = await api
       .object('crm_quote')
       .insert({ ...DRAFT, name: 'SQL Probe 2', crm_contact: 'con_stub' });
@@ -367,7 +370,7 @@ describe('a row that was ALREADY presented when the rule landed', () => {
    * So a pre-existing `presented`-without-contact quote is NOT bricked — it
    * reads, and ordinary edits still land. The cost of that is the last case
    * here: such a row can still be walked on to `accepted`, where it meets the
-   * pre-#1017 behaviour (`quote_on_accepted` cannot draft the contract, and
+   * pre-#1017 behaviour (`quote_accepted_contract_draft` cannot draft the contract, and
    * says so in the log). This repo ships no such row — `the stock data clears
    * the new gate` below enumerates the seeds — so the residue is empty here;
    * it is pinned so that the boundary is a recorded measurement rather than
@@ -381,13 +384,14 @@ describe('a row that was ALREADY presented when the rule landed', () => {
 
   /** A store holding one contact-less `presented` quote, then re-opened gated. */
   const legacyRow = async () => {
-    const driver = new InMemoryDriver({ persistence: false });
+    const driver = new SqliteWasmDriver({ filename: ':memory:' });
     const before: AnyRec = (await ObjectQL.create({
       datasources: { default: driver },
       objects: { crm_quote: ungated() } as never,
     })) as never;
+    await before.syncSchemas();
     const row = await before
-      .createContext({ isSystem: true })
+      .createContext({ isSystem: true, tenantId: ORG })
       .object('crm_quote')
       .insert({ ...DRAFT, name: 'Legacy Presented', status: 'presented' });
 
@@ -395,7 +399,8 @@ describe('a row that was ALREADY presented when the rule landed', () => {
       datasources: { default: driver },
       objects: { crm_quote: quote } as never,
     })) as never;
-    return { ql: after, api: after.createContext({ isSystem: true }), row };
+    await after.syncSchemas();
+    return { ql: after, api: after.createContext({ isSystem: true, tenantId: ORG }), row };
   };
 
   it('is still readable and still editable — the gate breaks no stock row', async () => {
@@ -438,8 +443,9 @@ describe('a row that was ALREADY presented when the rule landed', () => {
 
 describe('the stock data clears the new gate', () => {
   // The gate applies ON WRITE, so it cannot retroactively break rows that are
-  // already stored — but seeds run in `upsert` mode on every boot, which IS a
-  // write. A seeded quote at `presented`/`accepted` with no `crm_contact` would
+  // already stored — but a seed row is written on the boot that inserts it
+  // (every fresh install, every `pnpm demo:reset`), which IS a write. A
+  // seeded quote at `presented`/`accepted` with no `crm_contact` would
   // therefore fail the seed load, not merely sit there. This asserts the
   // enumeration reported on #1017 rather than trusting it: all five seeded
   // quotes carry a contact, so none of them is gated.

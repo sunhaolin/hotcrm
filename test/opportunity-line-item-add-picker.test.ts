@@ -2,10 +2,20 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ObjectQL, bindHooksToEngine } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
-import stack from '../objectstack.config';
-import { products } from '../src/data/catalog.seed';
-import { type AnyRec, objects, pages, walk } from './helpers/metadata-fixtures';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
+import stack, { type AnyRec, walk } from './helpers/composed-stack';
+import { products } from '../src/revenue/data/catalog.seed';
+import { registerStackPicklists } from './helpers/stack-picklists';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
+
+const objects: AnyRec[] = (stack as AnyRec).objects ?? [];
+const pages: AnyRec[] = (stack as AnyRec).pages ?? [];
 
 /**
  * The opportunity Products panel offers a route to add a line item (#1731).
@@ -34,7 +44,9 @@ import { type AnyRec, objects, pages, walk } from './helpers/metadata-fixtures';
  *     { [relationshipField]: <opportunityId>, [linkField]: <pickedProductId> }
  *
  * On this object that leaves `quantity` and `unit_price` unset, and both are
- * `required` + `storage.notNull`. A picker that produced a row the engine
+ * `storage.notNull` (`quantity` is also `required`; `unit_price` stopped being
+ * `required` in #2060 item 7, because the hook below is its producer). A
+ * picker that produced a row the engine
  * refuses — or worse, a row with no quantity and no price, which prices the
  * deal at nothing — would mean "A needs more than a picker". It does not, and
  * the reason is machinery that predates this list:
@@ -50,9 +62,9 @@ import { type AnyRec, objects, pages, walk } from './helpers/metadata-fixtures';
  * write, which is why the end-to-end block below measures the real insert on a
  * real engine rather than asserting the page's shape and calling it done. The
  * ABLATION is the other half: unbind the price-fill hook and the same insert is
- * rejected as "Sales Price is required". Without it, a future change that
- * silently made `unit_price` optional would leave this suite green while the
- * picker started writing priceless lines into the billing hand-off.
+ * refused by the `unit_price` NOT NULL column. Without it, a future change that
+ * silently dropped that column constraint would leave this suite green while
+ * the picker started writing priceless lines into the billing hand-off.
  */
 
 const byName = (n: string) => objects.find((o) => o.name === n) as AnyRec;
@@ -99,11 +111,12 @@ describe('the Products related list authors an add picker', () => {
     // literal is the tempting "clarification" that would fork it.
     expect(add.picker.valueField).toBeUndefined();
     expect(add.picker.labelField).toBeUndefined();
-    expect(PRODUCT.nameField).toBe('display_title');
-    // That title is a FORMULA, so the picker's own search reaches it only
-    // through explicit `searchableFields`. The product object already declares
-    // them; dropping them would make the picker search return zero.
-    expect(PRODUCT.searchableFields).toContain('name');
+    expect(PRODUCT.nameField).toBe('name');
+    // The title is the name alone (#2369 row 10); the picker's search reaches
+    // the code too through explicit `searchableFields`, and the code shows under
+    // each row because it leads `highlightFields`.
+    expect(PRODUCT.searchableFields).toEqual(expect.arrayContaining(['name', 'product_code']));
+    expect(PRODUCT.highlightFields?.[0]).toBe('product_code');
   });
 
   it('offers active products only, and that narrowing does not empty the catalog', () => {
@@ -144,7 +157,7 @@ describe('the row a picker-shaped insert actually produces', () => {
 
   const boot = async (withHooks: boolean) => {
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_opportunity_line_item: LINE_ITEM,
         crm_opportunity: byName('crm_opportunity'),
@@ -152,6 +165,8 @@ describe('the row a picker-shaped insert actually produces', () => {
         crm_product: PRODUCT,
       } as never,
     })) as never;
+    registerStackPicklists(ql);
+    await ql.syncSchemas();
     if (withHooks) {
       const hooks: AnyRec[] = (stack as never as AnyRec).hooks ?? [];
       bindHooksToEngine(
@@ -159,7 +174,7 @@ describe('the row a picker-shaped insert actually produces', () => {
         hooks.filter((h) => h.object === 'crm_opportunity_line_item') as never,
       );
     }
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const account = await api.object('crm_account').insert({
       name: 'Northwind', type: 'customer', industry: 'technology',
     });
@@ -218,10 +233,16 @@ describe('the row a picker-shaped insert actually produces', () => {
   });
 
   it('ABLATION: without the price-fill hook the same insert is refused', async () => {
-    // The negative control. `unit_price` is `required` + NOT NULL and the picker
+    // The negative control. `unit_price` is a NOT NULL column and the picker
     // authors no price, so the ONLY reason the assertions above can pass is the
     // `beforeInsert` hook. Unbind it and the insert must fail — otherwise those
     // assertions would keep passing on a day the hook stopped running.
+    //
+    // The refusal is the COLUMN's: since #2060 item 7 the field is not
+    // `required`, so no engine check runs first. Since @objectstack 18.2.0
+    // (objectstack#26026) the column's NOT NULL refusal reaches every door as
+    // the record validator's ValidationError naming the field, not the
+    // driver's SQLite text, so it is asserted by envelope and field.
     const { api, product, opportunity } = await boot(false);
 
     await expect(
@@ -229,6 +250,10 @@ describe('the row a picker-shaped insert actually produces', () => {
         crm_opportunity: opportunity.id,
         crm_product: product.id,
       }),
-    ).rejects.toThrow(/Sales Price is required/);
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      fields: expect.arrayContaining([expect.objectContaining({ field: 'unit_price' })]),
+    });
+    expect(await api.object('crm_opportunity_line_item').find({ where: { crm_opportunity: opportunity.id } })).toHaveLength(0);
   });
 });

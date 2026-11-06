@@ -1,90 +1,119 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
-import { makeFlowHarness, type FlowHarness, type Rec } from './helpers/flow-harness';
-import { QuoteGenerationFlow } from '../src/flows/quote-generation.flow';
+import { describe, it, expect, beforeAll } from 'vitest';
+import type { VerifyStack } from '@objectstack/verify';
+import { hotcrmStack, signUpPerson, systemUpdate, type Person } from './helpers/verify-stack';
+
+type Rec = Record<string, any>;
 
 /**
- * quote_generation flow runtime harness — runs the REAL automation engine
- * against the SHARED in-memory data engine in `test/helpers/flow-harness.ts`
- * (same recipe as flow-conversion.test.ts).
+ * quote_generation at runtime — the shipped app booted through
+ * `@objectstack/verify`'s handle, a sales rep starting the screen flow on
+ * their own opportunity (`flows.run`) and submitting its screen
+ * (`flows.resume`), the quote and the opportunity read back off the engine.
  *
  * Guards the P0 CPQ fix: the flow's `recordId` input contract, the priced
- * create_quote (subtotal / discount_amount / total from the opportunity), the
- * account/contact carry-over, the stage → proposal advance, and that a
+ * quote (the opportunity's amount as subtotal, and the discount_amount / total
+ * that `quote_workflow` derives inside that same insert, #2110), the
+ * account/contact carry-over, the stage → proposal advance, that a
  * contact-LESS opportunity can still draft a quote (crm_quote.crm_contact was
- * relaxed to optional).
+ * relaxed to optional), that a deal awaiting approval gets its quote and
+ * keeps its stage (#2015), and that a deal not yet 立项-approved is refused
+ * before anything is written (#2032).
  *
- * The private data engine this file used to carry is gone (#1479): it matched
- * with `===` only, so any range operator selected nothing silently, and it
- * stored only the columns a row was written with rather than the declared shape
- * the shipped app's driver returns.
  */
 
-const makeQuote = (seed: Record<string, Rec[]>): FlowHarness =>
-  makeFlowHarness({ quote_generation: QuoteGenerationFlow }, seed);
+let verify: VerifyStack;
+let rep: Person;
+let k = 0;
+beforeAll(async () => {
+  verify = await hotcrmStack();
+  rep = await signUpPerson(verify, 'rep@flow-quote.test', {
+    name: 'Quote Rep', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+  });
+}, 120_000);
 
-async function runQuote(h: FlowHarness, oppId: string, screen: Rec) {
-  const runId = await h.run('quote_generation', { recordId: oppId });
-  await h.resume(runId!, screen);
+/**
+ * The rep's own opportunity, on their own account (and contact, unless
+ * `primary_contact: null`), as it stands when its quote is drafted.
+ *
+ * The deal itself is written as the system, owned by the rep: a deal of
+ * $100K or more is put under `opportunity_approval_on_create` when a rep
+ * creates it, and LOCKED until a manager decides. The pricing this file pins is
+ * the same either side of an approval, so the deal is the one a quote is
+ * drafted on: no approval pending. A deal under approval has its own block
+ * below (#2015).
+ */
+async function opportunity(opp: Rec): Promise<Rec> {
+  const n = ++k;
+  const create = (object: string, doc: Rec) => verify.hooks.run(object, 'insert', doc, { as: rep.token });
+  const account = await create('crm_account', { name: `Quote Co ${n}` });
+  const contact = opp.primary_contact === null ? null : await create('crm_contact', {
+    first_name: 'Quinn', last_name: `Buyer ${n}`, email: `quinn${n}@flow-quote.test`, crm_account: account.id,
+  });
+  const [deal] = await verify.seed('crm_opportunity', [{
+    stage: 'qualification', close_date: '2030-06-30', ...opp,
+    crm_account: account.id, primary_contact: contact?.id ?? null, owner_id: rep.id,
+  }]);
+  return deal!;
+}
+
+/** Start the screen flow on `oppId`, submit `screen`, and return the quote it drafted. */
+async function runQuote(oppId: string, screen: Rec): Promise<Rec[]> {
+  const run = await verify.flows.run('quote_generation', { recordId: oppId }, { as: rep.token });
+  await verify.flows.resume(run, screen, { as: rep.token });
+  return verify.rows('crm_quote', { crm_opportunity: oppId });
 }
 
 describe('quote_generation flow — runtime', () => {
   it('prices the quote from the opportunity and advances the stage to proposal', async () => {
-    const h = makeQuote({
-      crm_opportunity: [{
-        id: 'opp_1', name: 'Globex Deal', amount: 200000,
-        crm_account: 'acc_1', primary_contact: 'con_1', stage: 'qualification',
-      }],
-    });
-    await runQuote(h, 'opp_1', { quoteName: 'Q-1', expirationDays: 30, discount: 10 });
+    const opp = await opportunity({ name: 'Globex Deal', amount: 200000 });
+    const quotes = await runQuote(opp.id, { quoteName: 'Q-1', expirationDays: 30, discount: 10 });
 
-    expect(h.store.crm_quote?.length, 'one quote created').toBe(1);
-    const q = h.store.crm_quote[0];
+    expect(quotes.length, 'one quote created').toBe(1);
+    const q = quotes[0]!;
     expect(q.name).toBe('Q-1');
-    expect(q.crm_opportunity).toBe('opp_1');
-    expect(q.crm_account).toBe('acc_1');
-    expect(q.crm_contact).toBe('con_1');
+    expect(q.crm_opportunity).toBe(opp.id);
+    expect(q.crm_account).toBe(opp.crm_account);
+    expect(q.crm_contact).toBe(opp.primary_contact);
     expect(q.status).toBe('draft');
     // Pricing: subtotal = amount; 10% off → discount_amount 20000, total 180000.
     expect(q.subtotal).toBe(200000);
     expect(q.discount_amount).toBe(20000);
     expect(q.total_price).toBe(180000);
     // Opportunity advanced.
-    expect(h.store.crm_opportunity[0].stage).toBe('proposal');
+    expect((await verify.rows('crm_opportunity', { id: opp.id }))[0]!.stage).toBe('proposal');
   });
 
   /**
-   * Regression pin for #1206 — the money fields carry the FIELD'S SCALE, not a
-   * raw IEEE-754 product.
+   * Regression pin for #1206 — the money fields carry whole cents, not a raw
+   * IEEE-754 product.
    *
-   * ⛔ This pin asserts the VALUE, and it has to. The harness's in-memory data
-   * engine does not enforce field scale, so a pin that merely asserted "the run
-   * did not fail" would be green both before and after the fix and would pin
-   * nothing at all. Against the real driver the pre-fix value is what the
-   * insert was REJECTED for — `Total Price must have at most 2 decimal places
-   * (got 11)` — and the rejection never reached the seller, so the value here
-   * is the only evidence the fix works.
+   * ⛔ This pin asserts the VALUE, and it has to. The engine enforces no decimal
+   * places on these fields today, so a pin that merely asserted "the run did
+   * not fail" would be green both before and after the fix and would pin
+   * nothing at all. When #1206 was filed the real driver REJECTED the pre-fix
+   * value — `Total Price must have at most 2 decimal places (got 11)`, from the
+   * fields' since-retired `scale: 2` — and the rejection never reached the
+   * seller. Currency fields declare no `scale` now (#1965), so the real driver
+   * accepts that value and stores its tail; either way the value here is the
+   * only evidence the rounding works.
    *
-   * Both discounts are the issue's own measurements on a 180,000 opportunity,
-   * and between them they cover both edited expressions: at 30% only
-   * `total_price` is inexact (125999.99999999999), at 70% the tail moves to
-   * `discount_amount` (125999.99999999999) and `total_price` becomes
-   * 54000.00000000001. A discount whose hundredth is a dyadic rational — the
+   * Both discounts are measured on a 180,000 opportunity, and between them they
+   * cover both figures: at 30% (the issue's own measurement) only
+   * `total_price` is inexact (125999.99999999999); at 34% both are
+   * (61200.00000000001 and 118799.99999999999). The issue's second measurement,
+   * 70%, is above the 60% ceiling `crm_quote` enforces, so no real quote can
+   * carry it. A discount whose hundredth is a dyadic rational — the
    * 10% and 0% the two cases above use — is exact either way and cannot catch
    * this.
    */
-  it('rounds discount_amount and total_price to the fields\' 2-decimal scale (#1206)', async () => {
+  it('rounds discount_amount and total_price to whole cents (#1206)', async () => {
     const at = async (discount: number) => {
-      const h = makeQuote({
-        crm_opportunity: [{
-          id: 'opp_3', name: 'Initech Deal', amount: 180000,
-          crm_account: 'acc_3', primary_contact: 'con_3', stage: 'qualification',
-        }],
-      });
-      await runQuote(h, 'opp_3', { quoteName: `Q-${discount}`, expirationDays: 30, discount });
-      expect(h.store.crm_quote?.length, `quote created at ${discount}%`).toBe(1);
-      return h.store.crm_quote[0];
+      const opp = await opportunity({ name: 'Initech Deal', amount: 180000 });
+      const quotes = await runQuote(opp.id, { quoteName: `Q-${discount}`, expirationDays: 30, discount });
+      expect(quotes.length, `quote created at ${discount}%`).toBe(1);
+      return quotes[0]!;
     };
 
     // 180000 * (1 - 30/100) === 125999.99999999999 before the fix.
@@ -93,28 +122,294 @@ describe('quote_generation flow — runtime', () => {
     expect(q30.discount_amount).toBe(54000);
     expect(q30.total_price).toBe(126000);
 
-    // 180000 * (70/100) === 125999.99999999999 and 180000 * (1 - 70/100)
-    // === 54000.00000000001 before the fix — both fields, one run.
-    const q70 = await at(70);
-    expect(q70.subtotal).toBe(180000);
-    expect(q70.discount_amount).toBe(126000);
-    expect(q70.total_price).toBe(54000);
+    // Both fields, one run. The issue measured this at 70%, which a real quote
+    // cannot carry: `crm_quote` refuses a discount above 60% ("Discount cannot
+    // exceed 60%"). 34% is the legal discount with the same property —
+    // 180000 * (34/100) === 61200.00000000001 and 180000 * (1 - 34/100)
+    // === 118799.99999999999 before the fix.
+    const q34 = await at(34);
+    expect(q34.subtotal).toBe(180000);
+    expect(q34.discount_amount).toBe(61200);
+    expect(q34.total_price).toBe(118800);
   });
 
   it('drafts a quote even for a contact-less opportunity (crm_contact optional)', async () => {
-    const h = makeQuote({
-      crm_opportunity: [{
-        id: 'opp_2', name: 'No-Contact Deal', amount: 50000,
-        crm_account: 'acc_2', primary_contact: null, stage: 'qualification',
-      }],
-    });
-    await runQuote(h, 'opp_2', { quoteName: 'Q-2', expirationDays: 15, discount: 0 });
+    const opp = await opportunity({ name: 'No-Contact Deal', amount: 50000, primary_contact: null });
+    const quotes = await runQuote(opp.id, { quoteName: 'Q-2', expirationDays: 15, discount: 0 });
 
-    expect(h.store.crm_quote?.length, 'quote still created without a contact').toBe(1);
-    const q = h.store.crm_quote[0];
-    expect(q.crm_account).toBe('acc_2');
+    expect(quotes.length, 'quote still created without a contact').toBe(1);
+    const q = quotes[0]!;
+    expect(q.crm_account).toBe(opp.crm_account);
     expect(q.subtotal).toBe(50000);
     expect(q.total_price).toBe(50000); // 0% discount
     expect(q.crm_contact == null, 'contact left empty').toBe(true);
+  });
+});
+
+/**
+ * #2015 — a quote on a deal AWAITING APPROVAL. The rep creates a $200K deal
+ * themselves, so `opportunity_approval_on_create` opens the manager review and
+ * the approval node locks the deal (`lockRecord: true`) until it is decided.
+ *
+ * Measured before the fix on 17.7.0: the resume answered `FLOW_FAILED` 400
+ * (`RECORD_LOCKED` at `update_opportunity`) — the rep was told generating the
+ * quote failed — while `create_quote` had already landed, so the quote stayed
+ * behind. The flow now keeps the stage of a deal under review, as it does for a
+ * deal already at proposal: the rep gets the quote, the deal keeps its stage,
+ * and the approval still holds it.
+ */
+describe('quote_generation flow — a deal awaiting approval (#2015)', () => {
+  it('drafts the quote and keeps the stage of a deal locked by its approval', async () => {
+    const n = ++k;
+    const as = { as: rep.token };
+    const account = await verify.hooks.run('crm_account', 'insert', { name: `Locked Co ${n}` }, as);
+    const contact = await verify.hooks.run('crm_contact', 'insert', {
+      first_name: 'Lena', last_name: `Locked ${n}`, email: `lena${n}@flow-quote.test`, crm_account: account.id,
+    }, as);
+    const deal = await verify.hooks.run('crm_opportunity', 'insert', {
+      name: `Locked Deal ${n}`, amount: 200000, stage: 'qualification', close_date: '2030-06-30',
+      crm_account: account.id, primary_contact: contact.id,
+    }, as);
+    const [before] = await verify.rows('crm_opportunity', { id: deal.id });
+    expect(before!.approval_status, 'fixture: the rep-created deal is under approval').toBe('pending');
+
+    const run = await verify.flows.run('quote_generation', { recordId: deal.id }, as);
+    const done = await verify.flows.resume(run, { quoteName: 'Q-LOCKED', expirationDays: 30, discount: 10 }, as);
+    expect(done.success, 'the rep is told the quote was generated').toBe(true);
+
+    const quotes = await verify.rows('crm_quote', { crm_opportunity: deal.id });
+    expect(quotes.length, 'exactly one quote').toBe(1);
+    expect(quotes[0]!.total_price).toBe(180000);
+
+    const [after] = await verify.rows('crm_opportunity', { id: deal.id });
+    expect(after!.stage, 'a deal under review keeps its stage').toBe('qualification');
+    expect(after!.approval_status, 'the approval still holds the deal').toBe('pending');
+  });
+
+  it('still advances a deal whose approval has been decided', async () => {
+    const opp = await opportunity({ name: 'Approved Deal', amount: 200000, approval_status: 'approved' });
+    expect(opp.approval_status, 'fixture: the approval is decided').toBe('approved');
+    const quotes = await runQuote(opp.id, { quoteName: 'Q-APPROVED', expirationDays: 30, discount: 0 });
+
+    expect(quotes.length, 'one quote created').toBe(1);
+    expect((await verify.rows('crm_opportunity', { id: opp.id }))[0]!.stage).toBe('proposal');
+  });
+});
+
+/**
+ * #2032 — the 立项 (qualification) gate, REQ-0006 step 11. Ruled (hotcrm-R74b
+ * item 2, B): before 立项 is approved, Generate Quote refuses and creates
+ * nothing.
+ *
+ * The gate ships OFF: `crm_opportunity.qualification_approval_status` defaults
+ * to `not_required`, and an install arms it by changing that default to
+ * `pending`, so each new deal is born pending. The deals below carry the
+ * verdict from the moment they are written — as the system, because the
+ * column is `readonly` — which is the row an armed install produces.
+ *
+ * Measured before the fix on 17.7.0, with the default flipped to `pending` and
+ * the deal created by the rep: the resume answered `FLOW_FAILED` 400 at
+ * `update_opportunity` ("This deal needs qualification approval first …"),
+ * one draft quote was left behind, and the stage did not move.
+ */
+describe('quote_generation flow — the 立项 gate (#2032)', () => {
+  /**
+   * A deal owned by the rep, at `qualification`, holding `verdict`. `null` is
+   * a deal with no verdict at all (one older than the column): an insert fills
+   * the default in, so the verdict is cleared by a second system write.
+   */
+  const dealWith = async (name: string, verdict: string | null): Promise<Rec> => {
+    const deal = await opportunity({ name, amount: 50000, primary_contact: null, ...(verdict === null ? {} : { qualification_approval_status: verdict }) });
+    if (verdict === null) await systemUpdate(verify, 'crm_opportunity', { id: deal.id, qualification_approval_status: null });
+    const [stored] = await verify.rows('crm_opportunity', { id: deal.id });
+    expect(stored!.qualification_approval_status ?? null, 'fixture: the deal does not hold the verdict it was written with').toBe(verdict);
+    return stored!;
+  };
+
+  it.each(['pending', 'rejected'])(
+    'refuses a deal whose qualification approval is %s, before the form and before any write',
+    async (verdict) => {
+      const deal = await dealWith(`Unqualified ${verdict}`, verdict);
+      const run = await verify.flows.run('quote_generation', { recordId: deal.id }, { as: rep.token });
+
+      // A refusal is a successful evaluation that says no: `refused`, never
+      // `failed`, and never parked on a screen the rep would have to fill.
+      expect(run.status, 'the run was not refused').toBe('refused');
+      expect(run.success).toBe(true);
+      expect(run.refusalMessage, 'the rep is not told why').toMatch(/^Qualification approval comes first/);
+      expect(run.runId, 'a refused run is never resumed').toBeUndefined();
+      expect(run.screen, 'the rep was asked to fill in the quote form').toBeUndefined();
+      expect(run.summary?.acted ?? 0, 'a node wrote something').toBe(0);
+      expect(run.summary?.failed ?? 0, 'a node failed').toBe(0);
+
+      expect(await verify.rows('crm_quote', { crm_opportunity: deal.id }), 'a quote was created').toHaveLength(0);
+      const [after] = await verify.rows('crm_opportunity', { id: deal.id });
+      expect(after!.stage).toBe('qualification');
+      expect(after!.qualification_approval_status).toBe(verdict);
+    },
+  );
+
+  it('drafts the quote and advances the stage once 立项 is approved', async () => {
+    const deal = await dealWith('Qualified Deal', 'approved');
+    const quotes = await runQuote(deal.id, { quoteName: 'Q-QUALIFIED', expirationDays: 30, discount: 10 });
+
+    expect(quotes.length, 'one quote created').toBe(1);
+    expect(quotes[0]!.total_price).toBe(45000);
+    expect((await verify.rows('crm_opportunity', { id: deal.id }))[0]!.stage).toBe('proposal');
+  });
+
+  it.each([['the shipped default', 'not_required'], ['a deal with no verdict', null]] as const)(
+    'changes nothing with the gate off — %s: the quote is drafted and the stage advances',
+    async (_label, verdict) => {
+      const deal = await dealWith(`Ungated ${String(verdict)}`, verdict);
+      const quotes = await runQuote(deal.id, { quoteName: 'Q-UNGATED', expirationDays: 30, discount: 0 });
+
+      expect(quotes.length, 'one quote created').toBe(1);
+      expect((await verify.rows('crm_opportunity', { id: deal.id }))[0]!.stage).toBe('proposal');
+    },
+  );
+
+  /**
+   * ONE reading of the gate. The flow refuses a quote on exactly the deals
+   * `opportunity_lifecycle` refuses a stage move on — the same two verdicts,
+   * the same fail-open on every other value — so "armed" and "approved" have
+   * a single definition in this app. A drift on either side turns this red.
+   */
+  it.each(['pending', 'rejected', 'approved', 'not_required', null])(
+    'answers a deal holding %j exactly as opportunity_lifecycle answers its stage move',
+    async (verdict) => {
+      const quoteDeal = await dealWith(`Agree quote ${String(verdict)}`, verdict);
+      const moveDeal = await dealWith(`Agree move ${String(verdict)}`, verdict);
+
+      const run = await verify.flows.run('quote_generation', { recordId: quoteDeal.id }, { as: rep.token });
+      const quoteRefused = run.status === 'refused';
+
+      const err = await verify.hooks.run('crm_opportunity', 'update', { id: moveDeal.id, stage: 'needs_analysis' }, { as: rep.token })
+        .then(() => null, (e: Rec) => e);
+      if (err) {
+        // ADR-0112 envelope: the code and the status are the contract.
+        expect(err.code).toBe('RECORD_LOCKED');
+        expect(err.status).toBe(409);
+      }
+
+      expect(quoteRefused, 'the quote flow and the stage gate disagree about this verdict').toBe(err !== null);
+      expect(quoteRefused).toBe(verdict === 'pending' || verdict === 'rejected');
+    },
+  );
+});
+
+/**
+ * Cents survive the pricing (#1984). The figures were CEL value envelopes in
+ * the flow then, where an integer divisor dropped the cents; since #2110 they
+ * are `quote_workflow`'s derivation inside the flow's insert. The pins above
+ * cannot see a lost cent: every amount they use prices to whole units.
+ * 1,234.56 at 10% is 123.456 → 123.46, and the total 1,111.104 → 1,111.10, so
+ * these go red if the derivation rounds to whole units instead of cents.
+ */
+describe('quote_generation flow — pricing keeps the cents (#1984)', () => {
+  const quoteAt = async (amount: unknown, screen: Rec) => {
+    const opp = await opportunity({ name: 'Cents Deal', amount, primary_contact: null });
+    const quotes = await runQuote(opp.id, { quoteName: 'Q-4', expirationDays: 30, ...screen });
+    expect(quotes.length, 'quote created').toBe(1);
+    return quotes[0]!;
+  };
+
+  it('keeps the cents: both figures round to the cent, not to the unit', async () => {
+    const q = await quoteAt(1234.56, { discount: 10 });
+    expect(q.discount_amount).toBe(123.46);
+    expect(q.total_price).toBe(1111.1);
+  });
+
+  // The flow's own CEL total, `round(amount × (1 − d))`, rounded the half cent
+  // the other way from the discount: measured on `main` c4c73e7, 999.95 at 10%
+  // stored 100 + 899.96, a cent over the Subtotal. The header's one formula
+  // (#2110) subtracts the rounded discount, so the two always add up.
+  it('a discount on a half cent: Discount Amount + Total Price is the Subtotal (#2110)', async () => {
+    const q = await quoteAt(999.95, { discount: 10 });
+    expect([q.subtotal, q.discount_amount, q.total_price]).toEqual([999.95, 100, 899.95]);
+    expect(Math.round((q.discount_amount + q.total_price) * 100)).toBe(Math.round(q.subtotal * 100));
+  });
+
+  // A cleared discount reaches the insert as null or "", and the derivation
+  // reads anything but a number as 0%: no discount, full price.
+  it.each([null, ''])('prices a cleared discount (%j) as no discount', async (discount) => {
+    const q = await quoteAt(180000, { discount });
+    expect(q.discount_amount).toBe(0);
+    expect(q.total_price).toBe(180000);
+  });
+});
+
+/**
+ * #2239 — the Quote Name is PREFILLED with the deal's name. It was required
+ * with no default, so the first Submit of every quote failed with "Please
+ * complete the required fields: Quote Name". The prefill is the deal's name
+ * alone: a screen field's default is evaluated with no locale in scope, so a
+ * " Quote" suffix could not follow the rep's language (see `screen_1`).
+ *
+ * "Submitting without typing a name" is the console posting the served
+ * default back unchanged, which is what these runs do.
+ */
+describe('quote_generation flow — the Quote Name prefill (#2239)', () => {
+  const quoteNameOf = (run: Rec): unknown =>
+    (((run.screen ?? run.output?.screen)?.fields ?? []) as Rec[]).find((f) => f.name === 'quoteName')?.defaultValue;
+
+  it('serves the form with the deal name, and an untouched name creates the quote', async () => {
+    const opp = await opportunity({ name: 'Acme Platform Upgrade', amount: 50000, primary_contact: null });
+    const run = await verify.flows.run('quote_generation', { recordId: opp.id }, { as: rep.token });
+    const served = quoteNameOf(run);
+    expect(served, 'the Quote Name is not prefilled from the deal').toBe('Acme Platform Upgrade');
+
+    const done = await verify.flows.resume(run, { quoteName: served, expirationDays: 30, discount: 0 }, { as: rep.token });
+    expect(done.success, 'submitting the prefilled form did not succeed').toBe(true);
+    const quotes = await verify.rows('crm_quote', { crm_opportunity: opp.id });
+    expect(quotes.map((q) => q.name)).toEqual(['Acme Platform Upgrade']);
+  });
+
+  it('a typed name still wins over the prefill', async () => {
+    const opp = await opportunity({ name: 'Typed Name Deal', amount: 50000, primary_contact: null });
+    const quotes = await runQuote(opp.id, { quoteName: 'Q-TYPED', expirationDays: 30, discount: 0 });
+    expect(quotes.map((q) => q.name)).toEqual(['Q-TYPED']);
+  });
+});
+
+/**
+ * #2396 — a number the rules refuse is refused AT THE SCREEN, where the rep
+ * can fix it. The screen's `min` / `max` are judged on resume before the
+ * engine consumes the suspended run, so the refusal is `INVALID_SCREEN_INPUT`
+ * and the SAME run takes a corrected answer. Without them the answer reached
+ * `create_quote`, `crm_quote`'s rule refused the insert after the run had
+ * been consumed, and the run failed: measured on 18.3.0, Discount 75
+ * answered `FLOW_FAILED` 400 ("Discount cannot exceed 60%") and the corrected
+ * resubmit `RUN_NOT_FOUND` 404, so the dialog could only be closed.
+ */
+describe('quote_generation flow — a refused number keeps the screen (#2396)', () => {
+  /** The thrown resume's envelope, or a failure naming what came back instead. */
+  const refusalOf = async (run: Rec, screen: Rec): Promise<Rec> => {
+    try {
+      const answered = await verify.flows.resume(run as never, screen, { as: rep.token });
+      throw new Error(`the resume was not refused: status ${String(answered.status)}`);
+    } catch (err) {
+      return err as Rec;
+    }
+  };
+
+  it.each([
+    ['a discount above the ceiling', { discount: 75 }, { discount: 60 }],
+    ['a validity of zero days', { expirationDays: 0 }, { expirationDays: 1 }],
+  ])('refuses %s on the screen, and the same run takes the corrected answer', async (_case, wrong, right) => {
+    const opp = await opportunity({ name: 'Bounded Deal', amount: 50000, primary_contact: null });
+    const run = await verify.flows.run('quote_generation', { recordId: opp.id }, { as: rep.token });
+    const screen = { quoteName: 'Q-BOUND', expirationDays: 30, discount: 0 };
+
+    const refused = await refusalOf(run, { ...screen, ...wrong });
+    expect(refused.code, String(refused.message)).toBe('INVALID_SCREEN_INPUT');
+    expect(refused.status).toBe(400);
+    expect(await verify.rows('crm_quote', { crm_opportunity: opp.id }), 'a quote was created').toHaveLength(0);
+
+    const done = await verify.flows.resume(run, { ...screen, ...right }, { as: rep.token });
+    expect(done.success, 'the corrected answer did not go through').toBe(true);
+    const quotes = await verify.rows('crm_quote', { crm_opportunity: opp.id });
+    expect(quotes).toHaveLength(1);
+    if ('discount' in right) expect(quotes[0]!.discount).toBe(right.discount);
   });
 });

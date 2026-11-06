@@ -14,10 +14,13 @@ takes its logs with it.
 
 - **A `src/` edit does not need one.** The dev server watches
   `objectstack.config.ts` and `src/` and rebuilds + restarts itself.
-- **A restart replays the seed data**, overwriting record state back to seed
-  values — records submitted during a demo return to draft; approval requests
-  are not replayed (`docs/demo/psa-presales/RUNBOOK.md`). If the server is
-  healthy and a demo is in progress, ask before restarting.
+- **A restart replays the seed data**, but every dataset is insert-once
+  (`mode: 'ignore'`, upstream #2139) since the 18.x sync: the replay inserts
+  only rows the database lacks and never writes over a row it holds, so a
+  record submitted during a demo keeps its state; approval requests are not
+  replayed either. Only `pnpm demo:reset:zh` returns the demo to its seeded
+  state (`docs/demo/psa-presales/RUNBOOK.md`). If the server is healthy and a
+  demo is in progress, ask before restarting.
 - A restart *is* the fix for: a dead or unreachable 4001, a `better-sqlite3` ABI
   flood, and re-running the sharing-rule boot backfill.
 

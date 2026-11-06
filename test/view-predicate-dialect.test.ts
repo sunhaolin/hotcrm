@@ -4,8 +4,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ExpressionEngine, buildScope, collectCelRootIdentifiers } from '@objectstack/formula';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 import { REPO_ROOT } from './helpers/repo-root';
+import { metadataFiles } from './helpers/src-roster';
 
 /**
  * ═══ HOUSE RULE: view predicates are `record.`-bound AND TOTAL ═════════════
@@ -112,8 +113,10 @@ const BOUND_ROOTS = new Set(
  * predicate key names.
  *
  * Two reasons the walk collects *envelopes* (`{ dialect, source }`) rather than
- * looking up known keys: `visibleOn` does not survive compilation (ADR-0089 D2
- * folds it into `visibleWhen` at the schema boundary), and a key list cannot
+ * looking up known keys: a retired alias key never reaches the compiled stack
+ * (through 18.0.0-next.2 ADR-0089 D2 folded the form view's `visibleOn` into
+ * `visibleWhen` at the schema boundary; from 18.0.0-next.3 the schema refuses
+ * `visibleOn` by name), and a key list cannot
  * grow when the platform adds a predicate-bearing key. Anything expression-
  * shaped anywhere under `stack.views` is in scope by construction. Measured on
  * 17.0.0-rc.2: 49 envelopes, all of them `visibleWhen`, all `dialect: 'cel'`.
@@ -148,7 +151,7 @@ function objectsOf(view: unknown, found = new Set<string>()): Set<string> {
 
 const viewBundles: AnyRec[] = ((stack as AnyRec).views ?? []) as AnyRec[];
 
-const predicates = viewBundles.flatMap((view, index) => {
+const envelopes = viewBundles.flatMap((view, index) => {
   const label = [...objectsOf(view)].filter((n) => n.startsWith('crm_'))[0] ?? `views[${index}]`;
   const found: { path: string; expr: AnyRec }[] = [];
   collectExpressions(view, `views[${index}]`, found);
@@ -159,6 +162,16 @@ const predicates = viewBundles.flatMap((view, index) => {
     source: String(expr.source ?? ''),
   }));
 });
+
+/**
+ * Since 18.1.0 a bulk action's `confirmText` compiles to a `template` envelope
+ * too (objectstack#25451: its holes are filled from `count` and the action's
+ * params). That is a message, not a predicate, so it answers no visibility
+ * question and is left out of the sweep; the first `describe` below pins that
+ * nothing else is.
+ */
+const templates = envelopes.filter((e) => e.dialect === 'template');
+const predicates = envelopes.filter((e) => e.dialect !== 'template');
 
 /**
  * A record shape with EVERY conditional field populated — the "shown" side of
@@ -189,11 +202,11 @@ function evaluatePredicate(source: string, record: AnyRec) {
 
 describe('view predicates — the sweep itself', () => {
   it('finds a predicate for every one authored in src/views', () => {
-    const viewsDir = join(REPO_ROOT, 'src', 'views');
-    const authored = readdirSync(viewsDir)
-      .filter((f) => f.endsWith('.view.ts'))
+    // Every package's views, not one directory: since the ADR-0130 layout a
+    // directory under `src/` is a package and each carries its own `views/`.
+    const authored = metadataFiles('views', '.view.ts')
       .reduce((total, file) => {
-        const src = readFileSync(join(viewsDir, file), 'utf8');
+        const src = readFileSync(join(REPO_ROOT, file), 'utf8');
         // Assignments only — the word also appears in prose comments.
         return total + (src.match(/^\s*(visibleOn|visibleWhen):/gm) ?? []).length;
       }, 0);
@@ -213,6 +226,13 @@ describe('view predicates — the sweep itself', () => {
       expect(p.dialect, `${p.id} — non-CEL dialect on a visibility predicate`).toBe('cel');
       expect(p.source.trim(), `${p.id} — empty predicate source`).not.toBe('');
     }
+  });
+
+  it('sets aside only confirmation messages as templates', () => {
+    // The filter above must not become a way out of the sweep: a `template`
+    // envelope anywhere but a `confirmText` key is reported here by path.
+    expect(templates.length).toBeGreaterThan(0);
+    expect(templates.filter((t) => !t.path.endsWith('.confirmText')).map((t) => t.id)).toEqual([]);
   });
 });
 

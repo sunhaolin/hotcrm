@@ -2,17 +2,30 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AutomationEngine, installBuiltinNodes } from '@objectstack/service-automation';
+import { cel } from '@objectstack/spec';
 import type * as Automation from '@objectstack/spec/automation';
-import stack from '../objectstack.config';
-import { OpportunityApprovalFlow, OpportunityApprovalOnCreateFlow } from '../src/flows/opportunity-approval.flow';
-import { CampaignEnrollmentFlow } from '../src/flows/campaign-enrollment.flow';
+import stack from './helpers/composed-stack';
+import { OpportunityApprovalFlow, OpportunityApprovalOnCreateFlow } from '../src/sales/flows/opportunity-approval.flow';
+import { CampaignEnrollmentFlow } from '../src/marketing/flows/campaign-enrollment.flow';
 import {
   CampaignLeadMemberEnrollFlow,
   CampaignContactMemberEnrollFlow,
-} from '../src/flows/campaign-member-enroll.flow';
-import { silentLogger } from './helpers/flow-harness';
+} from '../src/marketing/flows/campaign-member-enroll.flow';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
+
+/** The engine's logger, silenced: these suites read results, not log lines. */
+const silentLogger: any = {
+  info() {}, warn() {}, error() {}, debug() {}, trace() {},
+  child() { return silentLogger; },
+};
 
 /**
  * THE AUDIT STAMPS ARE DECLARED `readonly`, AND BOTH HALVES ARE MEASURED
@@ -27,13 +40,14 @@ import { silentLogger } from './helpers/flow-harness';
  *
  *   • `crm_opportunity.approval_status` / `approved_date` (#1666) — every
  *     writer is the `runAs: 'system'` approval flow or an insert.
- *   • `crm_campaign_member.added_date` (#1667) — every writer is a
- *     `runAs: 'system'` flow. ⭐ It used to read "every writer is an INSERT",
- *     which stopped being a reason on the @objectstack/* 17.4.0 migration:
- *     objectql 17.4.0 strips a static readonly column from a non-system
- *     INSERT too. The enrollment insert therefore moved into the dedicated
- *     `campaign_lead_member_enroll` / `campaign_contact_member_enroll`
- *     callees (AGENTS.md house rule 9), and this file follows it there.
+ *   • `crm_campaign_member.added_date` (#1667) — its one writer is the
+ *     field's own write-moment `defaultValue` (#2142), which the engine
+ *     applies to every insert, a user-context one included. Before #2142 the
+ *     writers were the two `runAs: 'system'` enrollment callees
+ *     (`campaign_lead_member_enroll` / `campaign_contact_member_enroll`),
+ *     because objectql 17.4.0 strips a static readonly column from a
+ *     non-system INSERT; every other door stored the column blank. This file
+ *     follows the stamp to the object, and still runs the callees' node.
  *
  * ⭐ A declaration without these pins is just a flag. What has to stay true is
  * a CONJUNCTION, and each half fails in a different direction:
@@ -70,7 +84,7 @@ let ql: any;
 
 beforeAll(async () => {
   ql = await ObjectQL.create({
-    datasources: { default: new InMemoryDriver({ persistence: false }) },
+    datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
     objects: {
       crm_account: shippedFields('crm_account'),
       crm_opportunity: shippedFields('crm_opportunity'),
@@ -79,6 +93,7 @@ beforeAll(async () => {
       crm_campaign_member: shippedFields('crm_campaign_member'),
     } as never,
   });
+  await ql.syncSchemas();
 });
 
 afterAll(async () => {
@@ -157,16 +172,22 @@ function findNode(flow: AnyRec, id: string): AnyRec | undefined {
   return walk(flow.nodes);
 }
 
-const sysCtx = { isSystem: true, userId: 'seed' };
+const sysCtx = { isSystem: true, tenantId: ORG, userId: 'seed' };
 const readBack = (object: string, id: string): Promise<AnyRec> =>
   ql.findOne(object, { where: { id }, context: sysCtx });
 
 // ─────────────────────────────────────────────────────── #1666 · approval ──
 
 describe('#1666 — crm_opportunity approval stamps are declared readonly', () => {
-  /** A closable deal, inserted under a system context so the seed itself is not the measurement. */
+  /**
+   * A closable deal, inserted under a system context so the seed itself is not
+   * the measurement. Each deal gets its own account: `crm_account.name` is
+   * declared unique, and the SQL driver enforces it (`driver-memory`, which ran
+   * this file until #2092, did not).
+   */
+  let accounts = 0;
   async function seedOpportunity(): Promise<string> {
-    const account = await ql.insert('crm_account', { name: 'Acme Industrial' }, { context: sysCtx });
+    const account = await ql.insert('crm_account', { name: `Acme Industrial ${++accounts}` }, { context: sysCtx });
     const row = await ql.insert(
       'crm_opportunity',
       {
@@ -224,33 +245,20 @@ describe('#1666 — crm_opportunity approval stamps are declared readonly', () =
         'pin_mark_approved',
         (OpportunityApprovalFlow as AnyRec).runAs,
         node,
-        { filter: { id: '{rowId}' } },
+        { filter: { id: cel`rowId` } },
       ),
     });
-    await engine.execute('pin_mark_approved', { params: { rowId: id }, userId: 'user_1', event: 'manual' } as never);
+    await engine.execute('pin_mark_approved', { params: { rowId: id }, userId: 'user_1', tenantId: ORG, event: 'manual' } as never);
 
     const after = await readBack('crm_opportunity', id);
     expect(after.approval_status, 'the approval verdict was stripped — the flow is no longer elevated').toBe('approved');
     expect(after.approved_date, 'the approval date was stripped — the stamp is now permanently null').toBeTruthy();
   });
 
-  it('the shipped mark_rejected node still lands its stamp on the system path', async () => {
-    const node = findNode(OpportunityApprovalFlow as AnyRec, 'mark_rejected')!;
-    expect(node.config.objectName).toBe('crm_opportunity');
-
-    const id = await seedOpportunity();
-    const engine = automation({
-      pin_mark_rejected: runnable(
-        'pin_mark_rejected',
-        (OpportunityApprovalFlow as AnyRec).runAs,
-        node,
-        { filter: { id: '{rowId}' } },
-      ),
-    });
-    await engine.execute('pin_mark_rejected', { params: { rowId: id }, userId: 'user_1', event: 'manual' } as never);
-
-    expect((await readBack('crm_opportunity', id)).approval_status).toBe('rejected');
-  });
+  // A rejection has no writer of this app's own since #2061: `mark_rejected`
+  // only restated the approval node's `rejected` mirror, as the submitter, and
+  // was removed. That the mirror's `rejected` still lands on the `readonly`
+  // column is pinned end to end in `test/approval-decision-attribution.test.ts`.
 
   it('a plain user-context UPDATE of either stamp is STRIPPED', async () => {
     const id = await seedOpportunity();
@@ -259,7 +267,7 @@ describe('#1666 — crm_opportunity approval stamps are declared readonly', () =
     await ql.update(
       'crm_opportunity',
       { approval_status: 'approved', approved_date: '2026-01-01T00:00:00.000Z', next_step: 'hand-edited' },
-      { where: { id }, context: { userId: 'user_1' } },
+      { where: { id }, context: { userId: 'user_1', tenantId: ORG } },
     );
     const after = await readBack('crm_opportunity', id);
     // The control must land, or this run measured a broken harness, not a strip.
@@ -311,35 +319,45 @@ describe('#1667 — crm_campaign_member.added_date is declared readonly', () => 
     ).toBe('user');
   });
 
-  it('the elevation lives in the two callees, and nowhere else', () => {
+  it('no enrollment write is elevated: both callees run as the caller (#2167)', () => {
+    // The stamp stopped needing the elevation in #2142; what it still did was
+    // let `sales_rep` and `sales_manager`, whose sets carry no `allowCreate` on
+    // this object, enroll through the screen flow. Ruled on #2167 (Q1 letter
+    // B): every enrollment door writes as the caller, so the object's own
+    // `allowCreate` is the one gate.
     for (const callee of [CampaignLeadMemberEnrollFlow, CampaignContactMemberEnrollFlow]) {
       expect(
         (callee as AnyRec).runAs,
-        `${(callee as AnyRec).name} is the whole reason the split exists: it is the only ` +
-          'place the enrollment insert runs elevated.',
-      ).toBe('system');
+        `${(callee as AnyRec).name} runs elevated again — the profiles without allowCreate would enroll through it`,
+      ).toBe('user');
       const writes = ((callee as AnyRec).nodes as AnyRec[])
-        .filter((n) => n.type !== 'start' && n.type !== 'end')
+        .filter((n) => /^(create|update|delete)_record$/.test(String(n.type)))
         .map((n) => n.config?.objectName);
-      expect(
-        writes,
-        'an elevated callee must stay minimal — one write, on the membership object',
-      ).toEqual(['crm_campaign_member']);
+      expect(writes, 'an enrollment callee writes one row, on the membership object').toEqual(['crm_campaign_member']);
     }
   });
 
-  it('both shipped create nodes still carry the stamp', () => {
+  it('the object is the stamp\'s one writer: a declared default, and neither create node writes it', () => {
+    const fields = objectByName.get('crm_campaign_member')?.fields as AnyRec;
+    expect(
+      fields.added_date?.defaultValue,
+      'added_date has no default, so every insert that does not write it — the console\'s New, ' +
+        'Add to Campaign — is born with a blank Added Date again (#2142)',
+    ).toBeTruthy();
     const callees: [AnyRec, string][] = [
       [CampaignLeadMemberEnrollFlow as AnyRec, 'create_campaign_member'],
       [CampaignContactMemberEnrollFlow as AnyRec, 'create_contact_member'],
     ];
     for (const [flow, id] of callees) {
       const node = findNode(flow, id);
-      expect(node, `${id} is one of the two writers the #1667 census rests on`).toBeTruthy();
-      expect(node!.type, 'an INSERT on an elevated callee. If this ever becomes update_record it ' +
+      expect(node, `${id} is one of the two enrollment inserts`).toBeTruthy();
+      expect(node!.type, 'an INSERT in the enrollment callee. If this ever becomes update_record it ' +
         'is a different write with different ordering — that is the failure #1667 trades against.').toBe('create_record');
       expect(node!.config.objectName).toBe('crm_campaign_member');
-      expect(node!.config.fields.added_date, 'the stamp itself, taken from source').toBe('{NOW()}');
+      expect(
+        Object.keys(node!.config.fields),
+        'a callee writes added_date again — a second writer of a column the object already stamps',
+      ).not.toContain('added_date');
     }
   });
 
@@ -356,11 +374,11 @@ describe('#1667 — crm_campaign_member.added_date is declared readonly', () => 
     }
   });
 
-  it('the shipped create_campaign_member node still stamps added_date on INSERT', async () => {
-    // Both halves come from the SHIPPED callee now: its node AND its `runAs`.
-    // Reading the runAs off the flow that owns the node is what makes this a
-    // measurement rather than a restatement — hard-code 'system' here and the
-    // pin would stay green through exactly the regression it exists to catch.
+  it('a member the shipped create_campaign_member node inserts still carries added_date', async () => {
+    // Both halves come from the SHIPPED callee: its node AND its `runAs`. The
+    // node no longer writes the column (#2142); what this measures is that the
+    // enrollment row still carries the stamp, now from the field's default,
+    // which this engine reads off the shipped field definition.
     const node = findNode(CampaignLeadMemberEnrollFlow as AnyRec, 'create_campaign_member')!;
     const { campaignId, leadId } = await seedEnrollmentTargets();
     const engine = automation({
@@ -368,12 +386,12 @@ describe('#1667 — crm_campaign_member.added_date is declared readonly', () => 
         'pin_enrol',
         (CampaignLeadMemberEnrollFlow as AnyRec).runAs ?? 'user',
         node,
-        // Addressing only — `status` and `added_date` stay exactly as authored.
-        { fields: { ...node.config.fields, crm_campaign: '{rowId}', crm_lead: '{linkId}' } },
+        // Addressing only — every other field stays exactly as authored.
+        { fields: { ...node.config.fields, crm_campaign: cel`rowId`, crm_lead: cel`linkId` } },
       ),
     });
     await engine.execute('pin_enrol', {
-      params: { rowId: campaignId, linkId: leadId }, userId: 'user_1', event: 'manual',
+      params: { rowId: campaignId, linkId: leadId }, userId: 'user_1', tenantId: ORG, event: 'manual',
     } as never);
 
     const members = await ql.find('crm_campaign_member', { where: { crm_campaign: campaignId }, context: sysCtx });
@@ -381,8 +399,8 @@ describe('#1667 — crm_campaign_member.added_date is declared readonly', () => 
     expect(members[0].status, 'the CONTROL column did not land — harness fault, not a strip').toBe('sent');
     expect(
       members[0].added_date,
-      'added_date came back null after the readonly declaration. Every campaign member would ' +
-        'now be born without an enrollment date — the exact 16.x symptom #1667 measured away.',
+      'added_date came back null on an enrollment insert. Every enrolled member would now be ' +
+        'born without an enrollment date — the symptom #1667 and #2142 measured away.',
     ).toBeTruthy();
   });
 
@@ -408,7 +426,7 @@ describe('#1667 — crm_campaign_member.added_date is declared readonly', () => 
     await ql.update(
       'crm_campaign_member',
       { added_date: '2020-01-01T00:00:00.000Z', status: 'responded' },
-      { where: { id: row.id }, context: { userId: 'user_1' } },
+      { where: { id: row.id }, context: { userId: 'user_1', tenantId: ORG } },
     );
     const after = await readBack('crm_campaign_member', String(row.id));
     expect(after.status, 'the CONTROL column did not land — harness fault, not a strip').toBe('responded');

@@ -1,0 +1,94 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import type { EmailTemplatePack } from './_bundle';
+
+/** 日本語 (ja-JP) — the sales package's notification templates. See `en.ts`. */
+export const jaJP: EmailTemplatePack = {
+  'crm.account_approved': {
+    label: 'アカウント承認済み',
+    subject: 'アカウントが承認されました: {{name}}',
+    bodyHtml: '<p>このアカウントは承認され、正式なデータになりました。</p>',
+  },
+  'crm.account_rejected': {
+    label: 'アカウント未承認',
+    subject: 'アカウントが承認されませんでした: {{name}}',
+    bodyHtml: '<p>このアカウントは承認されませんでした。内容を修正のうえ、再度承認を依頼してください。</p>',
+  },
+  'crm.contact_welcome': {
+    label: '新規取引先責任者',
+    subject: '新しい取引先責任者: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>{{first_name}} {{last_name}} が取引先責任者として追加されました。ご挨拶の連絡をしてください。</p>',
+  },
+  'crm.contract_expired': {
+    label: '契約の満了',
+    subject: '契約が満了しました: {{contract_number}}',
+    bodyHtml: '<p>契約 {{contract_number}} は終了日に達し、満了として記録されました。</p>',
+  },
+  'crm.contract_renewal': {
+    label: '契約更新の時期',
+    subject: '契約の更新時期です: {{contract_number}}',
+    bodyHtml: '<p>契約 {{contract_number}} は {{end_date}} に終了します。更新の相談を始めてください。</p>',
+  },
+  'crm.deal_stalled': {
+    label: '停滞中の商談',
+    subject: '停滞中の商談: {{name}}',
+    bodyHtml: '<p>商談 {{name}} は「{{stage_label.ja_JP}}」に {{days_in_stage}} 日間留まっています。次の段階に進めるか、再評価してください。</p>',
+  },
+  'crm.large_deal_won': {
+    label: '大型商談の受注',
+    subject: '大型商談を受注: {{name}}',
+    bodyHtml: '<p>{{name}} が {{amount | number:2}} で成約しました。チームの皆さん、おめでとうございます。</p>',
+  },
+  'crm.lead_conversion_approved': {
+    label: 'リード変換の承認',
+    subject: 'リードの変換が承認されました: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>このリードは承認されました。取引先、取引先責任者、商談に変換できます。</p>',
+  },
+  'crm.lead_conversion_rejected': {
+    label: 'リード未承認',
+    subject: 'リードが承認されませんでした: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>このリードの変換は承認されませんでした。引き続き対応するか、理由を付けて対象外にしてください。</p>',
+  },
+  'crm.lead_converted': {
+    label: 'リード変換済み',
+    subject: 'リードを変換しました: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>リード {{first_name}} {{last_name}} を取引先と取引先責任者に変換しました。</p>',
+  },
+  'crm.lead_routing_hot': {
+    label: 'ホットリードの割り当て',
+    subject: 'ホットリード — 24 時間以内にフォローアップ: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>{{company}} の {{first_name}} {{last_name}}（評価 {{rating}}）はあなたの担当です。明日までにフォローアップしてください。</p>',
+  },
+  'crm.lead_routing_new': {
+    label: '新規リードの割り当て',
+    subject: '新規リードがあなたに割り当てられました: {{first_name}} {{last_name}}',
+    bodyHtml: '<p>{{company}} の {{first_name}} {{last_name}} があなたの担当になりました。3 日以内にフォローアップしてください。</p>',
+  },
+  'crm.opportunity_approved': {
+    label: '商談承認済み',
+    subject: '商談が承認されました: {{name}}',
+    bodyHtml: '<p>商談 {{name}} が承認されました。</p>',
+  },
+  'crm.opportunity_rejected': {
+    label: '商談未承認',
+    subject: '商談が承認されませんでした: {{name}}',
+    bodyHtml: '<p>商談 {{name}} は承認されませんでした。内容を確認・修正のうえ、再申請してください。</p>',
+  },
+  'crm.task_reminder': {
+    label: 'ToDo リマインダー',
+    subject: 'ToDo のリマインダー: {{subject}}',
+    bodyHtml: '<p>ToDo「{{subject}}」が期限を迎えました（リマインダー設定: {{reminder_date}}）。</p>',
+  },
+  'crm.urgent_task': {
+    label: '緊急 ToDo',
+    subject: '緊急の ToDo: {{subject}}',
+    bodyHtml: '<p>緊急の ToDo「{{subject}}」が割り当てられました。対応をお願いします。</p>',
+  },
+  // Sent by `contract_drafted_notice` when accepting a quote drafts its
+  // contract (#2371 row 6).
+  'crm.contract_drafted': {
+    label: '契約を起草しました',
+    subject: '契約を起草しました: {{contract_number}}',
+    bodyHtml: '<p>見積の承諾により契約 {{contract_number}} を起草しました。期間と契約種別は初期値です。有効化する前に確認してください。</p>',
+  },
+};

@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { SysUser } from '@objectstack/platform-objects';
 import { ExpressionEngine } from '@objectstack/formula';
 import { materializeDeclaredFields } from '@objectstack/objectql/core';
@@ -12,7 +12,14 @@ import {
   registerShareLinkRoutes,
   objectCanCarryShareLinks,
 } from '@objectstack/plugin-sharing';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * Share-link publishing for public knowledge articles (#1104, from #601 item 3).
@@ -68,7 +75,7 @@ const byName = (n: string) => objects.find((o) => o.name === n) as AnyRec;
 const ARTICLE = byName('crm_knowledge_article');
 const POLICY = (ARTICLE.publicSharing ?? {}) as AnyRec;
 
-const SIGNED_IN = { userId: 'user_author', isSystem: false, positions: [], permissions: [] };
+const SIGNED_IN = { userId: 'user_author', tenantId: ORG, isSystem: false, positions: [], permissions: [] };
 const ANONYMOUS = {};
 
 // ────────────────────────────────────────────── the declaration itself ──
@@ -137,18 +144,22 @@ class TestRouter {
     method: string,
     pattern: string,
     req: { params?: AnyRec; query?: AnyRec; body?: AnyRec; headers?: AnyRec } = {},
-  ): Promise<{ status: number; body: AnyRec }> {
+  ): Promise<{ status: number; body: AnyRec; headers: AnyRec }> {
     const handler = this.routes.get(`${method} ${pattern}`);
     if (!handler) throw new Error(`no route registered for ${method} ${pattern}`);
     let status = 200;
     let body: AnyRec = {};
+    const headers: AnyRec = {};
     const res = {
       status(code: number) { status = code; return res; },
       json(payload: AnyRec) { body = payload; return res; },
       send(payload: AnyRec) { body = payload; return res; },
+      // `IHttpResponse.header` — since 17.7.0 the public resolve route sets
+      // `Cache-Control: no-store` and `Vary: X-Share-Password` on its answer.
+      header(name: string, value: string | string[]) { headers[name] = value; return res; },
     };
     await handler({ params: {}, query: {}, headers: {}, ...req }, res);
-    return { status, body };
+    return { status, body, headers };
   }
 }
 
@@ -171,7 +182,7 @@ describe('the two-sided acceptance criterion, on the real ShareLinkService', () 
 
   beforeEach(async () => {
     ql = (await ObjectQL.create({
-      datasources: { default: new InMemoryDriver({ persistence: false }) },
+      datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
       objects: {
         crm_knowledge_article: ARTICLE,
         crm_case: byName('crm_case'),
@@ -181,7 +192,8 @@ describe('the two-sided acceptance criterion, on the real ShareLinkService', () 
         sys_share_link: SysShareLink,
       } as never,
     })) as never;
-    api = ql.createContext({ isSystem: true });
+    await ql.syncSchemas();
+    api = ql.createContext({ isSystem: true, tenantId: ORG });
 
     for (const [key, status, audience] of FIXTURES) {
       const row = await api.object('crm_knowledge_article').insert({

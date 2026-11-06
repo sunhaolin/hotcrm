@@ -1,15 +1,18 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
-import { describe, it, expect } from 'vitest';
-import { compileCelToFilter } from '@objectstack/formula';
-import stack from '../objectstack.config';
-import accountHook from '../src/objects/account.hook';
-import caseHooks from '../src/objects/case.hook';
-import { CrmSeedData } from '../src/data/index';
-import { DemoOrgStaffing } from '../src/sharing/demo-staffing';
-import * as sharingBarrel from '../src/sharing/index';
-import { makeCtx, makeHarness, hookNamed } from './helpers/hook-harness';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type { VerifyStack } from '@objectstack/verify';
+import stack from './helpers/composed-stack';
+import { CrmSeedData } from '../objectstack.composition';
+import { CASE_DESK, caseDeskOf, DemoAdminPermissionSets, DemoOrgStaffing, DemoPipelineOwnership } from '../src/sales/sharing/demo-staffing';
+import * as salesSeeds from '../src/sales/data';
+import * as serviceSeeds from '../src/service/data';
+import { CrmSharing as sharingBarrel } from './helpers/src-roster';
+import { hotcrmStack, systemUpdate, type Person } from './helpers/verify-stack';
 import { regionsOf } from './helpers/flow-regions';
+import { REPO_ROOT } from './helpers/repo-root';
 
 /**
  * Demo-org staffing (#640) — the third layer of position-based access.
@@ -37,17 +40,138 @@ import { regionsOf } from './helpers/flow-regions';
  *
  * ### What this file can and cannot check
  *
- * It is a static suite: it cannot run the script. What it CAN pin is every
- * authoring-time premise the script depends on — that each staffed position is
- * declared, that the positions chosen are the ones the sharing rules and the
- * approval nodes actually name, that the territory arithmetic still comes out
- * 6/2/1 against the real seeds, and — the load-bearing one — that **the
- * published artifact contains no mechanism that could create these people**.
- * That last group is what keeps "a real deployment installs none of them" a
- * structural fact rather than a promise.
+ * It pins every authoring-time premise the script depends on — that each
+ * staffed position is declared, that the positions chosen are the ones the
+ * sharing rules and the approval nodes actually name, and — the load-bearing
+ * one — that **the published artifact contains no mechanism that could create
+ * these people**. That last group is what keeps "a real deployment installs
+ * none of them" a structural fact rather than a promise.
+ *
+ * And it RUNS the script (#2129): `scripts/demo-staff.ts`'s own `main()`, its
+ * `fetch` pointed at the shipped app booted by `@objectstack/verify`, so every
+ * request goes through the same Hono app and routes a dev server answers. The
+ * people every block below reads are the ones that run created, signed in
+ * with the table's own passwords; on top of them this file reads the
+ * territory arithmetic (6/2/1 against the real seeds), the two case pools,
+ * and who submitted the large-deal approvals the run opened. What it cannot
+ * reach: a socket and a separate server process (`pnpm dev`), and the
+ * Approvals inbox as a page.
  */
 
 type AnyRec = Record<string, any>;
+
+/** What one run of `scripts/demo-staff.ts` left behind: its exit code and everything it printed. */
+type ScriptRun = { exit: unknown; output: string[] };
+
+/**
+ * `pnpm demo:staff`, run against the shipped app.
+ *
+ * The script is imported the way `test/backfill-query-bodies.test.ts` imports
+ * it, so its own `main()` runs its real request code; here `fetch` is pointed
+ * at the booted app (`raw` injects the request into the real Hono app at the
+ * origin `@objectstack/verify` serves) instead of being answered by a stub.
+ * `--url` names that origin, and `process.exit` is captured rather than
+ * allowed to end the worker.
+ *
+ * ONE call is answered by the harness instead of by the app: step 1's
+ * `POST /api/v1/auth/admin/create-user`. The verify boot does not mount
+ * better-auth's admin plugin (`auth.plugins.admin`; that route answers 501
+ * here, while `pnpm dev` mounts it), so the person is created through the
+ * harness's own sign-up door with the same email, password and name, and the
+ * script receives the id the way `create-user` returns it. Every later
+ * request, the persona sign-ins included, is the app's.
+ */
+async function runDemoStaff(on: VerifyStack): Promise<ScriptRun> {
+  const origin = 'http://localhost:3000';
+  const realFetch = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin !== origin) return realFetch(input, init);
+    if (url.pathname === '/api/v1/auth/admin/create-user' && init?.method === 'POST') {
+      const { email, password, name } = JSON.parse(String(init.body));
+      const token = await on.signUp(email, password, name);
+      const id = String((await on.contextFor(token)).userId);
+      return new Response(JSON.stringify({ data: { user: { id, email } } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return on.raw(`${url.pathname}${url.search}`, init);
+  });
+  const output: string[] = [];
+  const capture = (...parts: unknown[]) => { output.push(parts.map(String).join(' ')); };
+  const log = vi.spyOn(console, 'log').mockImplementation(capture);
+  const error = vi.spyOn(console, 'error').mockImplementation(capture);
+  const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+  const argv = process.argv;
+  process.argv = [argv[0]!, 'demo-staffing.test', '--url', origin];
+  try {
+    await import(pathToFileURL(join(REPO_ROOT, 'scripts', 'demo-staff.ts')).href);
+    await vi.waitFor(() => {
+      if (exit.mock.calls.length === 0) throw new Error('scripts/demo-staff.ts has not exited yet');
+    }, { timeout: 150_000, interval: 50 });
+    return { exit: exit.mock.calls[0]?.[0], output };
+  } finally {
+    process.argv = argv;
+    exit.mockRestore();
+    error.mockRestore();
+    log.mockRestore();
+    vi.unstubAllGlobals();
+  }
+}
+
+/**
+ * The demo org on the shipped app, as `pnpm demo:staff` leaves it: the script
+ * creates each table row as a real, loginable account holding the positions
+ * the table gives it (a position grants the permission sets its definition
+ * declares in `permissionSets`, which is how the table grants anything), hands
+ * them the book, re-evaluates the rules
+ * and has each owner save their deals. Each person is then signed in with the
+ * table's password.
+ */
+let verify: VerifyStack;
+let admin: string;
+let run: ScriptRun;
+/** The dev admin's export answer on `crm_account` BEFORE the script ran: #2061's control reading. */
+let adminExportBefore: ExportAnswer;
+const staffed: Record<string, Person> = {};
+/**
+ * What the platform's logger wrote while `beforeAll` booted the app, ran the
+ * script and signed each person in (#2200). The logger writes to
+ * `process.stdout`, not through `console`, so that stream is what is read.
+ */
+const bootLog: string[] = [];
+beforeAll(async () => {
+  const write = process.stdout.write.bind(process.stdout);
+  const capture = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown, ...rest: unknown[]) => {
+    bootLog.push(String(chunk));
+    return (write as (...args: unknown[]) => boolean)(chunk, ...rest);
+  }) as typeof process.stdout.write);
+  try {
+    verify = await hotcrmStack();
+    admin = await verify.signIn();
+    adminExportBefore = await exportAnswer(admin, 'crm_account');
+    run = await runDemoStaff(verify);
+    for (const m of DemoOrgStaffing) {
+      const token = await verify.signIn(m.email, m.password).catch((err: unknown) => {
+        throw new Error(`${m.email} cannot sign in after scripts/demo-staff.ts ran (exit ${String(run.exit)}): ${String(err)}\n${run.output.join('\n')}`);
+      });
+      staffed[m.key] = { token, id: String((await verify.contextFor(token)).userId) };
+    }
+  } finally {
+    capture.mockRestore();
+  }
+}, 240_000);
+
+type ExportAnswer = { status: number; code?: string };
+
+/** What the export door, `GET /api/v1/data/OBJECT/export`, answers `token`: the status, and a refusal's code. */
+async function exportAnswer(token: string, object: string): Promise<ExportAnswer> {
+  const res = await verify.apiAs(token, 'GET', `/data/${object}/export?format=json`);
+  if (res.status === 200) return { status: 200 };
+  const body = (await res.json().catch(() => ({}))) as AnyRec;
+  return { status: res.status, code: body.code ?? body.error?.code };
+}
 
 const positions: AnyRec[] = (stack as any).positions ?? [];
 const sharingRules: AnyRec[] = (stack as any).sharingRules ?? [];
@@ -55,6 +179,10 @@ const permissionSets: AnyRec[] = (stack as any).permissions ?? [];
 const flows: AnyRec[] = (stack as any).flows ?? [];
 
 const positionNames = new Set(positions.map((p) => String(p.name)));
+const shippedSetNames = new Set(permissionSets.map((p) => String(p.name)));
+/** The permission sets a position's own definition declares (`permissionSets`, ADR-0131 D3/D4): the only binding (#2200). */
+const declaredSets = (position: string): string[] =>
+  ((positions.find((p) => String(p.name) === position)?.permissionSets ?? []) as unknown[]).map(String);
 const staffedPositions = new Set(DemoOrgStaffing.flatMap((m) => m.positions));
 const holdersOf = (position: string) => DemoOrgStaffing.filter((m) => m.positions.includes(position));
 
@@ -134,7 +262,7 @@ describe('the staffing table encodes the #640 decision, not an org chart', () =>
     expect(
       holdersOf('service_agent').length,
       'the case INTAKE pool must hold exactly one demo agent (2026-08-31: the minimum that lights ' +
-      'case_auto_assign, not an org chart)',
+      'case_intake_assignment, not an org chart)',
     ).toBe(1);
     expect(
       holdersOf('service_manager').length,
@@ -172,8 +300,8 @@ describe('the staffing table encodes the #640 decision, not an org chart', () =>
       `\n` +
       `  WHY TWO POSITIONS ARE STAFFED AND THESE SIX ARE NOT. Exactly two have ever crossed this ` +
       `fence — service_agent and service_manager, maintainer ruling 2026-08-31 — and the bar they ` +
-      `cleared is the only one that opens it: a shipped HOOK PICKS AN OWNER out of that pool ` +
-      `(case_auto_assign #596, case_escalation_reassign #1070 — src/objects/_case-assignment.ts), ` +
+      `cleared is the only one that opens it: a shipped mechanism PICKS AN OWNER out of that pool ` +
+      `(the case_intake_assignment rule #596/#2395, the case_escalation_reassign hook #1070), ` +
       `so an empty pool was not a bench nobody sits on but a code path that never ran on a demo ` +
       `box at all.\n` +
       `  Every position above fails that bar. Each one only RECEIVES a share or an approval — a ` +
@@ -192,12 +320,11 @@ describe('the staffing table encodes the #640 decision, not an org chart', () =>
     // additive `member_default` baseline (ADR-0090 D5) and the rows come from
     // the share — i.e. the demo would show a generic org member who happens to
     // see two records, not a sales rep.
-    const setNames = new Set(permissionSets.map((p) => String(p.name)));
     const bad: string[] = [];
     for (const m of DemoOrgStaffing) {
       if (!territorial(m)) continue;
-      // A set whose NAME matches a position is bound to it at install time.
-      if (!m.positions.some((p) => setNames.has(p))) {
+      // A position grants the sets it declares, each one this app ships.
+      if (!m.positions.some((p) => declaredSets(p).some((s) => shippedSetNames.has(s)))) {
         bad.push(`${m.email}: holds only territory position(s) [${m.positions.join(', ')}], so no permission set applies`);
       }
     }
@@ -225,19 +352,21 @@ describe('the staffing table encodes the #640 decision, not an org chart', () =>
     for (const m of DemoOrgStaffing) {
       if (!territorial(m)) continue;
       for (const position of m.positions) {
-        const grant = (setByName.get(position)?.objects ?? {})['crm_account'];
-        if (!grant) continue;
-        if (grant.viewAllRecords === true) {
-          bad.push(
-            `${m.email}: position "${position}" grants viewAllRecords on crm_account — they would ` +
-            `read every account, territory or not`,
-          );
-        }
-        if (grant.readScope != null && grant.readScope !== 'own') {
-          bad.push(
-            `${m.email}: position "${position}" reads crm_account at scope "${grant.readScope}", ` +
-            `which is wider than the 'own' depth the territory demo rests on`,
-          );
+        for (const set of declaredSets(position)) {
+          const grant = (setByName.get(set)?.objects ?? {})['crm_account'];
+          if (!grant) continue;
+          if (grant.viewAllRecords === true) {
+            bad.push(
+              `${m.email}: position "${position}" (set "${set}") grants viewAllRecords on crm_account — ` +
+              `they would read every account, territory or not`,
+            );
+          }
+          if (grant.readScope != null && grant.readScope !== 'own') {
+            bad.push(
+              `${m.email}: position "${position}" (set "${set}") reads crm_account at scope ` +
+              `"${grant.readScope}", which is wider than the 'own' depth the territory demo rests on`,
+            );
+          }
         }
       }
     }
@@ -249,7 +378,7 @@ describe('the staffing table encodes the #640 decision, not an org chart', () =>
 });
 
 describe('staffing lines up with the rules that grant, and the nodes that route', () => {
-  it('every staffed position is named by a sharing rule or a permission set', () => {
+  it('every staffed position is named by a sharing rule or an approval, or declares a permission set', () => {
     const referenced = new Set<string>();
     for (const rule of sharingRules) {
       if (rule.sharedWith?.type === 'position') referenced.add(String(rule.sharedWith.value));
@@ -261,7 +390,7 @@ describe('staffing lines up with the rules that grant, and the nodes that route'
         }
       }
     }
-    for (const ps of permissionSets) if (positionNames.has(String(ps.name))) referenced.add(String(ps.name));
+    for (const p of positionNames) if (declaredSets(p).some((s) => shippedSetNames.has(s))) referenced.add(p);
 
     const inert = [...staffedPositions].filter((p) => !referenced.has(p));
     expect(
@@ -312,6 +441,62 @@ describe('staffing lines up with the rules that grant, and the nodes that route'
 });
 
 /**
+ * Each position names the permission sets it distributes, and none reaches a
+ * set through the platform's name fold (#2200).
+ *
+ * The platform still folds a held position's name onto a same-named set, and
+ * logs `position_name_fold_grant` when that fold, and no declaration, is what
+ * granted it; the fold is ruled for retirement (objectstack#13419, ruling B).
+ * Measured on 18.0.0 before the declarations: this boot logged it for
+ * `sales_rep`, `sales_manager`, `service_agent` and `service_manager`, and Setup
+ * showed no set on those positions and nobody on each set's Assigned Users panel.
+ * The warning is read only for the positions a staffed person holds, the ones
+ * this boot resolves; `marketing_user`, staffed by nobody, is held by the
+ * roster pin alone.
+ */
+describe('each position names the sets it distributes, and none is reached by the name fold (#2200)', () => {
+  it('declares the eight bindings, each to a set the app ships', () => {
+    const declared = Object.fromEntries(
+      [...positionNames].filter((p) => declaredSets(p).length > 0).map((p) => [p, declaredSets(p)]),
+    );
+    expect(declared).toEqual({
+      sales_manager: ['sales_manager'],
+      sales_rep: ['sales_rep'],
+      // The #1779 ruling: the escalation pool works tickets with the agent's grants.
+      service_manager: ['service_agent'],
+      service_agent: ['service_agent'],
+      // The two marketing rungs lead the marketers and hold their set (#2338 item 3).
+      marketing_director: ['marketing_user'],
+      marketing_manager: ['marketing_user'],
+      marketing_user: ['marketing_user'],
+      system_admin: ['system_admin'],
+    });
+    expect(Object.values(declared).flat().filter((s) => !shippedSetNames.has(s)), 'a binding names a set the app does not ship').toEqual([]);
+  });
+
+  it('each staffed person resolves every set their positions declare', async () => {
+    const missing: string[] = [];
+    for (const m of DemoOrgStaffing) {
+      const res = await verify.apiAs(staffed[m.key]!.token, 'GET', '/auth/me/permissions');
+      expect(res.status, await res.clone().text()).toBe(200);
+      const body = (await res.json()) as AnyRec;
+      const resolved = new Set(((body.data ?? body).permissionSets ?? []).map(String));
+      for (const set of m.positions.flatMap(declaredSets)) if (!resolved.has(set)) missing.push(`${m.email}: ${set}`);
+    }
+    expect(missing, 'declared sets a staffed person does not resolve').toEqual([]);
+  });
+
+  it('the boot logs no position_name_fold_grant naming a HotCRM position', () => {
+    const lines = bootLog.join('').split('\n');
+    expect(lines.some((l) => /\b(INFO|WARN)\b/.test(l)), 'the capture read none of the platform logger, so it proves nothing').toBe(true);
+    const folded = lines
+      .filter((l) => l.includes('position_name_fold_grant'))
+      .filter((l) => [...positionNames].some((p) => l.includes(`'${p}'`)));
+    expect(folded, 'a HotCRM position reached a set only by sharing its name: declare it in permissionSets').toEqual([]);
+  });
+});
+
+/**
  * The arithmetic the demo rests on, recomputed from the REAL seeds through the
  * REAL hook and the seeder's own CEL compiler — the same chain
  * `test/territory-seed-coverage.test.ts` walks, asked here from the staffing
@@ -319,45 +504,42 @@ describe('staffing lines up with the rules that grant, and the nodes that route'
  */
 describe('what each staffed person actually receives', () => {
   type Dataset = { object: string; records: AnyRec[] };
-  const accountRecords = (CrmSeedData as unknown as Dataset[])
+  const seededNames = (CrmSeedData as unknown as Dataset[])
     .filter((d) => d.object === 'crm_account')
-    .flatMap((d) => d.records);
+    .flatMap((d) => d.records)
+    .map((r) => String(r.name));
 
-  const project = async (record: AnyRec): Promise<AnyRec> => {
-    const input: AnyRec = { ...record };
-    await (accountHook as AnyRec).handler(makeCtx({ event: 'beforeInsert', input }));
-    return input;
-  };
-
-  const matches = (filter: AnyRec, row: AnyRec): boolean => {
-    const entries = Object.entries(filter);
-    if (entries.length !== 1) throw new Error(`expected a single-field filter, got ${JSON.stringify(filter)}`);
-    const [field, condition] = entries[0];
-    if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
-      const ops = Object.entries(condition as AnyRec);
-      if (ops.length === 1 && ops[0][0] === '$in' && Array.isArray(ops[0][1])) {
-        return (ops[0][1] as unknown[]).includes(row[field]);
-      }
-      throw new Error(`unsupported compiled operator: ${JSON.stringify(condition)}`);
+  /**
+   * `pnpm demo:staff` step 4: re-evaluate the territory rules through the
+   * platform's own door (`POST /sharing/rules/:idOrName/evaluate`, as the
+   * admin) — the seeded accounts were written as the system, which
+   * materialises no grant, and the people above did not exist yet when they
+   * were.
+   *
+   * Both rules are declared by the app, and since @objectstack/spec
+   * 18.0.0-next.4 a declared rule has no `sys_sharing_rule` row: plugin-sharing
+   * reads it from the registry and its id IS its name (changeset
+   * `23952-declared-sharing-rules-registry`). So each is read and evaluated
+   * through the sharing door, by name.
+   */
+  beforeAll(async () => {
+    for (const name of ['north_america_territory', 'europe_territory']) {
+      const rule = await verify.apiAs(admin, 'GET', `/sharing/rules/${name}`);
+      expect(rule.status, `sharing rule ${name} is not served: ${await rule.clone().text()}`).toBe(200);
+      const res = await verify.apiAs(admin, 'POST', `/sharing/rules/${name}/evaluate`);
+      expect(res.status, await res.clone().text()).toBe(200);
     }
-    return row[field] === condition;
-  };
+  }, 120_000);
 
-  /** Account names one staffed member receives through a named territory rule. */
-  const receives = async (ruleName: string): Promise<string[]> => {
-    const rule = sharingRules.find((r) => r.name === ruleName);
-    if (!rule) throw new Error(`no sharing rule named ${ruleName}`);
-    const compiled = compileCelToFilter(rule.condition ?? '', { variables: {} });
-    if (!compiled.ok) throw new Error(`${ruleName}: condition does not compile (${compiled.reason})`);
-    const rows = await Promise.all(accountRecords.map(project));
-    return rows.filter((row) => matches(compiled.filter as AnyRec, row)).map((r) => String(r.name));
-  };
+  /** The seeded accounts `key`'s person can read. */
+  const receives = async (key: string): Promise<string[]> =>
+    (await verify.rows('crm_account', { name: { $in: seededNames } }, { as: staffed[key]!.token })).map((r) => String(r.name));
 
   it('hands the NA rep six accounts and the EU rep two', async () => {
-    const na = await receives('north_america_territory');
-    const eu = await receives('europe_territory');
-    expect(na.length, `north_america_territory covers [${na.join(', ')}]`).toBe(6);
-    expect(eu.length, `europe_territory covers [${eu.join(', ')}]`).toBe(2);
+    const na = await receives('na_rep');
+    const eu = await receives('eu_rep');
+    expect(na.length, `the NA rep reads [${na.join(', ')}]`).toBe(6);
+    expect(eu.length, `the EU rep reads [${eu.join(', ')}]`).toBe(2);
     expect(na.filter((n) => eu.includes(n)), 'an account in BOTH territories hides which rule granted it').toEqual([]);
   });
 
@@ -365,10 +547,9 @@ describe('what each staffed person actually receives', () => {
     // #638 seeded one account (SG) that matches NEITHER rule, deliberately: a
     // set with nothing outside the territories cannot tell a working filter
     // apart from a match-all one. It is a probe — do not remove or retune it.
-    const na = await receives('north_america_territory');
-    const eu = await receives('europe_territory');
-    const rows = await Promise.all(accountRecords.map(project));
-    const outside = rows.map((r) => String(r.name)).filter((n) => !na.includes(n) && !eu.includes(n));
+    const na = await receives('na_rep');
+    const eu = await receives('eu_rep');
+    const outside = seededNames.filter((n) => !na.includes(n) && !eu.includes(n));
     expect(
       outside.length,
       `every seeded account falls in a territory, so a match-all regression would be invisible`,
@@ -393,63 +574,87 @@ describe('what each staffed person actually receives', () => {
  * value, so it stands in exactly.
  */
 describe('the case-routing pools actually route (what this staffing lights)', () => {
-  const assign = hookNamed(caseHooks, 'case_auto_assign');
-  const escalationReassign = hookNamed(caseHooks, 'case_escalation_reassign');
-
-  /** `sys_user_position` as the demo box would hold it after `pnpm demo:staff`. */
-  const demoPositionRows = DemoOrgStaffing.flatMap((m) =>
-    m.positions.map((position) => ({ user_id: m.email, position })),
-  );
   /**
    * The demo person this pool routes to — pinned as a STRING before it is
    * compared to anything.
    *
-   * Measured while writing this block: comparing `input.owner_id` straight to
-   * `holdersOf(p)[0]?.email` passes VACUOUSLY on an unstaffed pool, because a
-   * hook that no-ops leaves `owner_id` undefined and the lookup returns
-   * undefined too — the two demonstrations below stayed green with both
-   * staffing rows deleted, i.e. exactly when the feature was dark again. So
-   * the empty pool fails here, on its own line, before any comparison.
+   * Measured while writing this block: comparing `owner_id` straight to the
+   * holder's id passes VACUOUSLY on an unstaffed pool, because a hook that
+   * no-ops leaves `owner_id` unset and the lookup returns undefined too — the
+   * two demonstrations below stayed green with both staffing rows deleted,
+   * i.e. exactly when the feature was dark again. So the empty pool fails
+   * here, on its own line, before any comparison.
    */
   const holderOf = (position: string): string => {
-    const email = holdersOf(position)[0]?.email;
+    const key = holdersOf(position)[0]?.key;
+    const id = key ? staffed[key]?.id : undefined;
     expect(
-      email,
+      id,
       `nobody in the demo org holds "${position}" — the pool the hook reads is empty, so the ` +
       `assertion below would be comparing undefined to undefined and would pass while the ` +
       `mechanism is dark`,
     ).toBeTypeOf('string');
-    return String(email);
+    return String(id);
   };
 
-  it('round-robins an ownerless case onto the demo service agent (#596)', async () => {
-    const harness = makeHarness({ sys_user_position: demoPositionRows, crm_case: [] });
-    const input: AnyRec = { subject: 'Web-to-case: cannot sign in', status: 'new', origin: 'web' };
-
-    await assign.handler(makeCtx({ event: 'beforeInsert', input, api: harness.api }));
-
+  it('routes an ownerless case onto the demo service agent (#596, #2395)', async () => {
+    // Ownerless intake: a case the system writes (an email-to-case
+    // integration, an import). An anonymous web form's case reaches the same
+    // pool, read elevated (#2014; pinned in case-assignment.test.ts).
+    const [kase] = await verify.seed('crm_case', [{
+      subject: 'Email-to-case: cannot sign in', description: 'Forwarded from support@.', status: 'new',
+    }]);
+    const [stored] = await verify.rows('crm_case', { id: kase!.id });
     expect(
-      input.owner_id,
-      `case_auto_assign left the case OWNERLESS against the demo org's own position rows — the ` +
-      `service_agent pool is empty again, so intake round-robin is back to the no-op path on every ` +
+      stored!.owner_id,
+      `case_intake_assignment left the case OWNERLESS against the demo org's own position rows — the ` +
+      `service_agent pool is empty again, so every new case parks in the case_intake queue on every ` +
       `demo box and the unassigned_triage tab is the whole story.`,
     ).toBe(holderOf('service_agent'));
   });
 
-  it('hands an escalating case to the demo service manager (#1070)', async () => {
-    const harness = makeHarness({ sys_user_position: demoPositionRows, crm_case: [] });
-    const previous: AnyRec = { id: 'case_1', status: 'in_progress', owner_id: 'someone_else' };
-    const input: AnyRec = { status: 'escalated' };
+  /** A case the demo agent opened and works. */
+  const agentsCase = async (): Promise<{ agent: Person; id: string }> => {
+    const agent = staffed[holdersOf('service_agent')[0]!.key]!;
+    const kase = await verify.hooks.run('crm_case', 'insert', {
+      subject: 'Escalate me', description: 'Customer is waiting.', status: 'in_progress',
+    }, { as: agent.token });
+    return { agent, id: String(kase.id) };
+  };
 
-    await escalationReassign.handler(
-      makeCtx({ event: 'beforeUpdate', input, previous, api: harness.api }),
-    );
+  it('hands an escalating case to the demo service manager (#1070)', async () => {
+    // The escalation the SLA sweep writes — `case_sla_monitor`'s `flag_breach`
+    // node sets `status: 'escalated'` as the system (`runAs: 'system'`).
+    const { id } = await agentsCase();
+    await systemUpdate(verify, 'crm_case', { id, status: 'escalated' });
+    const [stored] = await verify.rows('crm_case', { id });
 
     expect(
-      input.owner_id,
+      stored!.owner_id,
       `case_escalation_reassign moved NOTHING against the demo org's own position rows — the ` +
       `service_manager pool is empty again, so escalation is only a flag and a status and the ` +
       `agent who could not get to the case in time stays the only person who can work it.`,
+    ).toBe(holderOf('service_manager'));
+  });
+
+  /**
+   * An agent escalating their own case — the record form, or the
+   * `escalate_case` screen action, whose `escalate` node deliberately keeps the
+   * status write in the acting user's context so the hand-off "fires from the
+   * ACTING USER's write" — hands it to the demo service manager too (#2014).
+   * The agent may not read the pool (`sys_user_position`), so the hand-off
+   * reads it elevated (`runAs: 'system'`); before it did, the read was refused,
+   * the hook stood down, and the case stayed with the agent.
+   */
+  it('hands an agent’s own escalation to the demo service manager', async () => {
+    const { agent, id } = await agentsCase();
+    await verify.hooks.run('crm_case', 'update', { id, status: 'escalated' }, { as: agent.token });
+    const [stored] = await verify.rows('crm_case', { id });
+    expect(stored!.status).toBe('escalated');
+    expect(
+      stored!.owner_id,
+      `case_escalation_reassign left the agent's own escalation on the agent — the hand-off no longer ` +
+      `reaches the service_manager pool from a person's write, only from the SLA sweep's.`,
     ).toBe(holderOf('service_manager'));
   });
 
@@ -465,10 +670,11 @@ describe('the case-routing pools actually route (what this staffing lights)', ()
     // part is the ZERO. The ruling that authorised this staffing counted FOUR
     // mechanisms lit, `case_director_sharing` among them — measured, that one
     // is NOT lit: its recipient is `service_director`, which the same ruling
-    // leaves empty. The fourth mechanism these rows actually reach is
-    // `case_unassigned_triage_sharing` (#1096's read side), which the ruling
-    // did not name. Staffing service_director to "finish the set" is the
-    // org-chart move the fence above exists to stop.
+    // leaves empty. (The agent's row once lit `case_unassigned_triage_sharing`
+    // too; #2395 deleted it, because the `case_intake` queue's members read the
+    // cases sitting in it through the queue itself, not a sharing rule.)
+    // Staffing service_director to "finish the set" is the org-chart move the
+    // fence above exists to stop.
     const census = sharingRules
       .filter((r) => r.object === 'crm_case' && r.sharedWith?.type === 'position')
       .map((r) => `${String(r.name)}\u2192${String(r.sharedWith.value)}: ${holdersOf(String(r.sharedWith.value)).length} holder(s)`)
@@ -476,8 +682,194 @@ describe('the case-routing pools actually route (what this staffing lights)', ()
     expect(census).toEqual([
       'case_director_sharing\u2192service_director: 0 holder(s)',
       'case_escalation_sharing\u2192service_manager: 1 holder(s)',
-      'case_unassigned_triage_sharing\u2192service_agent: 1 holder(s)',
     ]);
+  });
+});
+
+/**
+ * Who asks for the large-deal approvals (#2129) — read off the run in
+ * `beforeAll`, not re-enacted.
+ *
+ * `opportunity_approval` fires on ANY update of an open deal at or above the
+ * large-deal line that is not yet in approval, and the request names the
+ * writer as submitter. A seeded deal opens none (the seed loader writes with
+ * `skipTriggers`), so whoever makes the first write after the seed is the one
+ * who asked, and that write is the script's hand-over, a PATCH of `owner_id`
+ * as the dev admin with every control in force. So the request on each of the
+ * two seeded open deals over the line names the DEV ADMIN as submitter, waits
+ * on the sales manager, and the deal belongs to the rep its territory routes
+ * it to.
+ *
+ * Through 18.0.0-next.3 the script handed these deals over through the import
+ * door with `runAutomations: false` and had each owner save their deal, so the
+ * request named the rep. Since 18.0.0-next.4 the import door refuses that
+ * opt-out to every caller but the system principal (objectstack#24348). A
+ * recall does not bring the rep back as submitter either: measured on
+ * 18.0.0-next.5, a recalled request leaves the deal's `approval_status` at
+ * `recalled`, and the flow enters only from `not_required`, so the owner's next
+ * save opens nothing (hotcrm#2179).
+ */
+describe('pnpm demo:staff on the shipped app: the hand-over opens each large-deal approval, as the dev admin (#2129)', () => {
+  /** The two open deals the seed prices over the line, by name (`test/seed-consistency.test.ts` pins them). */
+  const LARGE_OPEN_DEALS = ['Acme Platform Upgrade', 'Wayne Enterprise License'];
+
+  it('finishes with its own verdict green', () => {
+    expect(run.exit, `scripts/demo-staff.ts did not connect:\n${run.output.join('\n')}`).toBe(0);
+  });
+
+  it("opens each large deal's request on the hand-over, waiting on the sales manager", async () => {
+    const adminId = String((await verify.contextFor(admin)).userId);
+    const personaIds = new Set(Object.values(staffed).map((p) => p.id));
+    const manager = staffed[holdersOf('sales_manager')[0]!.key]!.id;
+    const deals = await verify.rows('crm_opportunity', { name: { $in: LARGE_OPEN_DEALS } });
+    expect(deals.map((d) => String(d.name)).sort(), 'the seeded large open deals are not both there').toEqual(
+      [...LARGE_OPEN_DEALS].sort(),
+    );
+
+    for (const deal of deals) {
+      const owner = String(deal.owner_id ?? '');
+      expect(personaIds.has(owner), `${deal.name} is owned by ${owner || 'nobody'}, not by a demo person`).toBe(true);
+      const requests = await verify.rows('sys_approval_request', {
+        object_name: 'crm_opportunity',
+        record_id: deal.id,
+        status: 'pending',
+      });
+      expect(requests.length, `${deal.name}: ${requests.length} pending approval request(s), expected its one`).toBe(1);
+      const [request] = requests;
+      expect(
+        String(request!.submitter_id),
+        `${deal.name}: the request names ${request!.submitter_id === owner ? 'the rep who owns the deal' : request!.submitter_id} ` +
+        `as submitter, not the dev admin whose hand-over is the first write after the seed.`,
+      ).toBe(adminId);
+      expect(request!.current_step).toBe('manager_review');
+      expect(String(request!.pending_approvers ?? '').split(','), `${deal.name}: not waiting on the sales manager`).toEqual([
+        manager,
+      ]);
+    }
+  });
+
+  it("leaves the dev admin's inbox empty and decides nothing", async () => {
+    // Wayne's director tier lands on the admin (`admin_rescue`) only once the
+    // sales manager approves the manager tier; the script approves nothing, so
+    // the admin waits on none of these and every action on them is a submit.
+    const adminId = String((await verify.contextFor(admin)).userId);
+    const deals = await verify.rows('crm_opportunity', { name: { $in: LARGE_OPEN_DEALS } });
+    const dealIds = new Set(deals.map((d) => String(d.id)));
+    const res = await verify.apiAs(admin, 'GET', `/approvals/requests?status=pending&approverId=${adminId}`);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const inbox = ((await res.json()).data ?? []) as AnyRec[];
+    expect(inbox.filter((r) => dealIds.has(String(r.record_id))).map((r) => String(r.current_step))).toEqual([]);
+
+    const requests = await verify.rows('sys_approval_request', { object_name: 'crm_opportunity', record_id: { $in: [...dealIds] } });
+    const actions = await verify.rows('sys_approval_action', { request_id: { $in: requests.map((r) => r.id) } });
+    expect(actions.map((a) => String(a.action)).sort()).toEqual(requests.map(() => 'submit'));
+  });
+});
+
+/**
+ * Every seeded case has a named owner once `pnpm demo:staff` has run (#2206).
+ *
+ * Until `crm_case` was routed, which persona owned the demo's cases depended on
+ * timing. Measured on 18.0.0, fresh `pnpm dev`: run while the seed was still
+ * writing, the app's `case_auto_assign` hook (replaced by the platform's
+ * `case_intake_assignment` rule in #2395) put all 38 on the service agent; run after it
+ * settled, all 38 stayed with the dev admin, and the agent's
+ * `GET /api/v1/data/crm_case` answered `total: 0`. The script now waits for the
+ * seed and hands each case to its desk (`CASE_DESK`): escalated and critical
+ * cases to the service manager, the rest to the service agent. On the same
+ * fresh boot that left the agent 23 cases (12 open) and the manager 15.
+ */
+describe('pnpm demo:staff hands every seeded case to its service desk (#2206)', () => {
+  const seededCases = (CrmSeedData as ReadonlyArray<AnyRec>)
+    .filter((d) => d.object === 'crm_case')
+    .flatMap((d) => (d.records ?? []) as AnyRec[]);
+  const subjects = seededCases.map((c) => String(c.subject));
+  const ownerOfDesk = (desk: keyof typeof CASE_DESK) => staffed[CASE_DESK[desk]]!.id;
+
+  it("waits on every routed object's whole seed: the barrels it reads carry all of CrmSeedData's rows for them", () => {
+    // `scripts/demo-staff.ts` reads the two seed barrels rather than `CrmSeedData`
+    // (see `seededKeysByObject`). A routed object seeded from anywhere else would
+    // be routed without being waited for, which is the #2206 race again.
+    const rowsOf = (datasets: ReadonlyArray<unknown>, object: string) =>
+      (datasets as AnyRec[]).filter((d) => d?.object === object).reduce((n, d) => n + (d.records?.length ?? 0), 0);
+    const barrels = Object.values({ ...salesSeeds, ...serviceSeeds });
+    for (const { object } of DemoPipelineOwnership) {
+      const seeded = rowsOf(CrmSeedData, object);
+      expect(seeded, `${object} is routed but CrmSeedData seeds no row of it`).toBeGreaterThan(0);
+      expect(rowsOf(barrels, object), `${object}: the seed barrels the script reads miss some of its seeded rows`).toBe(seeded);
+    }
+  });
+
+  it('puts seeded cases on both desks', () => {
+    expect(seededCases.length, 'no seeded case found in CrmSeedData').toBeGreaterThan(0);
+    const desks = new Set(seededCases.map(caseDeskOf));
+    expect([...desks].sort(), 'every seeded case lands on one desk, so the other persona has nothing').toEqual([
+      'escalation',
+      'intake',
+    ]);
+  });
+
+  it('leaves no seeded case with the dev admin or nobody, and each on its desk', async () => {
+    const rows = await verify.rows('crm_case', { subject: { $in: subjects } });
+    expect(rows.length, 'a seeded case is missing from the booted app').toBe(subjects.length);
+    const misplaced = rows
+      .filter((r) => String(r.owner_id ?? '') !== ownerOfDesk(caseDeskOf(r)))
+      .map((r) => `${String(r.subject)} (${caseDeskOf(r)} desk) is owned by ${String(r.owner_id ?? 'nobody')}`);
+    expect(misplaced, `scripts/demo-staff.ts output:\n${run.output.join('\n')}`).toEqual([]);
+  });
+
+  it('gives the service agent cases of their own to work, read as the agent', async () => {
+    const agent = staffed[CASE_DESK.intake]!;
+    const res = await verify.apiAs(agent.token, 'GET', '/data/crm_case');
+    expect(res.status, await res.clone().text()).toBe(200);
+    const records = ((await res.json()).records ?? []) as AnyRec[];
+    expect(records.length, 'the service agent reads no case: their Customer Service page is all zeros').toBeGreaterThan(0);
+    expect(records.filter((r) => !['resolved', 'closed'].includes(String(r.status))).length, 'no OPEN case to work').toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The dev admin exports once `pnpm demo:staff` has run, and exports only what
+ * the sets step 0 grants it name (#2061).
+ *
+ * Since 18.0.0 the platform's administrator sets carry no export (maintainer
+ * ruling of 2026-08-15), so the dev admin's own sets export nothing and the
+ * export it gets is exactly the app set's. The reading taken before the run is
+ * the control: the same admin on the same boot, refused, so a 200 below is the
+ * grant's and not a platform default's.
+ */
+describe('pnpm demo:staff gives the dev admin export, and only where system_admin grants it (#2061)', () => {
+  const granted = new Set(DemoAdminPermissionSets.map((g) => g.permissionSet));
+  const exportable = [...new Set(
+    permissionSets
+      .filter((ps) => granted.has(String(ps.name)))
+      .flatMap((ps) => Object.entries((ps.objects ?? {}) as Record<string, AnyRec>)
+        .filter(([, perm]) => perm.allowExport === true)
+        .map(([objectName]) => objectName)),
+  )].sort();
+
+  it('names sets the app ships, each with a reason, and together they grant export', () => {
+    const shipped = new Set(permissionSets.map((ps) => String(ps.name)));
+    expect([...granted].filter((name) => !shipped.has(name)), 'the dev admin is granted a set the app does not ship').toEqual([]);
+    expect(DemoAdminPermissionSets.filter((g) => g.demonstrates.trim() === '').map((g) => g.permissionSet)).toEqual([]);
+    expect(exportable, "the dev admin's demo sets grant export on no object").not.toEqual([]);
+  });
+
+  it('refuses the dev admin before the run, and answers every object those sets export after it', async () => {
+    expect(adminExportBefore, 'the control: before the run the dev admin must be refused').toEqual({
+      status: 403,
+      code: 'EXPORT_NOT_PERMITTED',
+    });
+    const after: Record<string, ExportAnswer> = {};
+    for (const objectName of exportable) after[objectName] = await exportAnswer(admin, objectName);
+    expect(after, `scripts/demo-staff.ts output:\n${run.output.join('\n')}`).toEqual(
+      Object.fromEntries(exportable.map((objectName) => [objectName, { status: 200 }])),
+    );
+  });
+
+  it('still refuses an object no granted set exports: no wildcard', async () => {
+    expect(exportable).not.toContain('crm_quote');
+    expect(await exportAnswer(admin, 'crm_quote')).toEqual({ status: 403, code: 'EXPORT_NOT_PERMITTED' });
   });
 });
 
@@ -524,7 +916,7 @@ describe('the published artifact cannot create these people (#640 hard constrain
     // only by `scripts/demo-staff.ts` and by this suite.
     expect(
       Object.keys(sharingBarrel),
-      'src/sharing/index.ts must not re-export DemoOrgStaffing — the barrel is what objectstack.config.ts reads',
+      'src/sales/sharing/index.ts must not re-export DemoOrgStaffing — the barrel is what objectstack.composition.ts registers from',
     ).not.toContain('DemoOrgStaffing');
 
     const serialized = JSON.stringify(stack, (_k, v) => (typeof v === 'function' ? undefined : v));

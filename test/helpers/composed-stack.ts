@@ -1,0 +1,145 @@
+// Copyright (c) 2026 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { deepMerge } from '@objectstack/core';
+import { composeStacks } from '@objectstack/spec';
+import { SchemaRegistry } from '@objectstack/objectql';
+import { packageStacks } from '../../objectstack.composition';
+
+/**
+ * Every collection of the app, in ONE stack — what the suites read.
+ *
+ * `objectstack.config.ts` composes the four package stacks with
+ * `manifest: 'preserve'`, and a multi-package `preserve` composition carries
+ * each definition ONCE, in the body of the package that owns it: the artifact
+ * has `packages[]` and no flattened `objects` / `views` / `flows` / … beside
+ * it (ADR-0130 D4, 2026-09-22 addendum). That is right for the artifact and
+ * useless to a suite asking "every object of the app", which is the question
+ * almost every suite here asks — they pin this app's business facts, and the
+ * app a customer installs is the whole artifact, all four packages.
+ *
+ * So this composes the SAME four built stacks with the platform's own
+ * `composeStacks` in its default, flattening mode: every collection
+ * concatenated in stack order (the three modules first, the app last), objects merged
+ * under the default `objectConflict: 'error'`, and the singular `manifest`
+ * picked by the default `'last'` rule — the app package's, exactly as the
+ * artifact's own `manifest` is. ⛔ Nothing here re-implements a platform
+ * reader: it is the platform's composition over the very values the config
+ * composes, and `test/package-ownership.test.ts` holds the two views to the
+ * same contents.
+ *
+ * Two things this view deliberately does NOT carry, so a suite that needs them
+ * reads them where they live:
+ *
+ *  - PER-PACKAGE ownership — read `objectstack.config`'s `packages[]`, or
+ *    the package stacks from `objectstack.composition.ts`.
+ *  - the modules' `navigationContributions` — they are part of each module's
+ *    manifest, and the singular manifest here is the app's. Read
+ *    {@link servedApps}, which folds them in.
+ *
+ * A suite that BOOTS the app (`new AppPlugin(…)`) hands it the real artifact,
+ * `objectstack.config`, not this view: the registration path is part of what
+ * such a suite measures.
+ */
+const composedStack = composeStacks(packageStacks);
+
+export default composedStack;
+
+export type AnyRec = Record<string, any>;
+
+/**
+ * Locale packs, flattened to `[locale, pack]` pairs.
+ *
+ * `translations` holds ONE `TranslationBundle` keyed by locale
+ * (`{ en: {...}, 'zh-CN': {...} }`) — NOT a list of per-locale records. A
+ * `translations.find(t => t.locale === 'zh-CN')` therefore matches nothing and
+ * silently turns its test into a no-op, which is how the navigation guard in
+ * `test/action-references.test.ts` spent its life passing without asserting
+ * anything.
+ *
+ * Read off the composed view rather than the booted registry on purpose: the
+ * handle's `metadata` carries no translation type (`metadata.types()` lists
+ * none), and the locale packs are authored app metadata, not a runtime fact.
+ *
+ * Every package registers its own bundle (#2352), so the composed view holds
+ * four, and a locale's rows are spread across them. Each locale is folded into
+ * ONE pack with `@objectstack/core`'s `deepMerge` — the function the runtime's
+ * `loadTranslations` folds bundles with, so a suite reads the tree
+ * `GET /api/v1/i18n/translations/LOCALE` serves. Taking the first bundle per
+ * locale instead would hand a suite one module's rows and nothing else.
+ */
+export const localePacks: [string, AnyRec][] = Object.entries(
+  ((composedStack as AnyRec).translations ?? []).reduce(
+    (byLocale: Record<string, AnyRec>, bundle: AnyRec) => {
+      for (const [locale, pack] of Object.entries(bundle) as [string, AnyRec][]) {
+        byLocale[locale] = deepMerge(byLocale[locale] ?? {}, pack);
+      }
+      return byLocale;
+    },
+    {} as Record<string, AnyRec>,
+  ) as Record<string, AnyRec>,
+);
+export const packFor = (locale: string): AnyRec | undefined =>
+  localePacks.find(([name]) => name === locale)?.[1];
+
+/**
+ * A registered hook, by name, out of the composed view's `hooks` — every hook
+ * either package registers. Throws rather than answering `undefined`: a suite
+ * holding no hook asserts nothing about it.
+ */
+export const hookNamed = (name: string): AnyRec => {
+  const hook = (((composedStack as AnyRec).hooks ?? []) as AnyRec[]).find((h) => h?.name === name);
+  if (!hook) throw new Error(`no hook named "${name}" is registered by either package`);
+  return hook;
+};
+
+/** Walk an arbitrary metadata tree, yielding every node that has a `type`. */
+export function* walk(node: unknown): Generator<AnyRec> {
+  if (Array.isArray(node)) {
+    for (const item of node) yield* walk(item);
+    return;
+  }
+  if (!node || typeof node !== 'object') return;
+  const rec = node as AnyRec;
+  if (typeof rec.type === 'string') yield rec;
+  for (const value of Object.values(rec)) yield* walk(value);
+}
+
+/**
+ * Every app of the artifact AS SERVED — each package's `navigationContributions`
+ * folded into the app's navigation tree by the platform's own fold.
+ *
+ * The modules put their entries into the app's menu through their manifests
+ * — service seven (`nav_case`, `nav_knowledge`, `nav_service_dashboard`,
+ * `nav_my_cases` and its three case reports), revenue two (`nav_quote`,
+ * `nav_product`), marketing one (`nav_campaign`) — so the
+ * app's AUTHORED `navigation` no longer carries them, and a suite that walks
+ * it alone would call them unreachable. What a user sees is the folded tree:
+ * `SchemaRegistry.applyNavContributions` — the method `GET /api/v1/meta/app`
+ * serves through — appends each contribution into the group it names, in
+ * `priority` order, after the group's own children. This registers the same four
+ * package stacks into a bare registry and reads the apps back through it, so
+ * the order a suite sees is the order the console renders, and ⛔ no suite
+ * re-implements the fold.
+ */
+export const servedApps = (): AnyRec[] => {
+  const registry = new SchemaRegistry();
+  for (const stack of packageStacks as AnyRec[]) {
+    const packageId = String(stack.manifest?.id);
+    for (const app of (stack.apps ?? []) as AnyRec[]) registry.registerApp(app, packageId);
+    for (const contribution of (stack.manifest?.navigationContributions ?? []) as AnyRec[]) {
+      registry.registerAppNavContribution(contribution as never, packageId);
+    }
+  }
+  return registry.getAllApps() as AnyRec[];
+};
+
+/**
+ * One app AS SERVED, by name — see {@link servedApps}. Throws rather than
+ * answering `undefined`: a suite walking an empty navigation tree passes over
+ * nothing, which is the failure every navigation pin here guards against.
+ */
+export const servedApp = (name: string): AnyRec => {
+  const app = servedApps().find((candidate) => candidate.name === name);
+  if (!app) throw new Error(`no app named "${name}" is registered by any package of the artifact`);
+  return app;
+};

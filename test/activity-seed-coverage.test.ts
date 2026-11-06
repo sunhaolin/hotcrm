@@ -2,11 +2,18 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AnalyticsService } from '@objectstack/service-analytics';
 import { resolveSeedRecord } from '@objectstack/formula';
-import stack from '../objectstack.config';
-import { CrmSeedData } from '../src/data/index';
+import stack from './helpers/composed-stack';
+import { CrmSeedData } from '../objectstack.composition';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * The activity model's demo data (#671).
@@ -139,9 +146,10 @@ describe('the activity seeds resolve against real records (#671)', () => {
     expect(bad, `events whose parent does not resolve:\n  ${bad.join('\n  ')}`).toEqual([]);
   });
 
-  it('keys every event on a unique subject — the upsert identity', () => {
-    // `externalId: 'subject'`. Two rows sharing one means the second overwrites
-    // the first on every boot, and the demo silently loses an interaction.
+  it('keys every event on a unique subject — the seed identity', () => {
+    // `externalId: 'subject'`. Two rows sharing one collide on that key: a
+    // reference by subject (an attendee row, a timeline pointer) reaches only
+    // one of them.
     const seen = new Map<string, number>();
     for (const e of eventRows) seen.set(String(e.subject), (seen.get(String(e.subject)) ?? 0) + 1);
     const dupes = [...seen].filter(([, n]) => n > 1).map(([s]) => s);
@@ -152,7 +160,7 @@ describe('the activity seeds resolve against real records (#671)', () => {
     const authored = [...eventRows, ...attendeeRows].filter((r) => 'owner_id' in r);
     expect(
       authored.map((r) => String(r.subject ?? r.crm_event)),
-      'ownership is demo_bootstrap\'s job (src/data/index.ts); an authored owner_id would ' +
+      'ownership is the platform seed-ownership claim\'s job; an authored owner_id would ' +
         'store a literal string, not an id',
     ).toEqual([]);
   });
@@ -390,12 +398,13 @@ const datasetByName = new Map(datasetDefs.map((d) => [String(d.name), d]));
 const objectByName = new Map(objects.map((o) => [String(o.name), o]));
 
 /**
- * The claim `demo_bootstrap` performs on first boot, modelled as the one thing
- * this file needs from it: a seeded event reaches the database ownerless, and
- * the sweep stamps the first user onto it (#671 added `crm_event` to
- * CLAIMED_OBJECTS — `test/flow-scheduled.test.ts` owns the sweep's behaviour).
- * Without it the "Activity by Rep" bar groups every interaction under a null
- * owner, which is the defect that claim exists to prevent.
+ * The ownership claim the platform performs once the seed settles
+ * (`claimSeedOwnership` on `app:seeded`, `@objectstack/plugin-security`),
+ * modelled as the one thing this file needs from it: a seeded event reaches
+ * the database ownerless, and the claim stamps the first administrator onto it.
+ * Until #1892 the app's own `demo_bootstrap` sweep did this (#671 added
+ * `crm_event` to it). Without it the "Activity by Rep" bar groups every
+ * interaction under a null owner, which is the defect that claim prevents.
  */
 const OWNER = 'usr_first';
 
@@ -406,9 +415,14 @@ const accountIsActiveDefault = (): boolean => {
   return field!.defaultValue === true;
 };
 
-const makeEngine = () =>
-  ObjectQL.create({
-    datasources: { default: new InMemoryDriver({ persistence: false }) },
+/**
+ * A real SQLite database. `ObjectQL.create` connects the datasource but emits
+ * no DDL, so the engine's own `syncSchemas()` creates the tables the way the
+ * runtime's boot does.
+ */
+const makeEngine = async () => {
+  const ql = await ObjectQL.create({
+    datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
     objects: {
       // Only the columns the four datasets read. The object suite owns the full
       // schemas; the contract under test here is "which rows do the widget
@@ -459,6 +473,9 @@ const makeEngine = () =>
       },
     } as never,
   });
+  await ql.syncSchemas();
+  return ql;
+};
 
 describe('every Sales Activity widget returns a number over the shipped seeds (#671)', () => {
   let ql: Awaited<ReturnType<typeof makeEngine>>;
@@ -466,7 +483,7 @@ describe('every Sales Activity widget returns a number over the shipped seeds (#
 
   beforeAll(async () => {
     ql = await makeEngine();
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
 
     const isActive = accountIsActiveDefault();
     for (const a of accountRows) {
@@ -483,7 +500,7 @@ describe('every Sales Activity widget returns a number over the shipped seeds (#
     }
     for (const e of eventRows) {
       await api.object('crm_event').insert({
-        // The sweep's stamp — see OWNER above.
+        // The claim's stamp — see OWNER above.
         owner_id: OWNER,
         subject: e.subject,
         type: e.type,
@@ -541,7 +558,7 @@ describe('every Sales Activity widget returns a number over the shipped seeds (#
         measures: widget.values,
         ...(widget.filter ? { runtimeFilter: widget.filter as never } : {}),
       },
-      { isSystem: true } as never,
+      { isSystem: true, tenantId: ORG } as never,
     );
     return result.rows as AnyRec[];
   };
@@ -588,15 +605,15 @@ describe('every Sales Activity widget returns a number over the shipped seeds (#
     }
   });
 
-  it('lands every interaction under a real owner — the demo_bootstrap claim', async () => {
+  it('lands every interaction under a real owner — the seed-ownership claim', async () => {
     const rows = await runWidget(
       (activityDashboard.widgets as AnyRec[]).find((w) => w.id === 'activity_by_rep')!,
     );
     const ownerless = rows.filter((r) => r.owner == null || r.owner === '');
     expect(
       ownerless,
-      'the "Activity by Rep" bar has a null-owner column: a seeded event that demo_bootstrap ' +
-        'never claimed (#671 added crm_event to CLAIMED_OBJECTS)',
+      'the "Activity by Rep" bar has a null-owner column: a seeded event the ' +
+        'seed-ownership claim never reached (#671, #1892)',
     ).toEqual([]);
   });
 

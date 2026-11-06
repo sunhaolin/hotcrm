@@ -1,5 +1,9236 @@
 # Changelog
 
+## 6.1.0
+
+### Minor Changes
+
+- 700b567: **Record editors upload and delete attachments, and delete comments (#2038).** A sales rep, a sales manager, a marketing user, a service agent and an administrator can now upload a file to the Attachments panel of a record they can edit (a quote PDF, an executed contract, a case screenshot) and delete files there. Until now only the platform administrator could: the profiles granted the panel read only. The same profiles can now also delete a comment in a record's Discussion.
+  
+  Where an upload or a delete is accepted is decided by the record, as the Files & Comments guide says. You upload only to a record you can edit. You delete a file you uploaded, or any file on a record you can edit. You delete a comment you wrote, or any comment on a record you can edit. A rep who reads a contract but cannot edit it is refused an upload there, and a delete of someone else's file or comment there. These rules are the platform's, from ObjectStack 18.1.0, which this app already runs on.
+  
+  A member who holds only the default **CRM User** set still sees and downloads files but uploads and deletes none. Nothing changes for anonymous web-form visitors.
+- a4b3560: Record titles are stored, so an exported lookup column imports back, and the app moves to ObjectStack 18.1.0
+  
+  **Nine record titles are stored fields now, not formulas (#2230).** Account, contact, lead,
+  forecast, product, quote, campaign, case and knowledge article each title their records with a
+  field the platform computes from the record's own columns (for example `ACC-000004 - Stark
+  Medical`, or a contact's full name). Until now that title was computed each time it was read and
+  stored nowhere, so the import could not match it. It is now computed when the record is written and
+  stored with it, with the same wording as before:
+  
+  - **An export imports back.** A contact export whose *Account* column reads `ACC-000004 - Stark
+    Medical` now links each row to that account on re-import. Before, every such row was refused with
+    "no record matches". The same holds for every lookup to one of the nine objects.
+  - **A new record's title carries its number.** A case created today is titled `CASE-00039 -
+    <subject>` the moment it is saved.
+  - **An account or campaign with no number is titled by its name**, as a product already was.
+    Before, such a record had no title at all.
+  - The title stays read-only and is not offered on any form.
+  
+  **Upgrading an existing database needs one step.** Records stored before this release have no
+  stored title yet, so until they are next edited their header, lookup chip and search hit fall back
+  to the record id. Run the backfill once after the upgrade, report-only first:
+  
+  ```bash
+  pnpm exec tsx scripts/backfill-record-titles.ts --url https://<your-org> --email <admin> --password <pw>
+  pnpm exec tsx scripts/backfill-record-titles.ts --url https://<your-org> --email <admin> --password <pw> --apply
+  ```
+  
+  It re-saves one unchanged field on each untitled record, so the platform computes and stores the
+  title, and it is safe to run again. A new install needs nothing. See `docs/MAINTENANCE.md`.
+  
+  **ObjectStack 18.1.0.** All 23 `@objectstack/*` dependencies move from 18.0.0 to 18.1.0 together,
+  pinned exact, and `specVersion` and `engines.protocol` follow to `^18.1.0`. 18.1.0 carries the two
+  platform fixes the stored titles need: a stored title that reads an autonumber is computed with the
+  number (objectstack-ai/objectstack#25073), and the import matches a lookup cell by the target's
+  stored title (objectstack-ai/objectstack#25033).
+  
+  - **Approval names are translated.** The language packs now name the six approval processes and
+    their steps in Chinese, Japanese and Spanish, and 18.1.0 serves an approval request with them in
+    the reader's language, for example *大额商机审批 · 销售经理审核* for *Large Deal Approval · Sales
+    Manager Review*.
+  - **The Details, Related and Activity tabs** of the opportunity and case record pages are translated
+    in the same three languages.
+- b3df069: **Closing a deal no longer fails the first save.** On the opportunity Edit and New form, **Win Reason** now appears right beside **Stage** as soon as you pick **Closed Won**, and **Loss Reason** as soon as you pick **Closed Lost**. Before, both sat on the last tab (**Win / Loss**, collapsed), so picking Closed Won and pressing Update always failed once with "Please check the highlighted fields: Win Reason" and jumped to that tab.
+  
+  The rule itself is unchanged: a deal still cannot close without its reason. **Loss/Win Details** stays on the **Win / Loss** tab. On the opportunity detail page, both reasons are now listed under **Sales Process** with Stage instead of under **Classification**.
+- b8332aa: Clause-②: no
+  Metadata-protocol: none
+  
+  **A forecast is titled by its period and its owner: "Q4 2026 · Nina Reyes" (#2242).** A forecast is one row per owner and period, but its title named the period only ("Q4 2026 (2026-10-01)"), so two reps' forecasts for the same quarter read the same on the record, in Recent items and in a lookup. The title now names the owner after the period label. The name is read from the forecast's **Owner**, so a forecast handed to another owner is re-titled by that save. A forecast with no owner is titled by its period label alone ("Q4 2026").
+  
+  The owner's name is copied into the title when the forecast is saved, so renaming a user re-titles their forecasts at each forecast's next save, not at once.
+  
+  **FROM → TO.** "Q4 2026 (2026-10-01)" → "Q4 2026 · Nina Reyes". No step is needed on upgrade: forecasts saved before the stored record titles of #2230 have no title yet, and `scripts/backfill-record-titles.ts` (described there) titles them in the new form. A development database created since #2230 keeps the old form on each forecast until it is next saved; `pnpm demo:reset` re-seeds it.
+- 72f31cd: **A sales manager edits every forecast and can no longer delete one (#2277).**
+  
+  Who can do what on forecasts:
+  
+  - A Sales Manager still reads every rep's forecast and edits any of them, and can still reassign one to another owner.
+  - Deleting a forecast is now an administrator action only. A sales manager's delete is refused (403).
+  
+  **Why it changed.** The Sales Manager profile said "no delete" on forecasts. But it also granted *Modify All*, and *Modify All* includes delete, so a manager could in fact delete any forecast. The documentation already said a manager cannot delete one. Now the product matches it. The edit reach comes from a new built-in sharing rule, **Forecasts — Sales Manager Edit**. It grants edit on every forecast to the `sales_manager` position. An edit share never grants delete. Forecasts stay private to their owners for everyone else.
+  
+  **FROM → TO.** A sales manager who deleted forecasts, for example to hand a hand-entered quarter back to the nightly snapshot, now asks an administrator to do it. Nothing else changes, and no data migration is needed.
+  
+  This also clears the profile entry that `@objectstack/spec` after 18.1.0 refuses at build: `allowDelete: false` beside `modifyAllRecords: true` (objectstack-ai/objectstack#25707).
+- 270bedf: **An account created by Convert Lead no longer goes to account approval (#2285).**
+  
+  Converting a lead used to send the new account to the Sales Manager's approval inbox, without telling the rep who converted it. Qualifying the lead is already the check, so converting it is not a second application.
+  
+  - An account that **Convert Lead** creates starts no approval. Its **Approval Status** stays blank and nothing reaches the approval inbox.
+  - The account gets a new field, **Converted From Lead**, which links back to the lead. It shows only on converted accounts.
+  - Every other new account goes to approval as before: the New form, an import, a REST create. A conversion that reuses an existing account leaves that account's approval status unchanged.
+  
+  **Only the conversion can set Converted From Lead.** A create or edit that tries to fill it in by hand, from a form or through the API, is refused with `VALIDATION_FAILED` (400). Once it is set it cannot be pointed at another lead. Without this, filling the field in would skip the approval.
+  
+  **FROM → TO.** Accounts converted before this release keep the approval request they already have, and that request is decided as before. No data migration is needed.
+- bbd375b: **Ten KPI tiles now say whether the number went up or down (#2296).** The comparison is computed by the platform from the data, not typed into the dashboard.
+  
+  - Tiles that follow the date picker compare with the window just before the one the picker selects ("16% vs previous period"): on CRM Overview, Total Revenue, Deals Won and Avg Deal Size (Selected Period); on Sales Performance, Open Pipeline (Selected Period); on Customer Service, Open Cases, Avg Resolution Time and SLA Violations. When the reader picks All time there is nothing to compare with, and the tile shows its number alone.
+  - Tiles with their own calendar window compare with the same span last year ("vs last year"): Total Revenue (YTD) on Executive Overview, Closed Won (QTD) and Avg Deal Size (QTD) on Sales Performance. Their windows now end today, which is what year-to-date and quarter-to-date always meant.
+  
+  A tile whose comparison window has no records shows a dash instead of a percentage. The tiles on Sales Activity and Sales Home have no date window, so they still show the number alone.
+- 60d745b: Clause-②: no
+  Metadata-protocol: none
+  
+  **Convert Lead ends on a result screen that links what it created (#2297).** The conversion used to finish on a "Lead converted successfully!" toast and leave the rep on the lead, with no link to the new account, contact or opportunity and no word that the account had gone to a sales manager's approval inbox. It now ends on a screen that lists the account, the contact and, when one was created, the opportunity, each by name as a link to its page; with no opportunity that line shows a dash. The screen also says whether the account is waiting for account approval, read from the account itself after the conversion. Everything is written before the screen appears: Submit finishes the run and refreshes the lead, and closing the screen any other way undoes nothing. The screen is translated in all four locales.
+  
+  A caller that drives the conversion through the REST door or the `action_convert_lead` AI tool's `resume_run` now gets the run back paused on this screen after answering the conversion screen, with every write already done, instead of completed; one more resume with no values completes the run.
+- 5eb2f0d: Clause-②: no
+  Metadata-protocol: none
+  
+  **Contracts now belong to the HotCRM app package, not the revenue module (#2310).** The contract object (`crm_contract`) keeps its name, its fields and every record. What changes is which package of the HotCRM artifact owns it: `app.objectstack.hotcrm` instead of `app.objectstack.hotcrm.revenue`, as `GET /api/v1/packages` and Studio now report. Everything built on the contract moved with it: its activation hook, its list views, the expiry, renewal and billing hand-off flows, the shared **Payment Terms** option list, the two contract notification emails and the demo contracts. An installed tenant takes the move in this one upgrade, while HotCRM still ships as one artifact.
+  
+  Why: every add-on package is to depend on the HotCRM app package and nothing else (module-split plan, items 10 and 11, ruled 2026-10-26). The planned order-to-cash and project-delivery add-ons both hang off the contract, so leaving it in revenue would have made them depend on revenue too. The contract only points at app-package objects (account, contact, opportunity, user), so the move adds no reference back into a module. Accepting a quote still drafts its contract, and the account and contact delete guards still count activated contracts.
+  
+  One visible change in the sidebar: under **Sales**, **Contracts** now comes right after **Sales Performance** and before **Quotes**, because it is the app's own entry now and the revenue module's **Quotes** and **Products** follow the app's entries. The Contracts guide moved from the Revenue section of the documentation to the Sales section (English, Simplified and Traditional Chinese).
+- afdf9a0: Clause-②: no
+  Metadata-protocol: none
+  
+  **Price books: a product can now carry more than one price.** A new **Price Books** entry under **Sales** lists named price lists (a partner tier, a region, a promotion with **Valid From** / **Valid To** dates), each holding one **Price Book Entry** per product with that product's **List Price** in the book. Exactly one book is the **Standard** book: a second standard book is refused, naming the current one, and the standard book can neither lose the flag nor be deleted. A book refuses a second entry for a product it already prices, naming the book and the product. Sales managers create books and edit the ones they own; sales reps read every book; administrators manage all of them. The sample data adds a **Standard** book with every catalog product at its list price, and a single-organization install that already has data gets that book once, on its first start after the upgrade; a price you change in it afterwards stays changed. Quotes still price from the product: choosing a book on a quote is the next step (#2318). Prices are in the organization's default currency; multi-currency waits for the platform (#2313).
+- f340e63: Clause-②: no
+  Metadata-protocol: none
+  
+  **Quotes now price from a price book (#2318).** A quote carries a **Price Book**: a new quote starts on the **Standard** book, and a rep can pick another active book before adding line items. A quote line's **List Price** is now the product's price in that book (its **Sales Price** still starts there and stays negotiable), and a product the book does not price, or prices with an inactive entry, is refused on the line with a message naming the book and the product. Lines already written keep their prices when a book's entries change later. A quote's book cannot change once it has line items, is frozen with a settled quote, and a book any quote uses cannot be deleted (turn off **Active** instead). Opportunity line items still take the product's own **List Price**.
+  
+  The **Standard** book now follows the catalog: a product added later gets its Standard entry at its **List Price**, and changing a product's **List Price** reprices that entry. Quotes created before this release have no **Price Book**; their new lines price from the Standard book. A SaaS tenant's starting catalog now includes the Standard book.
+  
+  A price book's page gains **Add Products**, which gives every active product the book does not price yet an entry at one percentage of its **List Price** (80 for a partner tier 20% below it), leaving existing entries alone. Price books get an **All Price Books** list, and a product's page lists its entries in every book with their price. All of it is translated in the four locale packs, and the Price Books and Quotes guides describe it (#2318).
+- 173b488: Clause-②: no
+  Metadata-protocol: none
+  
+  **In-app manuals under a new Help group.** The last entry of the HotCRM sidebar is now **Help** (collapsed), with the **User Manual** for every member, the **Admin Manual** for administrators only, and the **Revenue Manual**, which the revenue module adds and takes with it when it is uninstalled. Every persona still opens the app where it did.
+  
+  The four package docs are split into nine pages by topic, each with a Chinese version that opens when the user's language is Chinese:
+  
+  - User Manual: Overview; Leads; Opportunities (including the approval rules for rejected and recalled deals); Contracts; Cases & SLAs; Knowledge.
+  - Admin Manual: Access (positions, sharing rules, permission sets); Automation (where every threshold lives).
+  - Revenue Manual: Quotes.
+  
+  The Admin Manual is published to the System Administrator permission set (Tenant Administrator in the multi-organization composition): other members neither see the entry nor can read its pages. The lifecycle diagrams of leads, opportunities, contracts, quotes and cases are drawn from each object's real state machine.
+  
+  Removed doc names: `crm_sales`, `crm_admin` and `crm_service` are replaced by the pages above. A link to one of them now shows "not found".
+- 0312803: Clause-②: no
+  Metadata-protocol: none
+  
+  **Six more manual pages, each with a Chinese version.** The in-app manuals under **Help** gain the pages a new member and a new administrator reach for first:
+  
+  - User Manual, Getting Started: **Getting Started — Your First Day** (where HotCRM opens for each role, My Work, the approval inbox, notifications, search, Help) and **Using the Assistant** (what each HotCRM skill of the platform assistant does on ObjectOS Cloud and Enterprise, and which buttons it may press).
+  - User Manual, Sales: **Activities** (logging calls and meetings, the activity clock held meetings keep, Schedule Follow-up, tasks, reminders, Do Not Call). The Tasks section of the Opportunities page moves here.
+  - User Manual, new **Analytics** group: **Metrics** (what each dashboard measure, tile and report counts, from win rate to quiet accounts).
+  - Admin Manual: **Go-Live Checklist** (demo data, people, positions, permission sets, scheduled work, import, checking as a user), which the Admin Manual now opens on, and **Importing Data** (order, the key each row is matched on, suspected duplicate leads, owners, common refusals).
+  
+  The Automation page's list of AI skills is replaced by a link to Using the Assistant. The metrics, skills and import-matching statements are each checked against the compiled app, so a renamed measure, skill action or import key fails the build until the page follows.
+- 6c52f22: Clause-②: no
+  Metadata-protocol: none
+  
+  **A Marketing Manual under Help, and five more module pages, each with a Chinese version.** The service, revenue and marketing modules now explain their own rules in the app:
+  
+  - User Manual, Service: **Case Triage** (what the assistant reads when it triages a case, the order it weighs things in, and why setting the priority, escalating and closing stay with a person).
+  - Revenue Manual: **Products & Price Books** (what a product carries, how its price reaches a deal or quote line, why a sold product is retired rather than deleted, and what price books do today) and **Billing Hand-off** (the two moments a won deal or an activated contract is sent to your billing system, and what travels with it). The Revenue Manual's one group is now titled *Revenue* rather than *Quotes*.
+  - New **Marketing Manual**, opened from **Help** after the Revenue Manual: **Campaigns** (statuses, member statuses, what each number counts and what ROI includes) and **Campaign Automation** (when Enroll Members, Add to Campaign and the nightly auto-completion run, and what each refuses). The manual and its Help entry belong to the marketing module and leave with it.
+  
+  The billing hand-off's two moments, the auto-completion time and the buttons the triage page names are checked against the compiled app, so a changed flow or a renamed button fails the build until the page follows.
+- 21664f7: Clause-②: no
+  Metadata-protocol: none
+  
+  **Record pages offer only the actions a record can still take, and quotes and cases get buttons for their status moves (#2366).** Who may do what is unchanged.
+  
+  - **Quotes:** each status move made by hand has a button, shown only on the statuses it leaves from: **Submit for Review**, **Mark Presented**, **Accept** (asks first), **Reject** and **Revise** (back to Draft). An Accepted, Rejected or Expired quote shows no **Edit**, and its line items show no **New**. A Rejected quote is now frozen like an Accepted one until **Revise** takes it back to Draft: only Internal Notes can change, and its lines take no change. A new quote can no longer be created as Accepted, Rejected or Expired: the New form does not offer them, and the save is refused.
+  - **Cases:** a Resolved or Closed case has a **Reopen Case** button, offered to whoever may edit cases. It moves the case back to In Progress. The SLA Due Date is kept and a recorded breach stays recorded; the Service Manual says so.
+  - **Leads:** a converted lead shows no **Edit** and cannot be edited inline. The lock behind it is unchanged.
+  - **Campaigns:** Number Sent, Responses, Leads, Converted Leads, Opportunities, Won Opportunities and Actual Revenue are read-only, and so are a member's Response Date and Has Responded. The system keeps all of them, and a value typed through the API is now dropped instead of standing until the next recompute.
+  - **Status colours:** the status options of quotes, campaigns, campaign members and knowledge articles declare whether each one is open, won or lost, so a record's path draws each one from that declaration instead of guessing from the value's name.
+  
+  The in-app Sales, Service and Marketing manuals describe each change in English and Chinese, and the documentation site's Quotes page says how a rejected quote is revised.
+- 52083a5: Clause-②: no
+  Metadata-protocol: none
+  
+  **Each persona's own work comes first in the sidebar and in the default views (#2367).** Who may read what is unchanged, and every persona opens the app where it did before.
+  
+  - **Sales reps:** the sidebar runs **Sales Home**, then **Sales**. The **Service** group, which held only **Knowledge** for a rep, is no longer shown to a rep; a rep's **Knowledge** is the last entry of **Sales** and opens the published articles, so the search box still finds articles by title.
+  - **Service agents and service managers:** **Opportunities** and **My Deals** are no longer in their sidebar. Both lists were always empty for them; the deals stay readable from an account's related list.
+  - **Accounts:** the tabs open with **My Accounts**, **At-Risk Accounts** and **Enterprise Accounts**, ahead of the card and map views, so a rep's own list is no longer in the overflow menu.
+  - **Opportunities:** **My Open Deals** follows **Open Deals**, ahead of the board, calendar, timeline and card views.
+  - **SLA Calendar:** shows open cases only; resolved and closed cases are left out.
+  - **Campaign Schedule** opens at Month zoom and **Contract Terms** at Quarter zoom, instead of Day.
+  - **All Forecasts:** one heading per period, newest first, instead of two nested headings over each row.
+  
+  The documentation site's quick tour, Sales, Cases, SLA and Forecasting pages and the in-app Getting Started page say what each surface does now, in English and Chinese.
+- 8820270: Clause-②: no
+  Metadata-protocol: none
+  
+  **Accounts, products, quotes, campaigns and knowledge articles are titled by their name alone (#2369 row 10).** Their title used to put the number first, "ACC-000002 - Globex Industries", so the name was cut short in lookups, lists and the record header. The title is now just the name, "Globex Industries" (the article's own title on a knowledge article). The number has not gone anywhere: it stays a list column, it leads the summary strip under the record header, and the lookup picker shows it under each name ("Account Number: ACC-000002"). Search still finds a record by its number. Cases keep their number first, because agents speak by case number.
+  
+  - **Messages name the record the same way.** Quote messages ("Quote Globex Manufacturing Suite Proposal accepted."), the frozen-quote refusals, the closed-campaign enrollment refusal and the duplicate price-book entry refusal now name the record by its name. A contract drafted from an accepted quote still names the quote by number and name, because quote names may repeat and the contract does not link back to the quote.
+  - **Line items follow their product.** An opportunity or quote line is named after its product, so it now reads "Premium Support" instead of "PRD-0009 - Premium Support".
+  - **Importing: a shared name is refused, not guessed.** A lookup cell names a record by its name. Account names are unique, but product, quote, campaign and article names may repeat; when two records share the name in a cell, the row is refused as ambiguous. Name such a record by its number (Product Code, Quote Number, Campaign Code, Article Number) or its record id. An export taken before this release that names these records as "PRD-0001 - Name" no longer matches; use the name, the number or the id.
+  
+  **Upgrading.** Nothing to run. The five objects' old `display_title` column stays in the database, unused, and the server logs it once at boot as an orphaned column; drop it with `os migrate apply --allow-destructive` if you want it gone. Existing line items still carry the old "PRD-0001 - Name" copy until they are first read, which re-titles them; `scripts/backfill-line-product-title.ts --apply` does them all at once. `scripts/backfill-record-titles.ts` no longer lists the five objects. See `docs/MAINTENANCE.md` §3.5.
+- c362ccd: **Dashboards say what they count, and amounts, quantities and dates read one way (#2370).**
+  
+  - The two SLA tiles on Customer Service state their base. **Open Cases Past SLA** counts open cases only, so a case closed late leaves the count when it closes. **SLA Met (Closed Cases)** is the rate over closed cases. The SLA report is now **SLA on Closed Cases**.
+  - **Revenue Trend** appears once, on Executive Overview. CRM Overview and Sales Performance no longer repeat it.
+  - The CRM Overview tile that summed catalog list prices is now **List Price by Category**, with a description saying it is not sales.
+  - **Opportunity Funnel by Owner** is split by owner: one row per rep, one column per stage, a Total per rep, and a bar chart of amount by rep.
+  - **Quota Attainment by Rep** says when it fills: after the nightly forecast snapshot opens the quarter and a manager sets each quota.
+  - Each report's sidebar entry carries the report's own title, in every language the app ships.
+  - Sales Home's amount KPIs read in whole units, like the dashboards. Line item quantities are whole numbers, and a fractional quantity is refused. Quote dates and price book validity show the year and are never relative. A quote line's related list shows the discount instead of a second subtotal.
+  
+  The currency symbol on every amount comes from **Setup → Settings → Localization → Default currency**. See `docs/developers/number-formats.md`.
+- 495bff5: **Ten UX gaps from the feedback round, each answered on screen (#2371).**
+  
+  - **Enrolling people in a campaign says what happened.** The row action on a lead or contact reads "Q3 Enterprise Email Nurture: 1 added, 0 already a member." The campaign's **Enroll** flow ends on a result screen that counts the people added, the ones already enrolled and the ones skipped because they opted out of email or have no address, with a link back to the campaign.
+  - **A deal waiting for sign-off says so.** While a large deal waits for approval, its page shows a blue banner naming who must approve it (a Sales Manager, then also a Sales Director above $500,000), that the deal is locked until they decide, and that **Recall** pulls the request back.
+  - **An early win saves cleanly.** A deal moved from Prospecting, Qualification or Needs Analysis straight to **Closed Won** no longer saves with a warning.
+  - **Cloning a deal names the copy.** The toast reads `Created "Copy of …". You are now on the copy.`
+  - **One approval notice, not two.** A rep who raised their own deal for approval gets the platform's approved/rejected notice plus the email; the in-app notice from the approval flow now goes only when someone else raised the deal.
+  - **A generated quote and an auto-drafted contract are announced.** **Generate Quote** ends on a result screen linking the new draft quote. Accepting a quote that drafts a contract sends whoever accepted it an in-app notice linking the contract (new flow **Contract Drafted Notice**, 34 flows).
+  - **Refusals name the way forward.** A quote moved off its usual path is warned with that path spelled out by status label, not "Invalid quote status transition". A quarterly forecast that starts mid-quarter gets one refusal naming the four quarter starts, not two joined refusals.
+  - **The manual explains two quiet behaviours.** Only a deal's owner sees a deal marked **Private**, and deleting a lead or contact also deletes its campaign memberships.
+  
+  The README's sales-package token banner is restated to the measured ~68k / ~31k.
+- f98025c: **New cases and leads route through platform queues, and agents take a waiting case with the Claim button (#2395, #2283).** HotCRM now uses the ownership queues ObjectStack 18.3.0 provides, in place of its own stand-ins.
+  
+  - **Routing.** A case that arrives with no owner goes to the Service Agent with the fewest open cases, and a lead to the Sales Rep with the fewest unconverted leads, as before. The routing is now two declared queues, **Support Intake** (`case_intake`) and **Lead Intake** (`lead_intake`), and two assignment rules, in place of the app's `case_auto_assign` and `lead_auto_assign` hooks. One small difference: when two people carry the same load, the platform picks between them by user id.
+  - **Claim.** When nobody holds the position, a new case or lead waits in its queue with no owner. Every member sees it (cases in **Unassigned — triage**), opens it and clicks **Claim** (认领). The claimant becomes the owner and nothing else changes; the status stays where it was. If two people claim at once, one wins and the other is refused. The **Claim Case** screen action is gone, and so is the old gesture where moving an unowned case to *In Progress* made you its owner: a status change no longer claims.
+  - **Who sees waiting cases.** Queue membership now gives agents sight of a waiting case, so the *Unassigned Cases — Triage* sharing rule is removed. Administrators can add a person to a queue without a position under **Setup → Access Control → Queue Members** (queue `case_intake` or `lead_intake`).
+  - **Escalation is unchanged.** An escalated case still goes to the least-loaded Service Manager.
+  
+  **Upgrading:** open cases and leads that nobody owns were created before the queues existed, so they name no queue, and agents cannot see them until they do. Run the backfill once as an administrator. It only reports until you pass `--apply`, and it writes the queue and nothing else:
+  
+  ```bash
+  pnpm exec tsx scripts/backfill-intake-queue.ts --url https://<your-org> --email <admin> --password <pw> --apply
+  ```
+
+### Patch Changes
+
+- 873ab4c: **The opportunities page now says which stage changes the app refuses.** No behaviour changes.
+  
+  - **Stage path.** The page (en, zh-Hans, zh-Hant) said reps cannot skip forward and that the system blocks invalid jumps. The usual path is a guide, not a rule: a forward skip such as Prospecting → Negotiation, or a step back on an open deal, still saves — the save comes back with the warning "Invalid opportunity stage transition", and Probability follows the new stage.
+  - **Closed deals.** What is refused is any stage change on a Closed Won or Closed Lost deal — reopening it, or switching won to lost — because a closed deal is locked.
+- 7ce4543: **Generate Quote opens with the Quote Name filled in.** The name is prefilled with the opportunity's name, so submitting the form without typing one creates the quote; a name you type still wins. Before, the field started empty and was required, so the first Submit of every quote failed with "Please complete the required fields: Quote Name". The prefill is the opportunity's name alone, without a " Quote" suffix: the default cannot follow the user's language today, and an English word would appear in every language (#2239).
+- f5dd2d8: **Escalate Case and Close Case open their form directly.** Before, each button first showed a "Confirm Action — … Continue?" dialog and only then the form that asks for the escalation reason or the resolution, which has its own Cancel: two dialogs and three clicks before any input. The form is now the only dialog, the way Claim Case already worked; Cancel on it leaves the case unchanged. What an AI assistant is asked to confirm does not change: that is set by the action's AI settings, which these two actions do not declare (#2240).
+- c14ffde: **Enroll Members asks only for the criterion of the source you pick.** Before, the dialog showed both "Enroll leads in status" and "Enroll contacts in department", and required both, whatever "Enroll" was set to, so enrolling contacts by department still asked for a lead status the run ignores. Now Leads shows only the lead status and Contacts only the department, and the dialog submits without the other one. The criterion you do see is still required (#2241).
+- 6fdc34a: Convert Lead now proposes an Opportunity Name that tells the new deal from the account's others: "<company> – <need type>" (for example "Acme Corporation – Expansion"), or "<company> – <conversion date>" when the lead has no need type. It used to propose the company name alone, so a fourth Acme deal read exactly like the other three in the account's Related list and in every picker. The need type is shown by its label, not its stored value, and the rep can still overwrite the name before converting; account matching and the rest of the wizard are unchanged (#2243).
+- 41f2394: **A sales rep's sidebar no longer shows the service entries.** Service Overview, Cases, My Cases and the three case reports (Cases by Status and Priority, SLA Performance, Cases Opened by Day) are hidden from anyone holding the Sales Representative position. A rep owns no case and cannot create one, and the overview read all zeros. Knowledge stays in a rep's sidebar.
+  
+  The service agent, the service manager, the sales manager and the administrator see the same sidebar as before, and every persona still opens the app where it did: a rep on Sales Home.
+- 6dd09ae: **Cases → Escalated Cases now lists only escalated cases that are still open.** A case that was escalated and then resolved or closed used to stay on the tab forever, because the tab filtered on the escalation flag alone, so a service manager's escalation queue kept growing with finished work. The tab now also leaves out cases whose status is *Resolved* or *Closed*, the same rule **⏰ SLA at Risk** uses. The escalation itself (the flag, the hand-off to a service manager, the sharing rules) is unchanged.
+- 45413be: **Clone Opportunity now opens the clone.** After cloning, the console goes straight to the new opportunity's record page instead of leaving you on the source deal, where the copy could be found only through the list. The copy's fields are unchanged: same account, contact, amount, type, lead source, campaign and privacy, a fresh Prospecting stage and a 90-day close date.
+- a7faf81: Every position carries a one-sentence description of what it is for
+  
+  **The twelve positions now say what they are for (#2249).** Each position is served with a
+  one-sentence business description, so an administrator can tell who belongs in it before assigning
+  anyone. For example, *Sales Manager* reads "Runs a sales team: approves new accounts, lead
+  conversions and large deals, and edits every active customer account.", and *NA Sales Team* reads
+  "Territory team for North America: edits every account in the North America territory." Nothing
+  about what a position grants has changed.
+  
+  On ObjectStack 18.1.0 the Setup → Positions list shows each position's holders and permission sets
+  but no description column yet; the descriptions appear there once the console lists them.
+  
+  The platform could not translate positions when this was written; the 18.2.0 upgrade in this
+  release translates the position names and descriptions in Chinese, Japanese and Spanish.
+- b25a32e: The service agent and the service manager open the app on Service Overview again (#2262). Since the default `crm_user` permission set gave every member read on their own opportunities, both service personas passed the opportunity read gate on Home and Sales Home and landed on Home (Executive Overview). Home and Sales Home now also ask that the member does not hold the `service_agent` or `service_manager` position. Nothing else in either persona's sidebar changes, and reps, the sales manager and administrators land where they did.
+- 4464f26: **The quick tour now says a sales rep's sidebar leaves out the service entries.** No behaviour changes.
+  
+  - **Quick tour, sidebar section (en, zh-Hans, zh-Hant).** The paragraph on who is not shown which entries now says that a sales rep, who works no cases, is not shown Service Overview, Cases, My Cases or the three case reports (Cases by Status and Priority, SLA Performance, Cases Opened by Day), and that Knowledge stays in a rep's sidebar. This matches the sidebar change that shipped with #2244.
+- 5cba770: HotCRM now ships as one artifact carrying four packages: the HotCRM app and its Service, Revenue and Marketing modules. It still installs as one app, and the one change a user sees is the order of the **Sales** menu: **Quotes**, **Contracts** and **Products** now come after **Sales Performance**.
+  
+  **What changes for an installation.** The artifact still installs as one app, **HotCRM** (`app.objectstack.hotcrm`), and every object keeps its name, its table and its REST path. Inside it, products, opportunity line items, quotes, quote line items and contracts now belong to **HotCRM Revenue** (`app.objectstack.hotcrm.revenue`), and campaigns and campaign members to **HotCRM Marketing** (`app.objectstack.hotcrm.marketing`), both modules of the app like **HotCRM Service**. The package list (`GET /api/v1/packages`, and the package picker in Studio) shows all four rows, and each object reports the package that owns it.
+  
+  **One navigation difference.** The Revenue module puts **Quotes**, **Contracts** and **Products** into the **Sales** group, and the Marketing module puts **Campaigns** into **Marketing**. A module's entries come after the app's own entries in a group, so the **Sales** group now reads: Leads, Accounts, Account Workbench, Contacts, Opportunities, Sales Performance, Quotes, Contracts, Products. Before, **Sales Performance** was last. **Marketing** still holds only **Campaigns**, and every other menu entry is where it was.
+  
+  **What does not change.** The permission sets stay whole in the HotCRM app package, so no one's access moves. Translations, the CRM Overview dashboard and the opportunity and lead record pages stay in the app package too. Seeded demo data is the same, row for row. Four items authored for the new modules are still part of the app package for now — the Generate Quote flow, the two flows that add a lead or a contact to a campaign, and the product metrics behind CRM Overview's **Top Products** tile — because the platform does not yet let an app action or dashboard reach them in another package (objectstack-ai/objectstack#25514). They move to their modules in a later release, with no change a user sees.
+- a8eaa41: Clause-②: no
+  Metadata-protocol: none
+  
+  **The last four revenue and marketing items now belong to their modules (#2276).** The **Generate Quote** flow and the **Product Metrics** dataset behind the CRM Overview **Top Products** tile now ship in **HotCRM Revenue** (`app.objectstack.hotcrm.revenue`), and the two flows that add a lead or a contact to a campaign ship in **HotCRM Marketing** (`app.objectstack.hotcrm.marketing`), as `GET /api/v1/packages` and Studio report. Until now the HotCRM app package registered them, because the platform judged an app action's flow and a dashboard tile's dataset one package at a time (objectstack-ai/objectstack#25514). ObjectStack 18.2.0, which HotCRM already runs on, resolves both against the whole artifact.
+  
+  Nothing a user sees changes. **Generate Quote** on an opportunity, and **Add to Campaign** on a lead or a contact, open the same flows; the **Top Products** tile shows the same totals per product category.
+- 8f52859: The Sales Home tabs and the two public forms are translated, and the en pack carries the approval flow names
+  
+  **Sales Home tab labels (#2284).** The **My Leads**, **My Open Deals** and **My Open Tasks** tabs
+  on Sales Home stayed English in Chinese, Japanese and Spanish: a tab is translated under its
+  `value`, and these three had none. Each tab now has one (its URL `?tab=` token, the key of the
+  view it embeds), and the four locale packs label it, with the wording each pack already uses for
+  that view.
+  
+  **Public form titles (#2284).** The Web-to-Lead form at `/forms/contact-us` is headed **Contact
+  Us**, and the Web-to-Case form at `/forms/support` **Contact Support**. Neither form had a title
+  before, so a visitor saw English or the object name; the platform serves the title in the
+  visitor's language, and each pack translates both (zh-CN 联系我们 / 联系支持团队, ja-JP
+  お問い合わせ / サポートへのお問い合わせ, es-ES Contáctenos / Contactar con Soporte).
+  
+  **Approval flow and step names.** The Chinese, Japanese and Spanish packs already translated the
+  six approval flows and their steps (shipped with the 18.1.0 upgrade); the English pack now
+  carries the same keys with the source wording.
+- 42c34c9: **One Accounts entry in the Sales sidebar.** The **Account Workbench** entry is gone from the **Sales** group. It opened the same accounts, with the same columns and sort, as **Accounts** directly above it, so the sidebar showed two entries that looked identical. The group now has eight entries. The Account Workbench page itself still ships as HotCRM's example of an interface page (quick filters for industry, type and owner over the **All Accounts** view), and opens from its own address in the app, ending in `/page/account_workbench`. The Sales overview and Quick Tour docs are updated in all three languages (#2286).
+- 731b53e: Clause-②: no
+  Metadata-protocol: none
+  
+  **A fresh demo database shows a support desk that keeps most of its SLAs (#2288).** The demo cases used to be created whole days ago while their SLA clocks run in hours, so every open case was past due the moment it was seeded: after the first hourly SLA sweep, 29 of the 38 cases were marked as SLA violated and the Cases list was almost all red, seven of the red rows already closed or resolved. Each case the sweep escalated also opened its own urgent "Escalated: …" task due tomorrow, so the admin's task list filled with near-identical rows.
+  
+  The demo cases now follow how a real desk looks. Open cases were raised in the last few days and are still inside their SLA window. Closed and resolved cases finished on time, to the hour. A few old open cases are deliberate breaches. A fresh seed now shows 7 of 38 cases violated (18%), none of them closed or resolved, and one escalation task, from the sweep escalating "Login issues after platform upgrade". The Daily Case Volume chart and the Cases Opened by Priority × Day report still spread the cases across the month. Recent days are busier because open work is recent, but no day holds more than five of the generated cases. Because no seeded closed case finished late, the SLA compliance gauge reads 100% on a fresh seed, from the cases' own dates. SLA clocks keep running after the seed loads: an open case breaches when its window ends, and the hourly sweep escalates it, as on a real desk. Run `pnpm demo:reset` to start again from a fresh seed.
+  
+  Only the demo seed changes. Existing databases keep their cases: the case seed is insert-only.
+- c765457: Clause-②: no
+  Metadata-protocol: none
+  
+  **Contacts opens with contact rows on screen (#2290).** The **All Contacts** list still groups people by account, but the groups now start open. Before, every group started collapsed, so the first screen showed only account headers and no contact: with one or two contacts per account, as in the demo data, finding a person meant expanding groups one by one. Each account's group still reads as a map of who decides and who is on our side, and you can still fold the accounts you are not working on. The Contacts and Buying Centre guides (English, Simplified and Traditional Chinese) say so.
+- d91c7b0: **KPI tiles now say which period they count.** The same figure used to carry different numbers on different pages with nothing on the tile to explain why: Sales Home counts every record, CRM Overview and Sales Performance follow the dashboard's date picker (this quarter by default), and some tiles are pinned to a fixed window. Each KPI title now names its window, and the same measure over the same window has the same title everywhere. No number changes.
+  
+  - **Sales Home:** Revenue (Won), Deals Won and Pipeline Value are now **Total Revenue (All Time)**, **Deals Won (All Time)** and **Open Pipeline (All Time)**.
+  - **CRM Overview:** Total Revenue, Active Deals, Won Deals and Avg Deal Size are now **Total Revenue (Selected Period)**, **Open Deals (Selected Period)**, **Deals Won (Selected Period)** and **Avg Deal Size (Selected Period)**.
+  - **Sales Performance:** Total Pipeline and Open Opportunities are now **Open Pipeline (Selected Period)** and **Open Deals (Selected Period)**; its Avg Deal Size, which was always pinned to this quarter, is now **Avg Deal Size (QTD)**.
+  - **Executive Overview** is unchanged: Total Revenue (YTD) already named its window.
+  
+  The Chinese, Spanish and Japanese labels move with them, and the Dashboards, Quick Tour, Activities and Pipeline Management docs are updated in all three languages (#2291).
+- 3e9057f: **The account, case and quote screens put what you scan by on the first screen.** An account's Description now has its own section after Ownership & Status, so a long narrative no longer pushes Financials, Contact Information (phone, website) and Ownership & Status (health) below the fold. The All Cases list shows eight columns (number, subject, account, priority, status, SLA due date, SLA violated, owner), so priority, status and SLA fit on a 1440 px screen; contact, the web submitter's name and email, and origin stay on the Unassigned — triage list and on the case record. The All Quotes list shows eight columns that all fit, discount included; quote date, subtotal and tax stay on the quote record, and the list is still ordered by quote date (#2292).
+  
+  Clause-②: no
+  Metadata-protocol: none
+- 382ba4b: Every HotCRM permission set carries a one-sentence description of who holds it
+  
+  **Setup → Permission Sets now tells HotCRM's sets apart (#2294).** Each of HotCRM's permission sets
+  carries one business sentence saying who holds it, what it opens and what it withholds, so an
+  administrator picking a set for a new user can tell a sales rep from a sales manager from the list.
+  For example, *Sales Representative* reads "Sales reps: work their own book of leads, accounts,
+  opportunities, quotes and activities and read the catalogues, but delete no customer record.", and
+  *CRM User* and *Guest (Public Forms)* replace their earlier multi-line paragraphs with one sentence
+  of the same meaning. Nothing about what a set grants has changed.
+  
+  ObjectStack 18.1.0 could not translate permission sets when this was written; the 18.2.0 upgrade in
+  this release translates their names and descriptions in Chinese, Japanese and Spanish. The sets the platform itself ships (such as *Administrator — Full
+  Access* and *Organization Administrator*) are described by the platform, not by HotCRM.
+- 9464673: Clause-②: no
+  Metadata-protocol: none
+  
+  **Marketing and Insights open with the app, so Campaigns, CRM Overview and Forecasts show in the sidebar without a click (#2295).** Before, both groups started collapsed and nothing on the first screen said those three entries existed. **Reports** still starts collapsed: opened, it lists one row per report (ten for an administrator), and the console's own *All reports* row below the navigation already reaches every report without a click. The Quick tour, Analytics, Marketing and Revenue guides (English, Simplified and Traditional Chinese) now say which groups open on load, and the Marketing guide no longer lists Products under Marketing: its entry is under Sales.
+- f48c49f: **Four dashboard trend charts no longer draw a range slider under the chart.** Monthly Revenue Trend (Sales Performance), Revenue Trends (CRM Overview), Activity Volume by Week (Sales Activity) and Daily Case Volume (Service) each drew the grey two-handle zoom slider under a series of a few points to a few dozen, where there is nothing to zoom: it took about a tenth of the card and, on a phone, sat over the axis labels. The charts now match the Executive dashboard's revenue trend, which never had one. Hover tooltips are unchanged.
+- ce0c55f: Clause-②: no
+  Metadata-protocol: none
+  
+  Quotes can be printed to a PDF that is filed on the quote, and printing a quote presents it
+  
+  **Print Quote (#2312, REQ-0008 phase 1).** A quote's record page, and the row menu of the quote list,
+  carry **Print Quote**. It prints the quote as a document — the account and contact, the line items,
+  the pricing and the terms, with a page number on every sheet — and files the PDF in the quote's
+  attachments, in the name of the rep who printed it. The rep downloads it from there and sends it.
+  
+  - **Printing is presenting.** When the PDF is filed, a *Draft* or *In Review* quote moves to
+    *Presented*; a quote in any other status keeps it, and a file attached by hand changes nothing.
+    *Draft → Presented* is now a legal move on the quote's status path. The contact rule still holds:
+    a quote with no **Contact** is printed and filed, and stays where it was.
+  - **The printed page is its own page.** The quote's record page is unchanged; the document is a
+    separate print page, `quote_print_page`. The quote now declares its default record page,
+    `quote_detail_page`, which overrides nothing: without it the console would open every quote on
+    the print page, the first record page the quote has.
+  - **The deployment provides the browser.** Printing runs on the server in headless Chromium, through
+    `@objectstack/service-print`, now a dependency: set `OS_PRINT_CHROMIUM_PATH` or
+    `OS_PRINT_BROWSER_ENDPOINT`, and `OS_PRINT_CONSOLE_URL`. Without them **Print Quote** answers an
+    error and nothing is filed.
+  
+  It needs ObjectStack 18.3.0 or later: earlier releases print only an object's default record page
+  (objectstack#26583), and the print page is deliberately not the quote's default.
+- 6731b31: Clause-②: no
+  Metadata-protocol: none
+  
+  Contracts can be printed to a PDF filed on the contract, and both contracts and quotes record the customer's signed copy
+  
+  **Print Contract (#2317, REQ-0008 phase 2).** A contract's record page, and the row menu of the
+  contract list, carry **Print Contract**. It prints the contract as a document — the parties, the
+  term and dates, the value and billing, the renewal terms and a signature block for each side, with a
+  page number on every sheet — and files the PDF in the contract's attachments, in the name of the
+  person who printed it. Printing changes nothing else on the contract. It is offered to whoever may
+  edit the contract and attach files to it (a Sales Manager or a System Administrator).
+  
+  - **The printed page is its own page.** The contract's record page is unchanged: the document is a
+    separate print page, `contract_print_page`, and the contract now declares its default record
+    page, `contract_detail_page`, which overrides nothing.
+  - **One print service for both documents.** `PrintServicePlugin`, which Print Quote brought in, is
+    now composed by the app package rather than the revenue module, so Print Contract and Print Quote
+    share one `POST /api/v1/print/records`. The deployment still provides the browser
+    (`OS_PRINT_CHROMIUM_PATH` or `OS_PRINT_BROWSER_ENDPOINT`, and `OS_PRINT_CONSOLE_URL`).
+  - **Contract dates print with the year.** Start Date and End Date use the short date style
+    ("Sep 14, '26") instead of words such as "Yesterday", on screen as on paper.
+  
+  **The signed copy (REQ-0008 phase 3).** Contracts and quotes gain a **Signed Copy** file field.
+  
+  - **Recorded, not yet required.** A contract still activates, and a quote is still accepted (the
+    **Accept** button's included), without a signed copy, and every record keeps saving as before.
+    The rule that would make the copy a condition of *Activated* and *Accepted* is held until
+    objectstack-ai/objectstack#30184 ships: on this platform the console's Edit form would check it
+    on every save, so a contract activated without a copy could save no edit at all from the
+    console.
+  - **Uploading it dates the signature.** Filing the copy on a contract fills **Signed Date** with
+    today's date when Signed Date is empty; a date already set, or typed in the same save, is kept.
+  - **The Edit forms offer the upload.** The contract form's Signing & Documents tab and the quote
+    form's first tab list Signed Copy.
+- 1f3f888: Clause-②: no
+  Metadata-protocol: none
+  
+  HotCRM moved to ObjectStack 18.2.0 (and on to 18.3.0, in its own entry), and reports, positions, permission sets and the web forms' hints are translated
+  
+  **ObjectStack 18.2.0 (#2319).** All 23 `@objectstack/*` dependencies move from 18.1.0 to 18.2.0
+  together, pinned exact, and `specVersion` and `engines.protocol` (in `objectstack.manifest.json` and in
+  each of the four packages) follow to `^18.2.0`. Nothing about what a user can do or see changes from
+  the upgrade alone; what the new version lets HotCRM show is below.
+  
+  - **Reports have their names in every language.** The report index (*All reports*) and each report's
+    page heading now list HotCRM's ten reports in Chinese, Japanese and Spanish, with the names the
+    sidebar's Reports group already uses, for example *各阶段商机* for *Opportunities by Stage*.
+    Before, the index listed them in English in every language.
+  - **Setup → Positions and Setup → Permission Sets are translated.** The twelve positions and the
+    seven permission sets carry their names and one-line descriptions in Chinese, Japanese and Spanish,
+    for example *客服专员* for *Service Agent*.
+  - **The public web forms and the lead forms show their hints in the visitor's language.** The
+    Web-to-Case form's placeholders and hints (*Short summary of the issue*, *Critical issues should
+    also be reported via phone.*), the Web-to-Lead form's *A sales representative will get back to you
+    within one business day.*, and the hints on the lead forms (the duplicate status, the status-change
+    form, the convert step and the privacy preferences) are translated.
+  
+  `objectstack lint --strict` on 18.2.0 reports each of these as untranslated, so the upgrade carries
+  them in the same release.
+  
+  **Tests that read a platform message now read the platform's answer (#2308).** On 18.2.0 a cleared
+  Sales Price on a deal or quote line is refused with the record validator's "Sales Price is required
+  and cannot be cleared" instead of the database's text, an action's success message is stored as a
+  template, and a permission set with a hierarchy read scope is refused at publish on an edition with
+  no hierarchy resolver. Each test keeps the protection it pins: the price is still refused and kept,
+  and a manager still cannot read a report's deal on this edition.
+- ea567f2: Clause-②: no
+  Metadata-protocol: none
+  
+  **The billing hand-off of an activated contract carries its signed date (#2325).** When a contract is activated without a Signed Date typed in, HotCRM stamps today's date on it. That stamp used to be written by a second save after the activation, so the `crm.contract.activated` event sent to your billing endpoint had already been built from the activating save and carried `"signed_date": null`, although the contract itself showed the date. The stamp is now part of the activating save, so the event carries the same date the contract stores. A date typed in the activating edit, or already on the contract, is kept unchanged in both places. Nothing else in the payload changes, and the account still moves to *Customer* as before.
+- 0f17c6c: Clause-②: no
+  Metadata-protocol: none
+  
+  **A lead's status path draws Unqualified apart from the steps, because the status options now say which one is the lost end (#2326).** The lead record's stage path drew New ✓ → Contacted → Qualified → Converted → Unqualified, with Unqualified as a fifth step after Converted. The platform reads each option's lifecycle `kind` (`open`, `won` or `lost`) to tell the steps of a path from its end, and no option declared one, so the path guessed from the spelling, and *Unqualified* matches no spelling it knows.
+  
+  Every option of four lifecycle fields now declares its kind:
+  
+  - **Lead Status**: *Converted* is won and *Unqualified* is lost.
+  - **Opportunity Stage**: *Closed Won* is won and *Closed Lost* is lost.
+  - **Case Status**: *Resolved* and *Closed* are won.
+  - **Task Status**: *Completed* is won. *Deferred* stays open, because a deferred task is postponed, not given up.
+  
+  Every other option is declared open. Case and task have no cancelled value, so neither has a lost option. No option was added, renamed or reordered, and stored values do not change, so no data migration is needed.
+- a31d91a: Clause-②: no
+  Metadata-protocol: none
+  
+  **A large deal whose approval was rejected can be sent back for approval, and can no longer be closed won without one (#2334).** Once an approver rejected a deal of $100,000 or more, no save could open a new approval request, and nothing stopped the rep from moving the deal straight to *Closed Won*: one rejection was enough to skip the approval for good. Now the deal is unlocked after a rejection and the rep's next save, once they have revised it, sends it for approval again as a new request. Until a later request is approved, moving the deal to *Closed Won*, or accepting a quote on it, is refused with a message that says how to send it back. Closing it as lost is still allowed, and a deal under $100,000 is not affected.
+  
+  **Recall hands a large deal back instead of re-submitting it.** Recalling a pending large-deal approval used to open a new request in the same second, so the deal stayed locked and the rep could never take it back to edit. A recall now leaves the deal unlocked with no request open; the rep's next save sends it for approval again.
+- 65507bd: **Add to Campaign now refuses a closed campaign and a person who opted out of email, and a campaign member holds a Lead or a Contact, not both (#2336).**
+  
+  Until now only **Enroll Members** checked these two rules. **Add to Campaign** on a lead or a contact did not, so it could add a lead to a *Completed* campaign and change the sent, lead and response figures that campaign had closed with. It could also add a person who had opted out of email.
+  
+  - **Add to Campaign** refuses a campaign that is not *Planning* or *In Progress*, and a person whose **Email Opt Out** is ticked. Nobody is added, the campaign's numbers do not move, and the message names the closed campaign or the person who opted out. This holds from a row's ⋮ menu and from the selection toolbar.
+  - The campaign picker on a row's ⋮ menu lists only *Planning* and *In Progress* campaigns.
+  - **Enroll Members** works as before: opted-out people are left out of the segment, and they are not counted as refused.
+  - A campaign member can no longer be saved with both a Lead and a Contact. The save is refused with `VALIDATION_FAILED` (400). Converting a lead still promotes its campaign members to *Converted*, because that promotion changes only the member's status.
+  
+  **FROM → TO.** Members already enrolled stay as they are. A member that already holds both a Lead and a Contact is refused on its next save until one of the two is cleared. No data migration is needed.
+- b65c403: Clause-②: no
+  Metadata-protocol: none
+  
+  **Four dead ends from the 18.2.0 browser pass are gone (#2338 items 1–4).**
+  
+  - **Service Overview is offered only to people who can read cases.** A marketing user, who reads no cases, was offered it in the sidebar, and every tile said "You don't have permission to view the data behind this widget". It now asks the same question the three case reports already ask. Sales Activity stays open to marketing users: it reads their own activity, so it works. Sales Performance also stays open; one of its tiles, Quota Attainment by Rep, still refuses a member who cannot read forecasts, because the platform cannot hide a single tile by access yet.
+  - **Edit Case shows Resolution when you close the case.** Picking Status "Closed" on the edit form used to end in "Resolution is required when closing a case" with nowhere to type one. The form now shows Resolution as soon as Status is Resolved or Closed. A new case still opens without it.
+  - **Marketing Managers and Marketing Directors can edit campaigns.** Both positions now give their holders the Marketing User profile, so the people who lead marketing can edit a live campaign a marketer owns and enroll its members, as their position descriptions promise. Before, they could only read campaigns.
+  - **"Update Stage" is no longer a list header button on opportunities.** That button failed whatever was ticked: with two rows it said it runs on a single record, and with none it opened a dialog that targeted nothing. Tick the deals and use **Update Stage** on the selection bar, which moves them all in one run. It is now on the selection bar of every opportunity table list, not only Open Deals, and so is **Delete**, which Open Deals had lost.
+- 52a6fb2: **Seven small fixes from the 18.2.0 browser pass: copy that pointed nowhere, a timeline that ran backwards, an attendee list with no names, and refusals that showed API names (#2338, items 5 and 7–13).**
+  
+  - **Sales Home** no longer shows the *Ask the AI Assistant* card. It told every user to open an assistant panel from the right edge of the page, and an install without the platform's assistant has no such panel.
+  - **Deal Timeline** marks each deal on its **Close Date**. It used to draw each deal from the day it was created to its close date, so a deal closed before it was entered read backwards ("10/27/2026 → 9/7/2026").
+  - The **Event Attendees** list on a meeting now shows who is attending: the **Contact**, **Lead**, **User** or **External Attendee** column, then type, response and organizer. A column nobody on that meeting fills is left out.
+  - Moving a completed task back to an open status clears its **Completed Date**. Before, the date stayed and nobody could clear it by hand, because the field is read-only.
+  - The **Reports** sidebar entry **Lead Inflow** is now **Lead Engagement**. Its report has always counted leads by the month they were last contacted, not the month they arrived.
+  - **Top Resolving Articles** on the Service dashboard no longer lists a "—" row with 0 for closed cases that no article resolved.
+  - When a closed deal, an accepted or expired quote, or an activated contract refuses an edit, the message the user sees names fields and statuses by their labels ("is closed (Closed Won); only its Description and Next Steps can still be edited"). The error code is still `RECORD_LOCKED` (409). For the deal and the quote, the diagnostic `message` that API callers and logs read still carries the API names and the attempted fields; the user sentence rides `userMessage`. The contract's single message changed from "Cannot shrink end_date (…)" to "An activated contract's End Date cannot move earlier (…)".
+  - The admin guide lists the twelfth sharing rule, **Forecasts — Sales Manager Edit**.
+  
+  **FROM → TO.** A tool that matched the contract refusal's old wording should match on the `RECORD_LOCKED` code instead. No data migration is needed; a task reopened before this release keeps its old Completed Date until it is completed and reopened again.
+- 08bbdd5: **Two more refusals show users field and stage labels instead of API names (#2338, items 14 and 15).**
+  
+  - Editing a converted lead's identity or conversion fields now tells the user which fields by their labels: "Cannot change Company on converted lead Ada Lovelace - Acme; only its Description and Notes can still be edited. Make changes on the converted records instead." Before, the console showed "(attempted: company)".
+  - Adding, changing or removing a line item on a closed deal now names the stage by its label: "Opportunity Acme Renewal is closed (Closed Won), so its line items can no longer be added, changed or removed." Before, it showed "closed (closed_won)".
+  
+  Both keep the error code `RECORD_LOCKED` (409). The diagnostic `message` that API callers and logs read is unchanged and still carries the API names and the attempted fields; the user sentence rides `userMessage`, as it already did for the closed-deal and settled-quote freezes. No data migration is needed.
+- f660fd8: **A settled quote's line-item refusal names the status by its label (#2338, item 16).**
+  
+  Adding, changing or removing a line item on an accepted or expired quote now tells the user "Quote QTE-0007 - Acme Renewal is Accepted, so its line items can no longer be added, changed or removed." Before, the console showed the status's API value, "is accepted".
+  
+  The error code stays `RECORD_LOCKED` (409). The diagnostic `message` that API callers and logs read is unchanged and still carries the API value; the user sentence rides `userMessage`, as it already does for the quote's own freeze and the closed-deal line freeze. No data migration is needed.
+- 1f1ea12: Clause-②: no
+  Metadata-protocol: none
+  
+  **A campaign member created by hand now meets the same two rules as Add to Campaign and Enroll Members (#2344).**
+  
+  Since #2336, **Add to Campaign** and **Enroll Members** refuse a campaign that is not *Planning* or *In Progress* and a person whose **Email Opt Out** is ticked. A member created any other way skipped both rules: **New** on a campaign's Campaign Members list, a data import, and `POST /api/v1/data/crm_campaign_member` all saved a member of a *Completed* campaign naming an opted-out lead, and that campaign's closed figures moved.
+  
+  - Saving a new member on a campaign that is not *Planning* or *In Progress*, or that no longer exists, is refused with `VALIDATION_FAILED` (400). The message is the one Add to Campaign shows, naming the campaign.
+  - Saving a new member for a Lead or Contact whose **Email Opt Out** is ticked is refused with `FORBIDDEN` (403), the code a Do Not Call refusal uses. The message is the one Add to Campaign shows, naming the person.
+  - Moving an existing member to another campaign, Lead or Contact is checked the same way. Editing a member without moving it is not: marking a *Completed* campaign's member *Responded*, or a member *Unsubscribed*, still saves.
+  - System writes still pass: seed data, imports run as the system, and the promotion of a converting lead's members to *Converted*.
+  
+  These two messages are in English in every language for now, because a refusal raised while saving a record has no translation key yet. The same refusals from Add to Campaign stay translated.
+  
+  **FROM → TO.** Members already stored stay as they are. No data migration is needed.
+- 3801c17: Clause-②: no
+  Metadata-protocol: none
+  
+  **Recalling an approval request no longer tells you it was rejected (#2349).** When a rep recalled their own pending request (the Recall button on the request, or `POST /api/v1/approvals/requests/{id}/recall`), HotCRM sent them the flow's rejection notice, for example "Deal rejected: NAME — Your opportunity NAME was not approved", in the inbox and, for a deal, by email. Nobody had rejected anything. The platform resumes a recalled request down the approval's reject path, and three approval flows sent their notice there without looking at why.
+  
+  Large Deal Approval (at both the Sales Manager and the Sales Director step), Account Approval and Lead Conversion Approval now end quietly on a recall. A rejection by an approver still sends the notice exactly as before. Qualification Approval and Stage Change Approval never sent a notice on reject and are unchanged.
+- 44d2d90: Clause-②: no
+  Metadata-protocol: none
+  
+  **A deal of $100,000 or more can be closed won only once its Large Deal Approval is approved (#2350).** Until now only a pending or rejected approval stopped the close. A rep could still win a large deal with no approval at all in two ways: recall the request (which hands the deal back as *Not Required*) and then close it, or raise the amount over the line and close the deal in the same save. Now moving a deal at or over the line to *Closed Won* is refused unless its **Approval Status** is *Approved*, whatever else it says, and the message tells the rep to save the deal without closing it to send it for approval. Accepting a quote on such a deal is refused the same way, so an accepted quote never sits on a deal it could not close. Closing a deal as lost, and any deal under $100,000, are not affected.
+  
+  Known limit: the rule cannot tell whether the *Large Deal Approval* flow is switched on, so an install that switches that flow off can no longer close a large deal won by hand.
+- 65666e8: Clause-②: no
+  Metadata-protocol: none
+  
+  Each module package now registers its own translations, so a module can be left out of an install without breaking the app's language packs
+  
+  **No visible change: every label reads exactly as before, in all four languages (#2352).** The
+  Service, Revenue and Marketing modules each carry their own English, Simplified Chinese, Spanish
+  and Japanese labels for the records, navigation entries, dashboards, reports, flows and manuals
+  they own, in `src/service/translations/`, `src/revenue/translations/` and
+  `src/marketing/translations/`. Until now the app package's language packs held all of them. The
+  strings moved unchanged; nothing was re-translated.
+  
+  Why: with a module left out of the install, every one of those labels pointed at something that no
+  longer existed, and the build refused it. Measured with the platform's validator, the refusals
+  drop from 58 to 0 with Service absent, from 46 to 4 with Revenue absent, and from 34 to 8 with
+  Marketing absent. The ones that remain label app records (the opportunity's *Generate Quote*
+  action, the lead and contact campaign actions), which wait on platform fixes before they can leave
+  with their module.
+- 353dace: Clause-②: no
+  Metadata-protocol: none
+  
+  **The documentation site now states four rules the way the app enforces them.** Nothing in the app changes; the pages were wrong, in English and both Chinese versions.
+  
+  - **Setup checklist, lead routing:** only a lead from the public web-to-lead form goes to the sales-rep round-robin. A lead created in the app, sent through the API, or imported from a CSV or JSON file is owned by the person who put it in, and the page links the import guide's section on owners.
+  - **Products:** a List Price of zero is accepted and only a negative one is refused; a Cost above the List Price is refused rather than warned about.
+  - **Campaigns:** the End Date must be after the Start Date, so a campaign that ends on the day it starts is refused.
+  - **Campaigns, attribution:** converting a lead does not set the Campaign on the opportunity it creates, even when the lead is a member of a campaign, so the deal is credited only once someone sets Campaign on it. The field is named by its real label, *Campaign*, instead of *Source Campaign*.
+- 66c63cb: Clause-②: no
+  Metadata-protocol: none
+  
+  **A visitor on the public support form can no longer open a Critical case, and the form reads as written for them (#2368).** Until now the **Contact Support** form at `/forms/support` let anyone pick **Critical**, which escalates the case on arrival and hands it to the Service Manager pool. The form no longer asks for a priority: a web case arrives at **Low** and the service team triages it. Even a submission sent past the form that names Critical is stored at **High** at most, so a web case never escalates by itself. Staff can still open and raise cases at Critical. Above the fields the form now reads "For an urgent outage, call the service hotline." (「紧急故障请拨打服务热线。」), and the name and email fields are labelled **Your name** and **Your email** (「您的姓名」「您的邮箱」) instead of the agent-side **Supplied Name** and **Supplied Email**, in English, Chinese, Spanish and Japanese. The Service Manual and the Cases page describe the form as it now is.
+- d963020: Clause-②: no
+  Metadata-protocol: none
+  
+  **Forms and record pages are laid out for the work done on them (#2369).** **New Contact** asks for Email and Phone on its first tab, beside the required names, so a bad email is flagged where you are typing. **New Lead** puts Salutation, First Name and Last Name on one row, and **Lead Score** says that a blank score is filled in for you. The **Send Email** dialog says where the email goes. The record headers of accounts, quotes, products, campaigns and knowledge articles show what the title does not: tier, health and revenue on an account; account, deal, status, total and expiry on a quote; type, status, start date and budget on a campaign; and List Price on a product, which the product picker on a line item now shows too. The related lists that used to borrow those headers keep their columns. A staff-created case can now set **Case Type**. A case on track no longer shows a red "× No" for SLA Violated; a breached case shows a red **SLA breached** banner (「已违反 SLA」) instead. A knowledge article opens on its body and shows its Helpful and Not Helpful counts in the header, and after a vote the message says whether it was recorded, changed or already your verdict, with the current counts. **Log a Call**, **Log a Meeting** and **Schedule a Meeting** say that the contact or lead you start from is added for you. The Related tabs of opportunities and cases open their Quotes, Products and Open Tasks panels. New and changed text is in English, Chinese, Spanish and Japanese, and the Sales, Service and Knowledge manual pages describe the new behaviour.
+- 47a0666: Clause-②: no
+  Metadata-protocol: none
+  
+  **A reopened case no longer keeps its first close (#2375).** Before, a Resolved or Closed case moved back to an open status kept the first close's **Closed Date** while it was open again, and closing it again kept that date and its **Resolution Time (Hours)**, so the resolution figures and the average-resolution tile and reports read the first close. Now any move back to an open status clears both, whether through **Reopen Case**, **Edit** or the API, and the next close stamps both afresh. The SLA is unchanged by this: the SLA Due Date is kept and a recorded breach stays recorded. The in-app Service Manual says so in English and Chinese.
+  
+  Contract statuses now declare whether each one is open, won or lost (Draft and In Approval open, Activated won, Expired and Terminated lost), so a contract's path draws each one from that declaration instead of guessing from the value's name.
+- 314d991: Clause-②: no
+  Metadata-protocol: none
+  
+  **With a module turned off, the app no longer offers the buttons that lead into it, and the Admin Manual says what turning a module off does (#2383).** On ObjectStack 18.3.0 an administrator can disable the Service, Revenue or Marketing module at Setup → Installed Apps. With Marketing off, **Add to Campaign** leaves the lead and contact row menus; with Revenue off, **Generate Quote** leaves the opportunity's record header and row menu. The platform withholds them itself (it no longer grants a disabled module's objects), so the app adds no gate of its own, and a new test pins all three with the module off and on. The module's sidebar entries leave too. One leftover remains on the platform side: on the All Leads and All Contacts lists, ticking rows still shows a "Create Campaign" / "Add Contact To Campaign" button in the selection bar, which answers with an error; that is reported to the platform.
+  
+  The Admin Manual's *Access* page has a new section, *Turning a module off*, in English and Chinese: where the switch is, what disappears while a module is off, what the fields that point into it show, and that turning it back on brings everything back because nothing is deleted.
+- d4ffe99: Clause-②: no
+  Metadata-protocol: none
+  
+  **The List Price by Category tile is left out when the revenue module is disabled (#2383).** The tile on the CRM Overview dashboard reads revenue's product catalogue. When revenue is disabled, the platform stops serving that module's objects and datasets, and the tile drew a red "Dataset "product_metrics" is not defined in this environment" error. It now asks for the product object first, so the dashboard simply leaves it out and the other tiles fill the page. With revenue enabled, nothing changes: the tile draws as before.
+  
+  The other screens of the app that reach a disabled module were measured on ObjectStack 18.2.0 too. The Campaign lookup on the opportunity form and the Related Case lookup on tasks and events show their value on the record page. On the edit form they read empty, with an empty picker, and saving keeps the stored value. The related lists (campaign members on a lead, quotes and line items on an opportunity) read empty. None of these raises an error. **Add to Campaign** on leads and contacts and **Generate Quote** on opportunities still show when their module is off and fail when used. Hiding them needs a platform change, because the permission check those buttons read still grants a disabled module's objects. That change is reported to the platform.
+- 27f310f: Clause-②: no
+  Metadata-protocol: none
+  
+  **Only an administrator can create a deal of 100,000 or more already Closed Won (#2387).** Before, anyone could create such a deal directly at **Closed Won**, from the New form, the API or an import: no approval ever started and the deal stood won at **Not Required**, a way past the rule that a large deal is won only once its Large Deal Approval is approved (#2350). Now that create is refused for everyone but an administrator (the organization's owner, an organization admin or a platform administrator), with the same message as the refused move to Closed Won, so an administrator can still load historical won deals. Creating the deal at an open stage sends it for approval as before. Seed data and other system writes are unaffected, and moving an existing deal to Closed Won still needs the approval, for an administrator too. The Sales Manual and the Approvals page say so in English and Chinese.
+- 428d318: Clause-②: no
+  Metadata-protocol: none
+  
+  **Notices name the stage and the priority by their labels, in the reader's language (#2391).** The stalled-deal notice said "Opportunity Apex Logistics Data Hub has sat in needs_analysis for 33 days", and the Chinese one 「已在“needs_analysis”阶段停留」: the stage's stored value, not the name the screens show. It now reads "has sat in Needs Analysis" in English, 「已在“需求分析”阶段停留」 in Chinese, "Análisis de Necesidades" in Spanish and 「ニーズ分析」 in Japanese, the same words the stage picker shows. The case escalation and SLA breach notices printed the priority the same way, "Case CS-0001 (critical)", and now say "(Critical)", 「（严重）」, "(Crítica)", 「（重大）」. The inbox and the email carry the same text.
+  
+  **Upgrading.** Nothing to run. The three templates take new variables: `crm.deal_stalled` reads `stage_label`, and `crm.case_escalated` and `crm.case_sla_breach` read `priority_label`, each holding the label in every language the app ships (`{{stage_label.en}}`, `{{stage_label.zh_CN}}`, `{{stage_label.es_ES}}`, `{{stage_label.ja_JP}}`). The old `stage` and `priority` variables are no longer passed, so a copy of one of these templates edited in Studio that still prints `{{stage}}` or `{{priority}}` shows a blank there; change it to the label variable of its language.
+- 85a5284: Clause-②: no
+  Metadata-protocol: none
+  
+  **The marketplace listing reads in Chinese for a Chinese console (#2392).** The HotCRM card and its detail page in **Setup › Marketplace** showed the English description and the English engineering README to a zh-CN user. The listing now carries a zh-CN description, tagline and a short Chinese introduction (`README.zh-CN.md`) in `objectstack.manifest.json` → `translations`, and `pnpm publish:marketplace` sends them with the package. A Chinese console (`zh-CN` or `zh`) shows them; every other language keeps the English listing, and the name stays **HotCRM**. The listing changes at the next marketplace publish. The publish refuses, before any request and in a DRY_RUN too, a translation the marketplace schema would reject (an over-long description or tagline, an unreadable readme file).
+- 7e3a2d6: Clause-②: no
+  Metadata-protocol: none
+  
+  **Upcoming Events shows only events that have not started yet (#2393).** The **Upcoming Events** card on **Sales Home** and the **📅 Upcoming · Soonest First** tab under **Events** listed every planned event, however long ago it was booked for. Nothing marks a meeting held when its time passes, so a booking nobody logged stayed on the card for ever, and a week after install the demo data showed only past meetings there. Both now list planned events whose start time is now or later, soonest first. The **Meetings Booked** tile on the **Sales Activity** dashboard counts the same way.
+  
+  A planned event whose time has passed keeps its **Planned** status; it only leaves the upcoming list. Set it to **Held** or **Cancelled** to record what happened. **Interaction History** still lists held events only.
+- 142a25b: Clause-②: no
+  Metadata-protocol: none
+  
+  **Generate Quote refuses an impossible validity on the field, and keeps the form open (#2396).** On an opportunity, **Generate Quote** with **Valid For (Days)** at 0 or fewer used to fail the whole quote ("Expiration Date must be after Quote Date") and leave only **Close**, so the rep had to start again. The form now refuses the number on the field, keeps every answer and **Next**, and the rep corrects it and goes on.
+  
+  **Discount %** now declares the 60% ceiling on the form field too. A caller that submits the form through the API or an AI agent is refused on the field with the form kept, and can resubmit a corrected discount. In the console a discount above 60% still ends the dialog with "Discount cannot exceed 60%" for now: the platform sends the percent box's value as text, which its field check does not read. The console picks up the field check once the platform fix (objectstack-ai/objectstack#30178) ships. The 60% ceiling itself is unchanged, and a quote edited directly is still held to it.
+- 7f3a431: **A campaign member who responded and then unsubscribes still counts as a response.** Before, moving a member from *Responded* or *Converted* to *Unsubscribed* cleared **Has Responded** and **Response Date**, and the campaign's **Number of Responses** counted members by status, so every unsubscribe lowered the campaign's **Response Rate %**. Now the member keeps **Has Responded** and the original **Response Date** when they unsubscribe, and **Number of Responses** counts members who ever responded (**Has Responded**), so the response rate is "ever responded". Resetting a member to *Sent* still clears both. The demo data now includes one member who responded and later unsubscribed. The Marketing Manual and the Campaigns and Campaign Members docs say so in English and Chinese.
+- d5f6270: Clause-②: no
+  Metadata-protocol: none
+  
+  **The Leads help page no longer says imported leads are spread across the sales reps (#2360).** It listed CSV import and API capture among the ways a lead arrives without an owner and is round-robined to the least-loaded rep. Measured on ObjectStack 18.2.0, only a web-to-lead form submission arrives ownerless and reaches the round-robin. A lead created in the UI, sent through the API under a sign-in or API key, or imported from a file is owned by the person who put it in. For an import that is the person who ran it. The English and Chinese pages now say so, and they link the Admin Manual's *Importing Data* page, which already described this. Lead assignment itself is unchanged.
+- f3369aa: Clause-②: no
+  Metadata-protocol: none
+  
+  HotCRM runs on ObjectStack 18.3.0; book titles and the Customer Churn Signals panels are translated, and the admin docs follow Setup's new navigation
+  
+  **ObjectStack 18.3.0.** All 23 `@objectstack/*` dependencies move from 18.2.0 to 18.3.0 together, pinned
+  exact, and `specVersion` and `engines.protocol` (in `objectstack.manifest.json` and in each of the four
+  packages) follow to `^18.3.0`.
+  
+  - **Book titles and report panels in every language.** The four in-app manuals (*HotCRM User Manual*,
+    *Admin Manual*, *Revenue Manual*, *Marketing Manual*) and their section headings now read in Chinese,
+    Japanese and Spanish, for example *HotCRM 使用手册*, and so do the four panels of the **Customer Churn
+    Signals** report (*客户成功经理标记的客户*, …). 18.3.0 made both translatable; before, they read in
+    English in every language.
+  - **The Knowledge "Helpful" / "Not Helpful" toast keeps its tally.** 18.3.0 reads an action's outcome
+    messages as `{{ }}` templates and refuses the old `${…}` spelling, so the six messages (and their
+    three translations) are respelled. The toast still reads "Thanks — recorded as helpful. Helpful: 1 ·
+    Not helpful: 0."
+  - **The lead form layouts named `split`, `drawer` and `modal` are plain forms now.** 18.3.0 retired
+    those three form `type`s (where a record opens is the reader's choice now, and a list opens it in a
+    side drawer by default). The three named lead forms keep their sections and fields.
+  - **The admin docs point at Setup's new entries.** 18.3.0 moved positions and permission sets out of
+    Setup: who holds a position is **Setup → Position Holders**, a permission set is given under
+    **Setup → Permission Set Assignment**, and the sets themselves are read and copied (**New similar**)
+    in **Studio → All Metadata Types → Permission Set**. Email is **Setup → Mail Delivery**, and installed
+    packages are **Setup → Installed Apps**. The docs site (English, Simplified and Traditional Chinese)
+    and the in-app Admin Manual now say so.
+  
+  What changes for people because of the platform release, not because of HotCRM:
+  
+  - **A service agent can take an unassigned case by setting its owner to themselves.** 18.3.0's
+    ownership rules admit a *claim*: setting the owner of an unowned record to yourself, on a record you
+    can see. Agents see every open unassigned case, so they can now claim one that way as well as by
+    picking it up (moving it to *In Progress*). Assigning an unowned case to somebody else, or taking a
+    case another agent owns, is still refused.
+  - **Starting a flow on a record you cannot read is refused up front.** Escalate Case, Close Case and Add
+    to Campaign now answer "not found" when the record (or the campaign) does not exist or the person
+    cannot read it, before the flow runs, instead of failing at its last step. Nothing is written either
+    way.
+  - **Charts over dates show the empty months.** A trend over a date dimension now draws a zero for a
+    month (or day) that holds no record, instead of joining its neighbours.
+  - **Amounts have no currency symbol until an administrator sets the default currency.** 18.3.0 asks an
+    administrator for it on first visit; until it is set, amounts read as plain numbers.
+- 57686e0: **Send Email on a contact now says what it did.** After sending, the toast reads "Email queued to this contact." instead of the generic "Action completed successfully", like the contact's other actions ("Contact marked as primary!"). It says *queued* because the email is handed to the mail service for delivery. Translated in en, zh-CN, es-ES and ja-JP.
+- 8a14b56: The service agent and the service manager are no longer shown Sales Performance, CRM Overview or the four opportunity reports (Opportunities by Stage, Won Opportunities by Owner, Pipeline Coverage, Opportunity Funnel by Owner) (#2268). Since every member holds `crm_user` and so reads their own opportunities (#2231), the read gate on these six entries no longer kept them from the two service positions. They now share Sales Home's audience, which also asks the position. The service personas still land on Service Overview and keep the Opportunities and My Deals entries. Sales reps, the sales manager and administrators see the same sidebar as before. The quick tour and the Service page, in English, Simplified and Traditional Chinese, no longer say that the service personas read no opportunities, and the Service page now says that a sales rep is shown only Knowledge in the Service group.
+
+## 6.0.0
+
+### Major Changes
+
+- 8daa492: Only people allowed to create campaign members can enroll anyone in a campaign
+  
+  **Who can enroll now.** Enroll Members on a campaign, and Add to Campaign on the lead and contact
+  lists, now write as the person who runs them, so that person's own permission to create campaign
+  members decides. Marketing User and the administrators enroll as before. Sales Rep and Sales Manager,
+  whose profiles have always said that enrollment belongs to marketing, are no longer offered Enroll
+  Members or Add to Campaign, and a request that reaches the server anyway is refused. Until now two
+  elevated paths let them enroll all the same.
+  
+  Mark Responded works the same way: it records the response as the person who presses it. It is
+  offered to the users who may edit campaign members (Marketing User and the administrators), and a
+  sales rep or manager is refused.
+  
+  **What Enroll Members says.** A run in which anyone was refused used to report success. It now ends
+  with a refusal that gives both counts: *"Enrollment refused for 4 of the people selected: 0 enrolled,
+  4 refused."* A clean run ends with *"Eligible members enrolled in campaign."* A refused person is not
+  added to the campaign.
+  
+  **What Add to Campaign answers.** From the selection toolbar it asks for the campaign once, lists the
+  people you ticked, then enrolls each of them on their own and reports *Succeeded* with a count. From a
+  row's menu it shows *"Leads added to campaign!"* or *"Contacts added to campaign!"*. A person already on
+  the campaign is skipped and still counts as a success. A campaign id that names no campaign is now
+  refused, where it used to write a member that pointed at nothing.
+  
+  **For API callers**, the two Add to Campaign actions and Mark Responded change shape:
+  
+  - `POST /api/v1/actions/crm_lead/create_campaign` and `POST /api/v1/actions/crm_contact/add_contact_to_campaign`:
+    the campaign was sent as `params.crm_campaign` and is now sent as `params.campaignId`; the old key
+    is refused with 400 as an unknown param. The answer was `{ campaignId, count, skipped, ids }` and is
+    now the flow's result, `{ success, output: { enrolled } }`, where `enrolled` is `false` for a person
+    already on the campaign. A caller who may not create campaign members gets 400 `FLOW_FAILED`.
+  - `POST /api/v1/actions/crm_campaign_member/mark_responded`: the answer was `{ id, status, response_date }`
+    and is now the updated member (`{ operation: 'update', object, id, record }`). A caller who may not
+    edit the member gets 403 `PERMISSION_DENIED`.
+  
+  *Campaign Members*, *Profiles*, *Automation*, *Leads*, *Email & Calendar* and *API reference* describe
+  the new behaviour in all three languages.
+- c8a7a70: Each position now names the profile it hands out, so Setup shows who holds what
+  
+  Five positions give their holders a profile: Sales Manager, Sales Representative, Service Agent, Service Manager and
+  Marketing User. Until now none of them said so. Each reached its profile only because the two share a name, a match
+  the platform makes without anything declaring it, warns about on every boot, and is retiring. So Setup told the
+  wrong story: a position's page said it grants nothing on its own, and each profile's **Assigned Users** panel was
+  empty, while the people holding those positions were in fact getting the profile.
+  
+  - **Each of the five positions now lists its profile** under **Permission Sets** on its page in **Setup →
+    Positions**. Sales Manager, Sales Representative, Service Agent and Marketing User each hand out the profile of
+    the same name; Service Manager hands out **Service Agent**.
+  - **Nobody's access changes.** Every persona reads and edits exactly the records it did before: the sales reps,
+    the sales manager, the service agent, the service manager and the marketing user were each measured object by
+    object before and after. The boot no longer warns about these positions, and when the platform stops matching
+    positions to profiles by name, these five keep working.
+  - **The Service Manager profile is retired.** It was a renamed copy of Service Agent that existed only because a
+    position could not name its profile. The Service Manager position now names Service Agent directly, so there is
+    one profile to keep correct instead of two. **If you assigned the Service Manager profile to someone directly** in
+    Setup, rather than giving them the Service Manager position, that assignment grants nothing after this release:
+    assign **Service Agent** instead, or give them the position.
+- 16c2866: Upgrade the ObjectStack platform to 18.0.0, the first general-availability release of major 18
+  
+  All 23 `@objectstack/*` dependencies move from 18.0.0-next.5 to 18.0.0 together, pinned exact.
+  `specVersion` and `engines.protocol` follow to `^18.0.0` in `objectstack.manifest.json` and in both
+  package manifests. No third-party package changes version, and no app metadata had to change.
+  
+  **This release still needs an ObjectStack 18 host.** A 17.x host refuses the artifact at the
+  protocol handshake, as before.
+  
+  What HotCRM users see on the new platform:
+  
+  - **The public Support form preselects Priority.** It opens on *Low*, the option the app marks as
+    the default, so a visitor who leaves it alone can submit. Before, the field was empty and the form
+    refused "Required: Priority".
+  - **Import with a saved mapping works from the Import wizard.** Choosing a mapping the app ships,
+    such as *Account Import (CSV)*, under *Saved mapping* now imports the file through that mapping,
+    with its value translations (*Client* becomes *Customer*). Before, the wizard sent the rows in a
+    format the mapping does not declare, and the import failed.
+  - **Clearing a line item's Sales Price names the field.** The refusal reads "Sales Price is
+    required" (in Chinese, "销售单价不能为空") instead of the column key `unit_price`.
+  - **The person who submits an approval is told the outcome.** When a manager approves or rejects
+    a request, its submitter gets a *Request approved* or *Request rejected* notification from the
+    platform. The app's own notices to the record owner stay, so an owner who submitted the request
+    themselves now gets both.
+  - **Writes an approval makes after the decision are the approver's.** For example, when a manager
+    approves a large deal, its approval date is written as the manager, and *Last Modified By* names
+    them.
+  - **Recalling a large-deal approval re-opens it.** A recall now puts *Approval Status* back to
+    what it was before the request (*Not Required*), and the Large Deal Approval starts again on
+    that change. The deal stays locked under a new pending request. Before, a recall left the status
+    at *Recalled*, unlocked the deal, and the deal never re-entered approval.
+  - **Setup › Access Control lists the app's own sharing rules** under *Declared Sharing Rules*,
+    read-only, where each can be switched off or cloned. *Sharing Rules* keeps listing the rules
+    your organization creates.
+  
+  What administrators, operators and integrators should know:
+  
+  - **A database an 18.0 pre-release created must be upgraded before 18.0.0 serves it.** Every
+    HotCRM 5.x deployment runs on an `18.0.0-next` host, so this applies to all of them. 18.0.0
+    refuses to start on such a database ("This database carries no organization-ownership marker").
+    Start 18.0.0 once (the start is refused, after it has created the new tables), take a backup, run
+    `os migrate organization-ownership --out plan.json`, review the plan, then run
+    `os migrate organization-ownership --apply --plan-file plan.json --backup-taken` and start again.
+    A local development database is upgraded by `os dev` itself, which keeps a copy first.
+  - **A front-end on another origin must be named to call the API.** With no `OS_CORS_ORIGIN` set,
+    the server admits no cross-origin browser caller (a loopback origin is still admitted in
+    development). The console and the public forms are served by the server itself and are not
+    affected. An embedded form or a portal on another domain sets
+    `OS_CORS_ORIGIN=https://its.domain`.
+  - **A production `os serve` with no `OS_AUTH_SECRET` refuses to start.** `os start` supplies one.
+  - **Mail bodies are readable only with `manage_platform_settings`.** An organization
+    administrator still sees that an email from *Send Email* was sent, to whom and with what result,
+    but not its text.
+  - **A flow resume that carries both `inputs` and `variables` is refused with `400`.** Send the
+    screen's answers under `inputs` only. The console already does.
+  - **No app data changes.** No object, field or stored value changes in this release, and nothing
+    needs to be reloaded.
+
+### Minor Changes
+
+- 4166f21: HotCRM now offers one default permission set to every member, so an invited colleague can open the CRM without a profile
+  
+  On a hosted environment, a colleague the organization invites is signed in and created on first visit, holding only
+  the platform's own baseline: their profile, preferences and inbox. With HotCRM installed they still saw no CRM object
+  until an administrator assigned them a profile, person by person, in **Setup → Users**.
+  
+  - **New permission set: CRM User (`crm_user`), the package's default.** Installing HotCRM now puts a suggestion on its
+    package page in the **Marketplace**: *This app suggests granting "crm_user" to all signed-in users (the Everyone
+    position).* One **Grant** gives it to every signed-in member, people invited later included. **Revoke** on the same
+    panel takes it back.
+  - **What it gives.** Each member creates, reads and edits their **own** leads, accounts, opportunities, tasks and
+    events, adds contacts and meeting attendees to them, and reads the product, campaign and knowledge catalogues.
+    Quotes, contracts and line items stay with the sales profiles. It deletes nothing, exports nothing, and carries no View All, Modify All or system
+    permission. Every grant in it is one the Sales Representative profile already makes, so a rep gains nothing new.
+  - **It adds to every profile.** Permission sets add up, so once CRM User is in force a Marketing User or a Service
+    Agent can also create and edit accounts and opportunities of their own, which their profiles alone do not
+    allow. What it adds for them to read is limited to their own records and the shared product and campaign
+    catalogues; it reaches no quote, contract or line item.
+  - **Why not Sales Representative.** The platform refuses to give everyone a set that can export, delete or see every
+    record, and Sales Representative does all three, so a narrower set was written for this purpose.
+  - **Nobody's field security changes.** CRM User masks no field and opens no field, so every profile reads and edits the
+    same fields it did before.
+  - **Self-hosted servers (`objectstack serve`)**: every signed-in member holds CRM User from the start, and the
+    suggestion already shows as accepted.
+  
+  The default set is described under **Default set for every member** on the Profiles page, in all three languages.
+
+### Patch Changes
+
+- 9db9a58: **The Chinese sidebar names the Activity group and its Events item apart, and the New Forecast form names its two period fields apart.**
+  
+  - **Chinese (zh-CN) sidebar.** The Activity group is now 互动, and its Events item stays 活动, the name of the page it opens. Before, both read 活动, so the sidebar showed 活动 › 活动. English, Spanish and Japanese already used two words (Activity › Events, Actividad › Eventos, 活動 › イベント).
+  - **New Forecast form.** The free-text period name is now labelled **Period Label** in English, **Etiqueta del periodo** in Spanish and **期間ラベル** in Japanese. Before, it was labelled **Period** (**Periodo**, **期間**), the same as the Month / Quarter picklist beside it, so the form showed two fields with one name. Chinese already labelled them apart (周期 / 周期标签).
+  - **Approval names stay in English for now.** In every language, the approvals inbox and the approval panel on a record still show an approval's name and its step's name in English, for example "Large Deal Approval (on create) · Sales Manager Review". The app's language packs cannot change that today: the platform shows each name as it was written when the approval was opened, and has no translation for an approval step. This release does not change it; the fix belongs to the platform.
+- b91ac1b: **The product docs, the feature inventory and the admin guide now describe the app as it ships.** Nothing in the app changes; each corrected sentence was measured in the running app, the engine or the source first.
+  
+  - **Cases.** The case detail screen is made of the object's field groups (Case Information, Origin & Routing, SLA & Priority, Escalation, Resolution, System). The page used to say it had three sections of its own and that Escalated Date and First Response Date appeared on no screen; both are on the Details tab, and an Attachments panel sits below the tabs. The Activity timeline has no email stream (Send Email is a contact action). The account's last activity date moves when a case reaches Resolved or an interaction is recorded on it, not on every case update.
+  - **Activities and opportunities.** An account, lead, opportunity or case lists its tasks and events on its Related tab; its timeline carries logged calls and meetings, not tasks, and a completed task adds nothing to it. The opportunity timeline has no emails and no task completions.
+  - **Contacts and accounts.** The primary contact is not a default anywhere: you pick the contact on each opportunity, quote and contract. The Primary Contacts list is the place the flag shows.
+  - **Knowledge base.** The Published tab lists the most Helpful Votes first (there is no view count).
+  - **Forecasts.** A forecast record has three sections, Snapshot, Amounts and Source (collapsed); the form arranges them as Snapshot, Amounts and Notes.
+  - **Sandbox and releases.** HotCRM ships 20 seed families, not 21; nineteen insert once and the forecast snapshots upsert.
+  - **Admin guide** (`src/docs/crm_admin.md`). The sharing table lists Unassigned Cases — Triage, and the permission sets include Service Manager.
+  - **Feature inventory** (`docs/feature-inventory.md`). Eighteen rows corrected: the account tabs and delete guard, the case fields and the escalation hand-off, the article review date, vote counts and Published order, campaign enrollment and Mark Responded, the quote and forecast defaults, the Activity group, seven permission sets, eleven sharing rules, each persona's landing page, Sales Home, and the seed data.
+- f22dfa5: **Three New forms no longer make you type a value the app fills in for you.**
+  
+  - **Opportunity line item.** Leave **Sales Price** blank and the line takes the product's **List Price**, which you can still change. Before, the form refused to save with "Please check the highlighted fields: Sales Price", although the app already defaulted a blank price to the list price for lines added any other way.
+  - **Quote.** Leave **Expiration Date** blank and the quote expires 30 days after its **Quote Date**. The form now says "Set automatically when saved." under the field, as it already did for **Quote Date**. Before, the form refused to save until you picked a date.
+  - **Forecast.** Leave **Period End** blank and it is filled in from **Period** and **Period Start**. Leave **Snapshot Date** blank and it is today, with the same "Set automatically when saved." note. Before, the form refused to save until you filled both in. **Period Start** is still asked for.
+  
+  Nothing else changes. A date or price you enter yourself is kept, and the existing rules still apply to it. Saving a quote or forecast with its Expiration Date or Snapshot Date cleared is still refused. Clearing a line's Sales Price is still refused too, but the message now names the field `unit_price` rather than "Sales Price". An import's dry-run preview no longer reports a blank Sales Price, Expiration Date, Period End or Snapshot Date as an error, so the preview agrees with the import itself, which already filled them in.
+  
+  The documentation now says so too: the quotes page lists the 30-day default, the forecasting page says a blank snapshot date is today, and the automation page says these two defaults are declared on their fields rather than computed by a hook.
+- 39dee2b: **All Forecasts lists periods newest first, two refusals read the way the screens do, and the demo accounts appear on the map.**
+  
+  - **All Forecasts.** The list now groups by **Period Start**, newest first, and under each start date by the period's label, so every period still has a heading of its own (**Q4 2026**). Before, it grouped by the label alone, which sorts as text: *Sep 2026*, then *Q4 2026*, then *Q4 2025*, with *Oct 2026* near the bottom. A quarter and the month that opens it start on the same day, so **Q4 2026** and **Oct 2026** sit under one start date as two periods.
+  - **Campaign dates.** A campaign whose **Start Date** falls after its **End Date** is refused with "The campaign's Start Date (…) must not be after its End Date (…)". A campaign saved as *In Progress* without both dates is refused with "A campaign cannot be In Progress without both a Start Date and an End Date". Before, both messages named the fields `start_date`, `end_date` and the status `in_progress`.
+  - **Deleting a product.** A product still on any opportunity or quote line is refused as before, and the message now counts what it names: "Cannot delete product: it is on 4 opportunity line items and 2 quote line items. To retire it instead, turn off Active." Before, it read "referenced by 4 opportunity(ies) and 2 quote(s)" for four lines on two deals, listed a zero, and named the field `is_active`.
+  - **Accounts by Location.** Each demo account now carries an **Office Location** at its billing address, so the map shows all nine offices. Before, every demo account left it blank and the map reported "9 records with missing or invalid coordinates excluded". A database seeded before this release keeps its blank locations: the demo accounts are written once and never overwritten. Fill **Office Location** on an account to put it on the map.
+- 01808c3: **A quote line no longer asks for a Sales Price, and a mid-month forecast start gets one clear message.**
+  
+  - **Quote line item.** Leave **Sales Price** blank and the line takes the product's **List Price**, which you can still change. Before, the New Quote Line Item form refused to save with "Please check the highlighted fields: Sales Price", although a quote line added any other way already got the list price. Opportunity line items have worked this way since the previous release, and the two now behave the same.
+  - **Forecast.** A **Period Start** that is not the first day of its period is still refused, and the message now names **Period Start** only. Before, a start such as 2026-10-15 also drew "Period End must be the last day of the period", even with **Period End** left blank, or when the end you typed was the month's real last day. Once **Period Start** is on the 1st (on a quarter boundary for a quarterly forecast), a **Period End** you type is checked as before.
+  
+  Nothing else changes. A price you type is kept, and clearing a quote line's Sales Price is still refused; as on opportunity lines, that message names the field `unit_price` rather than "Sales Price". An import's dry-run preview no longer reports a blank Sales Price on a quote line as an error. The forecasting page now says that a start off its boundary is the only thing reported.
+- df2d21c: **Escalate Case and Close Case are offered only to people who may edit a case.** Both buttons edit the case they sit on, so they now appear only for the Service Agent, the Service Manager and the administrators. Sales Rep and Sales Manager can read cases (an account's support history) but not edit them, and Marketing User has no access to cases. Until now both buttons were drawn for anyone who could open the case, and a sales rep or manager who pressed Escalate Case got "Node 'escalate' failed: update_record(crm_case) failed: You do not have permission". The rule follows each person's permission set, so it moves with the set.
+  
+  **Docs that described the app as it was.**
+  
+  - **Campaign members.** *Unsubscribed* is set on the member record by a user who may edit campaign members (Marketing User and the administrators). The page used to say a sales rep sets it; reps and sales managers cannot edit a member. Nothing in the app sets it automatically.
+  - **Quick tour.** The lead button is **Convert Lead** (转化线索), not *Convert*, and the Simplified Chinese pipeline screenshot is captioned with the view's own name, 销售流水线.
+  - **Module-split inventory** (`docs/architecture/module-split-inventory.json`). Add to Campaign on a lead and on a contact are no longer listed as action bodies that write another module's object; since #2167 each starts the marketing module's own enrollment flow. The change is recorded in the file's hand-edit log, and the measured figures are left as measured.
+- a9e7fac: The demo administrator can export lists, and the admin docs say export is granted, not implied
+  
+  Since ObjectStack 18 the platform's own administrator access carries no export, so on a fresh demo box the dev
+  admin (`admin@objectos.ai`) could not export any list: the list's **Display** panel offered no **Export**, and the
+  export API refused it. `pnpm demo:staff` now assigns the app's **System Administrator** profile to the dev admin, as
+  the first thing it does, so the dev admin exports the **Leads**, **Accounts**, **Contacts**, **Opportunities** and
+  **Cases** lists, and nothing that profile does not grant. No profile's grants change.
+  
+  The Profiles page and the in-product administration notes now say that export comes from a profile: an
+  administrator, the account that set the deployment up included, exports nothing until **System Administrator** (or
+  another profile that grants export) is assigned to them.
+- f2af469: **Add to Campaign is no longer a button in a lead list's header.** On **My Leads**, **🔥 Hot Leads**, **High Priority**, **Suspected Duplicates**, **Lead Pipeline**, **Lead Calendar** and **Lead Cards**, the header carried an **Add to Campaign** button (加入营销活动 in Simplified Chinese) for marketing users and administrators. The button works on one lead at a time but was drawn with nothing selected: it opened the whole Campaign dialog, let you pick or even create a campaign, and only then refused in English ("This action runs on a single record — select a row first."), adding nobody. A campaign created from that dialog stayed behind.
+  
+  Add to Campaign is now offered where a lead is already chosen: in every lead row's ⋮ menu, for that one lead, and on **All Leads**, where you tick the rows and run it from the selection toolbar for all of them at once. Who is offered it is unchanged: marketing users and administrators, not sales reps or sales managers. Contacts were not affected: their header never showed the button.
+  
+  **The Opportunity Funnel by Owner → Stage report now charts amount by stage as a horizontal bar chart instead of a funnel.** The amounts do not shrink from one stage to the next (on the demo data, Negotiation and Closed Won hold the most money), so the funnel pinched and then flared, and the Negotiation label was hidden. Now each stage is one bar, top to bottom in sales order from Prospecting to Closed Won, and every stage name is shown in full. The report's name, its table and its numbers have not changed.
+- 399d414: **The Convert Lead screen now says which account the lead will join, before you submit.** It used to ask only **Create Opportunity?** (是否创建商机？ in Simplified Chinese) and then matched an account by the lead's company in silence. Now the screen names the existing account the lead will join, by that account's own name, or says that no account you can see matches and that converting creates a new account named after the lead's company. It reads in every shipped language. If the account is not the one you expected, cancel, correct the lead's **Company**, and convert again.
+  
+  The match is still the same normalized company-name match, and it still only looks at accounts you can see. An account owned by a colleague and not shared with you is never matched, and the screen now tells you a new account will be created. If that account has exactly the same name, the conversion is refused as a duplicate record and nothing is created, as before. If its name differs only in capitalisation or spacing, a second account is created, as before. Ask the account's owner or an administrator to share it with you before converting.
+  
+  The match now happens when the screen opens, and the conversion acts on that match. If the named account is deleted while the screen is open, the conversion is refused and nothing is created. Before, a new account the screen had never mentioned was created instead.
+  
+  **Add to Campaign on a contact is declared on each row's ⋮ menu only.** It also carried a list-header placement. That header button never appeared, because the action is offered only for a contact who has not opted out of email, and a list header has no contact. The placement is gone so that a later change to that rule cannot bring the header button back. On **All Contacts** you still tick rows and run it from the selection toolbar.
+- e6d5d3e: **Closing a case now completes its escalation follow-up task.** Escalating a case opens an urgent "Escalated: CASE-…" task for the account owner. Nothing closed that task when the case was closed, so a closed case left an urgent task in the account owner's **My Open Tasks**, one for each time the case was escalated.
+  
+  Now, when a case moves to *Closed*, each of its escalation tasks that is still open is set to **Completed**. This happens however the case is closed: with **Close Case**, or by setting the status to *Closed* on the record. The task records the person who closed the case as the one who completed it. A task its owner already completed is not changed, and the case's other tasks are left as they are. Reopening the case does not reopen the task.
+  
+  Completing the task counts as activity on the account, as completing any task does, so the account's **Last Activity Date** moves to the day the case was closed.
+- b8348e9: **A lead you create for yourself no longer sends you an "awaiting assignment" alert.** New-lead routing alerts the lead's owner, but its standard alert read *"New lead to assign: … is awaiting assignment"*, an assigner's message sent to the person the lead was already assigned to. Every lead a rep created, from the form or through the API, therefore told that same rep the lead was waiting to be assigned.
+  
+  Now the standard alert reads *"New lead assigned to you"*, and it is sent only when someone else put the lead in the owner's name: the round-robin gave them a web-to-lead enquiry, an integration named them as owner, or a colleague logged the lead for them. A lead you create for yourself sends you no standard alert. Its three-day follow-up date is still set, and it is in **My Leads**.
+  
+  The hot-lead alert (4 stars or better) now reads *"Hot lead — follow up within 24h"* instead of *"Hot lead — assign within 24h … needs an owner today"*. It still goes to the owner whoever created the lead, by inbox and email, because the rating may be the system's own score. Both alerts are reworded in all four languages. A lead with no owner still gets its follow-up date and no alert.
+- f8eed90: **The Pipeline by Stage tile is now a horizontal bar chart instead of a funnel.** The tile is on **Executive Overview**, **Sales Performance** and **CRM Overview** (in Simplified Chinese it reads 阶段管道分布). It shows the value of open opportunities at each sales stage. A funnel draws each stage as wide as its value, so it reads as a funnel only when the value shrinks from one stage to the next, and open pipeline value usually does not. On the demo data the late stages hold the most money, so the funnel pinched in the middle and then flared out at the bottom.
+  
+  Now each stage is one bar, its length the stage's open value. The stages run top to bottom in sales order: Prospecting, Qualification, Needs Analysis, Proposal, Negotiation. Closed deals are still left out, and the tile still follows the dashboard's date and filter pickers. The title, the description and the numbers behind the tile have not changed.
+- 2961679: **Every report the app ships now has a sidebar entry, in a new Reports group.** Before, only three of the ten reports could be opened from the app: **Pipeline Coverage** and **Lead Inflow** under **Insights**, and **SLA Performance**. The other seven, such as **Opportunities by Stage** or **Cases by Status and Priority**, opened only if you knew their address, and searching for one with ⌘K found nothing.
+  
+  Now the sidebar has a **Reports** group, last in the list. It holds all ten reports, one entry each, and is collapsed when the app loads, so click it open. ⌘K finds a report by its sidebar name. **Pipeline Coverage**, **Lead Inflow** and **SLA Performance** moved into it from **Insights**, which keeps **CRM Overview** and **Forecasts**.
+  
+  You only see a report whose records you can read. A sales rep or sales manager sees all ten. A service agent or service manager sees the lead, account and case reports, but not the four opportunity reports. A user who cannot read cases does not see the three case reports. **Customer Churn Signals** shows to anyone who can read accounts: three of its four panels are about accounts, and someone who cannot read opportunities sees a "You don't have access" notice on the fourth.
+  
+  A few sidebar names are shorter than the report's own title. For example, **Accounts by Industry & Type** opens the report **Accounts by Industry and Type**, and **Cases Opened by Day** opens **Cases Opened by Priority × Day**.
+- 5782101: Enroll Members on a campaign that is not open, or no longer exists, now says so instead of claiming success
+  
+  **Enroll Members** enrolls people only into a campaign in *Planning* or *In Progress*. On any other campaign the run
+  already enrolled nobody, but it then ended like a clean run: the console showed *Eligible members enrolled in
+  campaign.* over a run that had added no one. That happened on a *Completed* or *Aborted* campaign, and on one deleted
+  after the button was clicked.
+  
+  - **Such a run now ends with a refusal.** The message says the campaign is not open for enrollment or no longer
+    exists, that only a *Planning* or *In Progress* campaign takes members, and that nobody was enrolled. The console
+    shows it with **Close** only, as it shows the other refusals, and no member row is written. The message is
+    translated into Chinese, Spanish and Japanese.
+  - **Enrolling into an open campaign is unchanged.** Leads by status and contacts by department are enrolled as
+    before, a run that refused anyone still reports both counts, and a clean run still ends with *Eligible members
+    enrolled in campaign.*
+  - **Studio no longer warns that the flow's *Campaign Open?* step can dead-end.** The step now has a default branch,
+    which is where the refusal is.
+- b6cadbd: A contact or account whose only quote is accepted can now be deleted
+  
+  Handling a data-deletion request used to stop at the first quote the customer had accepted. Deleting
+  the contact, or the prospect account above it, was refused with *"… 1 active quote(s) … Close or
+  reassign the opportunities and quotes first"*, and neither could be done: an accepted quote is
+  settled and frozen.
+  
+  Now both deletes go through. **The accepted quote stays, with its Contact cleared** and everything
+  else on it unchanged, the way a closed deal already keeps its record when its primary contact is
+  deleted. When the accepted quote sits under the account being deleted, it goes with that account, as
+  every quote under a deleted account does.
+  
+  What still holds a contact is open work: an open opportunity or open quote naming them, or a
+  contract with them as its primary contact. The refusal now lists only what holds the contact, with
+  real plurals (*"1 open opportunity and 2 open quotes"*, not *"1 open opportunity(ies), 2 active
+  quote(s), 0 active contract(s)"*), and names only steps that free the contact: close the opportunity
+  or give it another primary contact, give the quote another contact or reject it, give the contract
+  another primary contact.
+  
+  A quote's Contact is still required on the save that moves the quote to Presented or Accepted, and
+  cannot be emptied while the quote is Presented, so a contract is never drafted without a recipient.
+  The Contact field's help text now says that. *Import & Export › Data deletion requests* and *Quotes*
+  describe the new behaviour.
+- b94cf85: **Editing the demo case "Mobile app crashes on iOS 17" no longer escalates it a second time.** The demo data's escalated cases had the **Escalated** flag and an **Escalation Reason** but no **Escalated Date**, and the automatic escalation of Critical cases treats a case with no Escalated Date as never escalated. So the first edit anyone saved on that case, a Critical case being worked in **In Progress**, replaced its reason "Affects 30% of mobile users" with "Auto-escalated: critical priority", gave it a new Escalated Date, and moved it back to **Escalated**.
+  
+  Every escalated demo case now carries an Escalated Date between the moment the case was opened and now. Editing one keeps its reason, its date and its status.
+  
+  This applies to a new demo database only. The demo cases are written once, when the database is first seeded, and later starts never write them again: the case dataset is insert-once (`mode: 'ignore'`, #2139), and this release ships no migration or backfill. A demo database seeded before this release keeps its escalated cases without an Escalated Date, and there an edit to "Mobile app crashes on iOS 17" still escalates it again. A new demo database (`pnpm demo:reset`, which deletes the existing one) gets the new data.
+- 1cc6861: **The Sales docs now send readers to the kanban board the way the app reaches it, and describe Customer Churn Signals by the panels it shows.** Nothing in the app changes; both corrections were measured in the running app first, in all three locales.
+  
+  - **The kanban board.** The Pipeline Management and Opportunities pages told readers to open a **Pipeline** sidebar entry, which the app has not had since the sidebar was regrouped. The board is the **Sales Pipeline** tab on the list page that **Sales › Opportunities** opens. The pages, and the daily row of the recommended cadence, now say that.
+  - **Customer Churn Signals.** The Pipeline Management page described this report as "open cases + low NPS". The report reads no cases and no NPS. It shows four panels: **CSM-Flagged Accounts**, **At-Risk Accounts** (no activity in 60+ days), **Silent High-Value Accounts** (strategic and enterprise accounts quiet for 90+ days) and **Recently Lost Opportunities** (closed-lost in the last 30 days).
+  - The test that held the old daily-row wording in place now requires the real entry and tab, and checks that the board still has no sidebar entry of its own.
+- 57d9853: Upgrade the ObjectStack platform to 18.0.0-next.5 (prerelease)
+  
+  All 23 `@objectstack/*` dependencies move from 18.0.0-next.3 to 18.0.0-next.5 together, pinned
+  exact. `specVersion` and `engines.protocol` follow to `^18.0.0-next.5` in `objectstack.manifest.json`
+  and in both package manifests. No third-party package changes version.
+  
+  **This release still needs an ObjectStack 18 host.** 18.0.0-next.5 is a prerelease of protocol
+  major 18, so any 18 runtime admits the artifact and a 17.x host refuses it.
+  
+  What HotCRM users see on the new platform:
+  
+  - **Sales Home's key figures show in full.** *Revenue (Won)* and *Pipeline Value* used to be cut
+    with an ellipsis (`1,290,0…`). The figure now shrinks to fit its tile, so `1,290,000.00` reads whole
+    at a 1440 px window.
+  - **Setup › Diagnostics has one audit entry, Audit Log.** It opens the audit browser, which filters
+    by action, object, user and date. The separate *Audit Logs* record list is no longer in Setup's
+    menu; the browser links to it.
+  - Every page lays out as before. Sales Home and the lead, opportunity and case record pages no longer
+    declare a width for their main column, which the platform now refuses there; the column is drawn
+    at the same width as before.
+  
+  What administrators and integrators should know:
+  
+  - **A public web form now refuses a submission that leaves one of its required fields empty.** A
+    script or integration that posts to *Contact Us* or *Support* without a *Description* gets `400`
+    with the field named, and nothing is stored. Before, the case or lead was stored with that field
+    empty. People filling in the forms see no change, because the form page already asked for it.
+  - **The app's own sharing rules are no longer rows in Setup › Sharing Rules.** The platform reads
+    them from the app, so that list shows only rules your organization creates. They still grant
+    access exactly as before. To see every rule, use the sharing rules API (`GET /api/v1/sharing/rules`).
+    An app rule cannot be deleted, and no new rule may take its name.
+  - **ObjectStack 18.0 starts a fresh install under every tenancy posture.** `os serve` starts with
+    `OS_TENANCY_POSTURE=group` or `isolated`, or with `OS_MULTI_ORG_ENABLED=true`, as it does under
+    `single`, given the enterprise `@objectstack/organizations` runtime and `OS_PLATFORM_OWNER_EMAIL`.
+    An existing database is a different case: it is upgraded before 18.0 serves it (see the 18.0.0
+    upgrade entry).
+  - **No app data changes.** No object, field or stored value changes in this release, and nothing
+    needs to be cleared or reloaded.
+- c16c0bb: A lead becomes Converted only through Convert Lead, and a lead stuck at Converted with nothing converted can be edited again
+  
+  Picking **Converted** in a lead's **Status** (in the Edit or the New Lead form, or through the REST API) used to save
+  the lead at Converted with no account or contact behind it: **Converted** stayed unticked and the converted
+  account, contact and opportunity stayed empty. From then on every edit was refused with "Cannot edit converted lead
+  … Make changes on the converted records instead", although there were no converted records, so the lead was frozen
+  for good. A lead created as Converted also broke the lead assignment automation that runs on every new lead.
+  
+  - **Setting Status to Converted by hand is now refused** when you create or edit a lead, with the message "Only
+    Convert Lead sets a lead to Converted, because it creates the account and contact the lead becomes. Choose
+    another Status, then use Convert Lead." The lead keeps its status and stays editable. The REST API refuses the
+    same write with `400 VALIDATION_FAILED`.
+  - **Convert Lead works as before.** It creates or reuses the account and contact, optionally creates the
+    opportunity, marks the lead Converted, and the converted lead stays locked.
+  - **Leads already stuck are released.** A lead that was set to Converted by hand before this release (Status
+    Converted, **Converted** unticked) is no longer locked: it can be edited again. Set its Status back to where the
+    lead really is, for example Qualified, and use **Convert Lead** to convert it. No data migration is needed.
+- 896e720: The public support form now asks who is writing in, so the agent who gets the case can answer them
+  
+  A case from the public support form (`/forms/support`) used to carry no way to reach the person who sent it. The
+  form asked only for a subject, a description, a case type and a priority, and a case has no account or contact
+  when an anonymous visitor raises it, so the agent it was routed to had nobody to reply to.
+  
+  - **The form now asks for the visitor's name and email.** The email is required: the form will not send without
+    it, and the server refuses a submission that leaves it out (`400 VALIDATION_FAILED`, on `supplied_email`). The
+    name is optional.
+  - **The case keeps them as Supplied Name and Supplied Email.** They sit beside **Contact** in the case's *Case
+    Information* section, on the case form and in the **All Cases** and **Unassigned — triage** lists. The email is a
+    mail link, so the agent can reply from the case. Both labels are translated into Chinese, Spanish and Japanese.
+  - **They are what the visitor typed, and nothing more.** The app never links the case to a contact or an account
+    because the email matches one: an anonymous address is not verified. The agent links the case to the right
+    contact after checking who wrote in.
+  - **Nothing else a visitor can set has changed.** The form still cannot set the case's contact, account, owner,
+    status, escalation, resolution or internal notes.
+  - **Cases your team raises are unchanged.** Both fields are optional there, and an agent can fill them in or
+    correct them on the case.
+- cd25f29: A deal's line items can no longer be changed while an approval locks the deal, so its amount keeps matching its lines
+  
+  While a deal waits on its **Large Deal Approval**, the deal itself is locked. Its line items were not: a rep could
+  still add a product, change a line's quantity, sales price or discount, or remove a line. The line was saved, but the
+  deal's **Amount** could not follow it, because the approval lock also refused the automatic amount update. The deal
+  then showed one amount (and the approver was asked to sign off on it) while its lines added up to another. The
+  only trace was an error in the server log.
+  
+  - **A line write on a locked deal is now refused, and nothing is saved.** Adding, changing, moving or removing a
+    line of a deal under approval answers "Opportunity *name* is locked while an approval is in progress, so its line
+    items cannot be added, changed or removed until that approval is complete." The REST API refuses the same write
+    with `409 RECORD_LOCKED`. This is the same rule a closed deal and an accepted quote already apply to their lines.
+  - **The same applies while a status-change (won/lost) request is waiting for approval**, on an install that turns
+    that approval on, because it locks the deal the same way.
+  - **Nothing else changes.** A deal that is not under approval takes lines as before, and its amount follows them.
+    Once the approval is decided (approved or rejected), the lines can be edited again. A qualification approval does
+    not lock the deal, so it does not hold the lines either. Deleting the whole deal still deletes its lines.
+  - No data migration is needed: a fresh install has no deal whose amount differs from its lines.
+- dfe41c7: A contract's status now follows its route: an expired or terminated contract can no longer be revived
+  
+  A contract moves **Draft → In Approval → Activated → Expired**. **In Approval** can go back to **Draft**, and a
+  **Draft**, **In Approval** or **Activated** contract can be **Terminated**. **Expired** and **Terminated** are final:
+  a renewal is a new contract. That route was declared before, but only as a warning in the server log, so any other
+  status change saved. An expired contract could be set back to **Activated** with its end date in the past, an
+  activated one could return to **Draft**, and a draft could be activated without going through approval. Each of
+  those counted as a live contract again, for the account's *Customer* status, renewal reminders and the billing
+  hand-off.
+  
+  - **A status change outside the route is now refused**, on the contract's Edit form (the message appears under
+    **Status** and the form stays open) and through the REST API (`400 VALIDATION_FAILED`, on `status`), with the
+    message "This status change is not allowed. A contract moves Draft → In Approval → Activated → Expired; In
+    Approval can go back to Draft, and Draft, In Approval or Activated can be Terminated. Expired and Terminated are
+    final: a renewal is a new contract." The contract keeps the status it had. The message is translated into
+    Chinese, Spanish and Japanese.
+  - **Everything else about an ended contract can still be edited.** Only the status is held: an expired or
+    terminated contract still takes changes to its terms, notes, primary contact or any other field.
+  - **Creating a contract is not checked.** A contract imported or created directly as *Activated* or *Expired*
+    still saves, as before.
+  - **The nightly expiration sweep is unchanged.** It still moves an *Activated* contract past its end date to
+    *Expired*.
+  - **Leads, opportunities, cases and quotes are unchanged.** Their status routes still only warn.
+- 6d150c0: **The large-deal-won notification shows the amount formatted, and a stalled deal with a long name gets its follow-up task.**
+  
+  - **Large Deal Won Alert** (#2193): the inbox and email text read "Wayne Enterprise License closed at 1200000." The amount now goes through the template renderer's `number:2` formatter in the recipient's locale, so it reads "closed at 1,200,000.00", the way the record and the list show it (`1.200.000,00` in Spanish). All four locale packs carry the change.
+  - **Stalled Deal Alert** (#2210): a deal whose name was longer than 233 characters got no stall task, because `Advance stalled deal: ` + the name overflowed the task subject's 255-character limit and the insert was refused. The subject is now cut to 254 characters plus an ellipsis, as the won-deal and case-escalation tasks already are. The "already nudged?" check matches the cut subject, so a long-named deal still gets exactly one task per stall.
+- 3116e7a: **The README now presents HotCRM as the reference implementation of "the ontology is the software" for a CRM, and its screenshots show the 18.0.0 Console.** The README opens on ObjectStack's positioning, quoted as the platform states it ("The ontology is the software", 本体即软件), then says what HotCRM is under it: the business ontology (objects, relations, actions, permissions, flows) is the app; the database, the API, the Console and the agent tools derive from it; views, dashboards and translations are projections of it. The README is also the package readme the marketplace listing shows, so the listing picks this up at the next release.
+  
+  Every figure in it was re-measured on this release: the counts as the app registers them (7 permission sets and 11 sharing rules, where the old page said 6 and 9), and the token figures as `node scripts/check-source-token-ratchet.mjs` prints them (~58k business semantics, ~29k interaction layer for the sales package). A new **Agents operate it** section shows what was run on a local community-edition boot: an agent's MCP `create_record` call creates a campaign with the dev admin's API key, and the same call with the demo sales rep's key is refused with `PERMISSION_DENIED`. Two claims the old page made are gone because they were not true: that every object has an actions file that is also an AI tool (two actions are exposed to agents, Convert Lead and Schedule Follow-up), and that every file is named after its entity and kind.
+  
+  The nine documentation screenshots are re-captured in English and Simplified Chinese from a fresh database with the shipped seed data and demo staff, in the light theme, each `meta.yaml` recording the capture date and platform version. The English sales pipeline no longer shows Chinese dates. The five older numbered screenshots under `assets/screenshots/`, which nothing referenced, are removed.
+- 1e71d5e: `pnpm demo:staff` gives every seeded case an owner, and no longer fails when run right after `pnpm dev` starts
+  
+  The demo's 38 seeded cases were routed to nobody, so who ended up owning them depended on timing: run while the seed
+  was still loading, all of them went to the service agent (the escalated ones included); run afterwards, all of them
+  stayed with the dev admin, and the service agent signed in to a Customer Service page where every tile read zero.
+  The script now hands each seeded case to a service desk: escalated and critical cases to the service manager
+  (`service.manager@objectos.ai`), every other case to the service agent (`service.agent@objectos.ai`). On a fresh
+  database that leaves the agent 23 cases, 12 of them open, and the manager 15.
+  
+  A fresh `pnpm dev` answers sign-in about 40 seconds before its seed finishes loading, and a run started in that
+  window found no tasks or meetings to hand over and exited 1 ("routed no rows at all"). The script now waits for the
+  seed to finish first (up to 180 seconds, `--seed-wait` to change it), and then routes what is there.
+- d723f6f: Ticking a lead's Converted switch no longer freezes the lead with nothing converted
+  
+  On a lead's **Details** tab, the **Conversion** section draws **Converted** as a switch. Ticking it and saving (or
+  sending `is_converted: true` through the REST API) used to save the lead as converted with no account, contact or
+  opportunity behind it. From then on every edit was refused with "Cannot edit converted lead … Make changes on the
+  converted records instead", although there were no converted records, so the lead was frozen for good. This is the
+  same dead end that choosing **Converted** in the **Status** field led to before the previous release, reached
+  through the switch instead.
+  
+  - **Ticking Converted by hand is now refused** when you edit or create a lead, with the message "Only Convert Lead
+    marks a lead as Converted, because it creates the account and contact the lead becomes. Use Convert Lead instead of
+    ticking Converted." The lead keeps its values and stays editable. The REST API refuses the same write with
+    `400 VALIDATION_FAILED`.
+  - **Convert Lead works as before.** It creates or reuses the account and contact, optionally creates the opportunity,
+    marks the lead Converted, and the converted lead stays locked. A conversion approval that is pending or rejected
+    still refuses it.
+  - **Converted leads keep working.** Deleting the account or contact a converted lead became is not refused, and the
+    lead stays converted.
+- e93b2f7: **The docs and one report now say what the app does.** No behaviour changes.
+  
+  - **Large deal approval.** The opportunities page, the sales and revenue overviews, the pipeline health signals, the setup checklist and the FAQ said a deal entered approval above $500K, and the opportunities page said final approval set the stage to Closed Won. A deal enters the Large Deal Approval flow at $100K or more: a Sales Manager reviews it, and only a deal above $500K also needs a Sales Director. Final approval sets Approval Status to Approved and stamps Approved Date; the stage does not move, and the rep closes the deal as usual.
+  - **Lead statuses.** The leads page said reps can only advance one step at a time and that the app blocks other jumps. The usual path is a guide, not a rule: a status change off it still saves, with a warning in the server log. Only Converted is enforced, and only Convert Lead sets it.
+  - **Customer Churn Signals.** The report's description called it a three-panel view and missed CSM-Flagged Accounts. It now describes all four panels.
+- ee7c4b0: Enroll Members (`campaign_enrollment`): the "Anyone Refused?" decision now routes a clean run through a default edge instead of a second, complementary condition, so Studio's Problems panel no longer warns that the decision has no default branch. Runs end exactly as before: a run that refused nobody completes with the success message, and a run with any refusal ends refused with the enrolled and refused counts. Also corrects an authoring comment in the contract-activated billing hand-off flow that described how decisions routed before the 18.0.0 engine.
+- 1f124b0: Close Case changes a case only for a person who may edit it
+  
+  **Close Case** now runs as the person who uses it, so that person's own access to the case decides the
+  close. Someone who may edit the case closes it exactly as before: the resolution, the optional resolving
+  article, the closed date, the resolution time and the SLA result are all recorded, an escalated case's
+  follow-up task is still completed, and the account's **Last Activity Date** still moves. Someone who may
+  not edit the case is refused, and the case is left exactly as it was.
+- b9ecab6: Tasks booked from a private opportunity no longer carry its name
+  
+  A deal flagged **Private** is visible only to its owner, and the records HotCRM writes from such a deal
+  now keep that promise too. The activation task booked when a private deal is won reads *Activate new
+  customer (private opportunity)*, and the follow-up task the daily **Stalled Deal Alert** books for it
+  reads *Advance stalled deal (private opportunity)*. Each still goes to the deal's owner and still links
+  to the deal. A deal whose Private flag changes while its stall task is open is still nudged once per
+  stall, not twice.
+  
+  **Clone Opportunity** on a private deal now makes a private copy; the owner of the copy can clear the
+  flag on it.
+  
+  Deals that are not private are unchanged: their tasks keep the deal's name in the title.
+
+## 5.1.2
+
+### Patch Changes
+
+- a365318: **A product with no product code is now titled by its name, and so are its line items.**
+  
+  Products created before HotCRM issued product codes automatically have no code. Their title combined the code and the name, so it came out empty: the product's own page had no title, and since 5.1.0 every line item of such a product was named by its record id, with no way to fix it. Such a product is now titled by its name alone, and its line items are named after it on their first view.
+  
+  This also stops a side effect of 5.1.1 on those products: each time a list showed one of their untitled line items, HotCRM re-saved the product, updating its Last Modified date, and still could not name the line. 5.1.1 was only ever on the staging marketplace.
+
+## 5.1.1
+
+### Patch Changes
+
+- d2f231d: **The hourly SLA sweep no longer overwrites the Escalation Reason on a case that is already escalated.** Before this release, when a case escalated with **Escalate Case** later passed its SLA Due Date, the sweep replaced the reason the agent typed with "Auto-escalated: SLA due date breached". It also moved the Escalated Date to the time of the sweep. The Escalation Reason keeps no history, so the agent's words could not be recovered.
+  
+  Now the sweep checks whether a breached case is already escalated. If it is, the sweep sets **SLA Violated**, sets the status to *Escalated*, and leaves the Escalation Reason and the Escalated Date as they were. This also covers a case that was escalated, put back to *In Progress* to be worked, and then breached. That case goes back to *Escalated* with its original reason and date. The case owner is alerted as before.
+  
+  A breached case that was never escalated is handled exactly as before: it gets the reason "Auto-escalated: SLA due date breached" and the time of the sweep as its Escalated Date.
+  
+  Cases whose reason was already overwritten before this release keep the text they have now. The earlier reason was never stored anywhere else, so this release cannot restore it.
+- bb8e207: **`pnpm demo:staff` now leaves two large-deal approvals waiting for the sales manager, each submitted by the rep who owns the deal.** Before, the script opened these requests while handing the demo deals to the reps. Its ownership update ran as the dev admin, so both **Large Deal Approval** requests named the dev admin as requester.
+  
+  The script now does it in this order:
+  
+  1. It hands the deals over through the data import with automations off, so the hand-off opens nothing.
+  2. It re-evaluates the sharing rules.
+  3. Each demo person signs in and saves the deals they were given. The save changes no field.
+  
+  On a new demo database, **Acme Platform Upgrade** and **Wayne Enterprise License** each open **Sales Manager Review** on Nina Reyes's save (`na.rep@objectos.ai`). Both wait in Marta Quinn's **Approvals Inbox** (`sales.manager@objectos.ai`), and the dev admin's inbox stays empty. Once Marta approves Wayne's request, its director sign-off goes to the dev admin, because nobody holds the sales director position. The script approves nothing itself. At the end it prints each request with its requester and approver, and it exits non-zero if any request it opened does not name the deal's owner as requester.
+  
+  Leads, tasks and events are handed over as before. Running the script again changes nothing.
+- fc60e19: **Every campaign member now gets an Added Date, however it was added.** Until this release only **Enroll Members** on a campaign filled in a member's Added Date. A member added with **New** on a campaign's Campaign Members panel, or with **Add to Campaign** on a lead or contact list, was saved with a blank Added Date. Those members showed an empty Added Date column on the campaign's members panel and on the lead's Campaign Members list, and that list sorts by Added Date.
+  
+  Now Added Date is filled in at the moment the membership is saved, whichever way it was added: Enroll Members, Add to Campaign, New on the members panel, or a REST create. It is still read-only. A create that sends its own Added Date over the REST API still succeeds, but the sent date is ignored and the moment of saving is stored, so a membership cannot be back-dated. The demo data keeps the dates it was written with.
+  
+  Members saved with a blank Added Date before this release stay blank.
+- d87855e: **Old line items now get their product name on their own, and renaming a product with many lines updates every one of them.**
+  
+  5.1.0 names each opportunity and quote line item after its product. Lines created before 5.1.0 had no name yet, so they showed a record id until someone ran `scripts/backfill-line-product-title.ts`. That script signs in with a password, so a hosted environment had no way to run it.
+  
+  Now, the first time a list, a record page or an API read shows such a line, HotCRM fills in the name of every line of that product in the background. That first screen still shows the id; the next one shows the product. Nobody has to run anything, and a read where every line is already named does no extra database work.
+  
+  Renaming a product used to stop partway on a product with many lines when HotCRM runs on a hosted environment, and so did the backfill: hook code there runs under a 30-second limit, and the update wrote one line at a time. On staging, a product with 21 lines had 9 of them renamed. The update now handles a few lines at a time and carries on in a fresh run until every line has the new name. If a run cannot make progress (for example, a line refuses every write), it stops and logs one error instead of retrying forever.
+  
+  `scripts/backfill-line-product-title.ts` still works for self-hosted operators, and a second run still reports zero lines.
+
+## 5.1.0
+
+### Minor Changes
+
+- c9095f0: **Opportunity and quote line items are now named after their product.** Open an opportunity and its **Opportunity Line Items** card lists each line as its product, for example **PRD-0009 - Premium Support**. A line's own page is headed the same way, and so is every other place that names a single line. Before, a line had no name of its own, so the app showed its description. A line added with the **Products** list's **Add** picker has no description, so it showed a raw record id, such as **Opportunity Line Item anj16lV4**. Quote line items had the same gap and get the same fix.
+  
+  The name is the product's own title, its code and name, kept in a new read-only **Product Title** field on both line items. It follows the product: rename a product and the name changes on every line that sold it. That includes lines on closed deals and on accepted or expired quotes, because a name is not a figure. Every other field of those lines stays locked, as before. Searching line items by a product's name now finds them.
+  
+  **After upgrading, run the one-time backfill once.** Lines created before this version have no Product Title yet, so their page would be headed by a record id until it is filled. The backfill fills every line, on open and closed parents alike:
+  
+  ```
+  pnpm exec tsx scripts/backfill-line-product-title.ts --url https://YOUR-ORG --email ADMIN --password PASSWORD          # report only
+  pnpm exec tsx scripts/backfill-line-product-title.ts --url https://YOUR-ORG --email ADMIN --password PASSWORD --apply  # write
+  ```
+  
+  It changes no product: it re-saves each product's unchanged name, which fills the lines that sold it. A second run reports zero lines. Restarting the server does not fill these lines, demo data included.
+- 149f201: **You can now hide columns on the Leads, Accounts and Opportunities lists.** On every table view of these three objects, the **Display** menu now has a **Hide fields** section, under **Group**: untick a column to take it off your list, tick it again to bring it back. Before, the menu offered grouping, density, row numbers and inline editing, but no way to hide a column, so a column you never use, such as **Need Type** on **All Leads**, stayed on screen.
+  
+  The choice is yours alone. It is kept with your own list settings, so it is still there after you reload or sign in from another browser, and it does not change the list for anyone else. **Show all** at the top of the Hide fields section brings every column back, and **Reset view** in the list's **⋯** menu returns the whole list to the view's own setup. You can hide only the columns the view already shows; this does not add new columns.
+  
+  The board, calendar, gallery, map and timeline views of these objects are unchanged. Row colours are unchanged too: the views still tint only the rows that need attention (for example, inactive accounts on **All Accounts**), and there is no control to change the tint.
+- 617cda2: **A lead's Related tab now shows its events, its campaigns and what it was converted into.** Until now the tab held one list, the lead's open tasks. The calls and meetings booked with a lead, the campaigns it had been added to and the account, contact and opportunity it became were all stored, but none of them could be reached from the lead.
+  
+  The Related tab now has four sections:
+  
+  - **Tasks**, as before: the lead's open tasks, the one due soonest first.
+  - **Events**: the calls, meetings and other events with the lead. Booked events come first, and the ones that already happened follow, newest first.
+  - **Campaign Members**: the campaigns the lead was added to, when it was added and how it responded.
+  - **Conversion**: after the lead is converted, links to the account, contact and opportunity it became, with the conversion date. The section does not appear on a lead that has not been converted, and it opens folded.
+  
+  Each list has a **New** button for users allowed to create that kind of record, and the new record comes linked to the lead. Sales users can book an event from a lead. Only users with the Marketing User permission set and administrators can add a lead to a campaign from here; sales reps and managers see the campaign list without the button.
+- 99971af: Tasks: a **Complete** button on the task's row and on its record page
+  
+  Completing a task used to take four steps: open it, Edit, change Status, Update. An open task now
+  has a **Complete** button at the top of its record page and on its row in the task lists. One click
+  sets the status to Completed. The rest follows from that status change, the same way as when you
+  edit the status yourself: the completion date is set to now, progress goes to 100%, a recurring
+  task starts its next occurrence, and the last-activity date of the customer it is linked to is
+  refreshed.
+  
+  The button is not shown on a task that is already completed. It completes the task as you, so it
+  works only on a task you are allowed to edit; for anyone else the platform refuses the write. It
+  asks for no confirmation and offers no Undo. To reopen a task, edit its status back.
+- d4738da: Upgrade the ObjectStack platform to 18.0.0-next.3 (prerelease)
+  
+  All 23 `@objectstack/*` dependencies move from 18.0.0-next.2 to 18.0.0-next.3 together, pinned
+  exact: 19 in `dependencies` and 4 in `devDependencies`. `specVersion` and `engines.protocol` follow
+  to `^18.0.0-next.3` in `objectstack.manifest.json` and in both package manifests (`src/sales`,
+  `src/service`). `pnpm install` regenerated `pnpm-lock.yaml`: 707 `packages:` entries before and
+  after. The 55 `@objectstack/*` keys and `create-objectstack` moved one for one, nothing was added or
+  removed, and no third-party package changed version. `@objectstack/metadata-core` no longer declares
+  an optional `vitest` peer, so the lockfile's snapshot keys drop that suffix.
+  
+  **This release still needs an ObjectStack 18 host.** 18.0.0-next.3 is a prerelease of protocol
+  major 18, so any 18 runtime admits the artifact and a 17.x host refuses it.
+  
+  The platform changes that reached this app:
+  
+  - **Sales Home's lists draw again.** The console that ships with 18.0.0-next.3 reads a page's list
+    block only in the platform's list view spelling: the object in `data`, the kind in `type`. Under
+    the old `objectName` / `viewType` spelling, *My Leads*, *My Open Deals*, *My Open Tasks* and
+    *Upcoming Events* each showed "No object named: set data.object or dataSource.object." and loaded
+    nothing. Sales Home now names its lists the new way, and each tab shows its saved view as before.
+  - **The lead forms say `visibleWhen`.** 18.0.0-next.3 removes `visibleOn`, the old name for a form
+    field's show-when condition. The lead form views now use `visibleWhen`, and each condition is
+    unchanged, so the same fields appear and hide as before.
+  
+  Changes in the platform that HotCRM users see, with no change here:
+  
+  - **Setup › Audit Logs no longer fills with your own clicks.** Opening a record or a list saves your
+    recent items, and each save used to add an `update` row on `sys_user_preference` to the audit log.
+    A user's own writes to their own preferences are no longer recorded. Anyone else's write to them
+    still is.
+  - **Public web forms show their section headings in the visitor's language.** A Chinese visitor of
+    *Contact Us* or *Support* now reads the section titles in Chinese, beside the field labels that
+    were already translated.
+  
+  **What operators should know:**
+  
+  - **No app data changes.** No object, field or stored value changes in this release, and nothing
+    needs to be cleared or reloaded.
+  - **A Studio copy of Sales Home keeps its old list spelling.** A deployment that saved its own copy
+    of Sales Home through Studio keeps serving that copy as stored, and this console no longer reads
+    its `objectName` / `viewType`. Delete the copy to fall back to the packaged page, or re-save it
+    with `data` and `type`.
+  - **Moving a host from 17.x to 18 is still the platform's migration, not this app's.** An 18 runtime
+    refuses a database still in the 17.x organization shape until the operator runs
+    `os migrate organization-ownership`.
+
+### Patch Changes
+
+- 3b05ae7: **A knowledge article's Last Reviewed date now moves only when someone looks after the article.** Before, every save of a published article refreshed it, including ones nobody made by hand. Pressing **Helpful** or **Not Helpful** on an article recounts its votes, and that recount moved the article's Last Reviewed date to today, so an article readers kept voting on looked freshly reviewed however long ago anyone had checked it.
+  
+  Now the date refreshes when the article is published or published again, and when its content is edited while it is published: the title, summary, body, category, tags, audience, language or originating case. A reader's vote, or a change of the article's owner, leaves the date where it was.
+  
+  The sample articles now show the review dates they were written with. On a new database, *Getting Started with HotCRM* reads as reviewed 20 days ago, *Resetting Your Password* 10 days ago, and *Legacy SSO Setup* 220 days ago. Before, all three read as reviewed on the day the database was created. A demo database created earlier keeps the date it was given; reset it (`pnpm demo:reset`) to see the sample dates.
+  
+  A data import or other system write that carries its own Last Reviewed date keeps that date. A person still cannot type one in: the field is read-only.
+- 410bd42: The app now opens on each role's own home page. Before, every user who could read opportunities landed on **Home** (Executive Overview), and a service agent landed on **Leads**. Now:
+  
+  - A **sales manager**, an **administrator** or a **marketing user** lands on **Home** (Executive Overview), as before.
+  - A **sales rep** lands on **Sales Home**, the rep's page of pipeline figures, leads, open deals, open tasks and upcoming events. **Home** is no longer in a rep's sidebar.
+  - A **service agent** or **service manager** lands on **Service Overview**, the service dashboard.
+  
+  To make this work, **Service** is now the first group in the sidebar for everyone, and **Service Overview** is the first entry in it, above **Cases** and **Knowledge**. The console opens the app on the first entry a user's sidebar shows, so the order of the sidebar decides where each role lands.
+- c4c73e7: **An account now has at most one primary contact.** Before, the flag piled up: **Mark as Primary Contact** flagged the contact you clicked and left the account's previous primary flagged too, ticking **Primary Contact** on the contact form did the same, and converting a lead into an account that already had a primary contact flagged the new contact as well. The **Primary Contacts** list ended up showing almost every contact.
+  
+  Now, when a contact becomes an account's primary contact, the flag is cleared on the account's other contacts. This holds however the flag is set: Mark as Primary Contact, the contact form, the API, or moving a primary contact to another account.
+  
+  Converting a lead now flags the new contact as primary only when its account has no primary contact yet. Converting into a new account works as before: the new contact is its primary contact. Converting into an account that already has one leaves that contact as primary.
+  
+  An account that already shows more than one primary contact keeps them until you choose one: untick **Primary Contact** on the contacts that should not be primary. Marking another contact of the account as primary also clears them all.
+- 0177c64: **An approval decision now shows the approver as Last Modified By.** Before, when a sales manager approved or rejected a request, the record's **Last Modified By** went back to the person who submitted it. The record's history already named the approver. The approval flow then saved the same verdict a second time, as the submitter, and that second save changed only Last Modified By.
+  
+  That second save is gone from these decisions:
+  
+  - **Account Approval**: approve and reject.
+  - **Lead Conversion Approval**: approve and reject, on installs that turn the gate on.
+  - **Large Deal Approval**: reject.
+  - **Opportunity Qualification Approval**: approve.
+  
+  Each verdict still lands the same way: **Approved** or **Rejected**, written by the approval as the person who decided.
+  
+  Some decisions also save a value of their own: the approval date on a large deal, the stage on an approved status change, or the request cleared after a rejection. On those decisions **Last Modified By** still names the submitter.
+- 8ff185c: **Raising a case's priority now brings its SLA Due Date in.** A case kept the SLA Due Date it got when it was opened, whatever happened to its priority afterwards. A Medium case escalated to Critical with **Escalate Case** stayed on its Medium deadline (36 hours from opening, on an Enterprise account), and a Low case raised to High kept its 7-day deadline.
+  
+  Now a priority change that shortens the target sets the SLA Due Date to the new priority's hours from the moment of the change, on the account's Customer Tier, as the matrix on the SLA & Escalation page gives them. For example, a Medium case escalated to Critical is due four hours after the escalation, and a Low case on a Mid-Market account raised to High is due eight hours after the edit.
+  
+  The new deadline is counted from the change, not from when the case was opened. Counted from the opening, a case escalated late would be past due the moment it was escalated, and the hourly SLA sweep would flag it as violated straight away. The new date is used only when it is sooner than the one the case already has. A case raised in the last hours of its old window keeps its sooner deadline, and a case already past due stays past due, so its breach is still recorded.
+  
+  Lowering the priority does not move the SLA Due Date, and neither does any other edit, including a save that sends the same priority again. A due date someone typed in by hand is kept, unless a later priority raise gives a sooner one. A save that sets the SLA Due Date itself keeps the date it sets. Cases whose priority was raised before this release keep the deadline they have.
+- 6736fc2: **A line item can no longer be removed from an accepted or expired quote, or from a closed deal.** Since earlier releases these lines could not be added or changed, but a rep could still delete one from the quote's Line Items panel or the deal's Products panel, or over the REST API, and the delete went through. The quote or deal kept its settled total, so its remaining lines no longer added up to it.
+  
+  Deleting one line of an accepted or expired quote, or of a closed-won or closed-lost deal, is now refused with the same lock as adding or changing one (409, `RECORD_LOCKED`). The message now names all three: *"Quote QTE-0007 - Annual Renewal is accepted, so its line items can no longer be added, changed or removed."* and *"Opportunity Acme Renewal is closed (closed_won), so its line items can no longer be added, changed or removed."* (FROM *"…can no longer be added or changed."*). Lines of a draft, in-review, presented or rejected quote, and of an open deal, are removed as before. Deletes made by imports and other system writes that carry no signed-in user are not affected.
+  
+  Deleting the whole quote or the whole deal is not affected: its lines are deleted with it. Nor does this add any refusal to deleting an account. HotCRM tells such a delete apart from removing one line by hand using the cascade-delete signal that ObjectStack 18.0.0-next.2 added (objectstack#23221). The Quotes and Opportunities guides now say so, in all three languages.
+- 202a4fa: A quote's **Discount Amount** and **Total Price** are now read-only. The system works them out from the quote's other pricing fields, as the Quotes guide says. Before this fix both could be typed by hand, in the edit dialog's Totals tab or over the REST API, and the typed figure was stored. It stayed until the next discount, tax, shipping or line-item change replaced it, and a quote accepted before then drafted its contract at the typed total.
+  
+  Now the edit dialog shows both fields as read-only. A REST update that sends either field still succeeds, but the sent value is ignored: the stored figure stays as it was, or is worked out afresh when the same update changes a pricing field. A quote created over the REST API with a Subtotal also gets both figures worked out from its Subtotal, Discount %, Tax and Shipping & Handling, whatever figures the request sent. For example, a quote created with a 1,000 subtotal, a 10% discount, 50 tax and a total of 999 is stored with a Discount Amount of 100 and a Total Price of 950. A quote created without a Subtotal has neither figure until it gets one.
+  
+  **Generate Quote** now prices the new quote with the same formula an edit uses, so the new quote's Discount Amount and Total Price always add up to its Subtotal. When the discount comes to an exact half cent, the Total Price can differ by one cent from what Generate Quote stored before. For example, a 999.95 opportunity at 10% now gets a Discount Amount of 100.00 and a Total Price of 899.95, where it used to get 899.96, so the two came to one cent more than the Subtotal.
+  
+  Editing the discount, tax or shipping still updates both totals in the same save, and adding, changing or removing a line item still updates them right after. **Subtotal** can still be edited.
+- 3fd939d: **Lead cards now show the person's name, and the Lead Calendar shows follow-ups.**
+  
+  - **Lead Pipeline** (the kanban board): each card is titled by the lead's full name, with the company, email and star rating below it. Before, the card title was the first name alone, and the first and last name were printed again on two separate lines.
+  - **Lead Cards** (the gallery): each card is titled by the lead's full name, with the company as the first line, then job title, email, phone, status and rating. Before, the card was titled by the company, with the first and last name on two separate lines under it.
+  - **Lead Calendar**: a lead now sits on the day of its **Next Follow-up Date**, so the calendar shows the follow-ups you have planned. Before, it placed each lead on the day the lead was created, which put every newly loaded lead on one day. A lead with no follow-up date is not placed on a day; the calendar lists it separately, below the month.
+  
+  The view names are unchanged, so links and saved references to these views keep working.
+- 6b312eb: **The Sales Home page is now headed Sales Home, the name its sidebar entry gives it.** The page used to head itself **Sales Dashboard**, so a rep clicked **Sales Home** and landed on a page with a different name. That name also belongs to a different place: the sales dashboard opens from **Sales Performance**. The heading now matches the sidebar entry in every language the app ships: 销售主页 in Chinese, Inicio de Ventas in Spanish and 営業ホーム in Japanese.
+  
+  The **Welcome back** line under the heading is gone. It greeted no one by name and said nothing about the page. The heading is now followed by one line, the page's description, which says what the page holds: key metrics, your open work and upcoming events.
+- bd8166c: **The sample knowledge base now looks like one.** A new database used to hold four sample articles, one in each of four categories, so the Knowledge Articles list grouped into four headings with a single row under each, and three of the seven categories were empty.
+  
+  It now holds 24 articles, three or four in every category: Getting Started, How-To, Troubleshooting, Billing & Pricing, API & Integrations, Release Notes and Policy. Most are published, with publish and review dates spread over the past months. Three are drafts and one is in review, so **My Drafts** has work in it for the administrator who owns the sample data, and two are archived (a superseded price list and superseded support hours), so the archived state shows up in the list too.
+  
+  A demo database created earlier gets the 20 new articles the next time the app starts; the four it already has are left exactly as they are. Restarting the app adds no further rows: each sample article is written once, and a later start never adds a copy or writes over an edit.
+- 33a8843: **A sample lead you convert stays converted after the server restarts.** The sample leads that ship with HotCRM were written back on every boot. A sample lead converted with Convert Lead therefore came back after the next restart at the stage it was seeded with, Contacted for example, while it still counted as converted and kept its links to the new account, contact and opportunity. Its stage path showed the old stage, Convert Lead stayed hidden, and nothing on the page said the lead had been converted.
+  
+  The sample leads are now added once, on the first boot of a database that does not have them, and a later boot leaves them alone. A conversion, or any other change you make to a sample lead, now survives a restart. The follow-up and last-contacted dates on the sample leads now keep the values from the day they were added and no longer move forward on each boot. Leads you create yourself were never affected, and conversion itself is unchanged.
+  
+  A sample lead that a restart has already reset keeps its wrong stage: this release does not repair it. Reset the demo database (`pnpm demo:reset`) to start again from the shipped sample data.
+- 5224ed7: **The number tiles at the top of the dashboards no longer draw a half-empty box.** Each figure tile (Total Pipeline, Open Cases, Interactions Logged and the like) was set two rows tall, but a figure needs about one row, so the number sat in the upper half of a box with blank space underneath. All 29 figure tiles on the Sales Performance, Executive Overview, CRM Overview, Sales Activity and Customer Service dashboards are now one row tall and fit their content, and the charts and tables below them move up with them.
+  
+  Nothing about the figures changed: the same values, filters and positions in each row. Two figure tiles stay tall on purpose, **Interactions on Deals** and **Open Deals** on Sales Activity, because they share their row with two charts.
+- 5b7301f: **Your changes to HotCRM's sample records now survive a server restart.** The sample accounts, contacts, deals and their line items, tasks, meetings and attendees, campaigns and their members, products, contracts, quotes and their line items, cases and knowledge articles were written back on every boot. Anything you changed on one of them was undone by the next restart: a completed task reopened, a deal you moved went back to its old stage, a product's new price returned to the shipped one, and a contact you marked as an account's primary contact lost the flag to the sample contact again.
+  
+  These sample records are now added once, on the first boot of a database that does not have them, and a later boot leaves them alone. The sample leads already worked this way.
+  
+  What this costs, knowingly: the dates on the sample records (due dates, close dates, meeting times, campaign, contract and quote dates) now keep the values from the day the records were added, and no longer move forward on each boot. On a demo database that runs for weeks, sample tasks fall overdue and sample deals pass their close dates, the way real ones would. And a sample record that a later HotCRM release changes reaches only a database that does not have that record yet: an existing database keeps the version it was given. Reset the demo database (`pnpm demo:reset`) to start again from the shipped sample data.
+  
+  The sample entries on a lead's activity timeline are added once too, so each one keeps matching the call or meeting it records. One kind of sample row still follows each boot: the forecast snapshots move with the calendar so the forecast history stays current, so a change you make to a sample forecast snapshot is still written back on the next restart. The current quarter's forecast, which the nightly sweep creates, is never a sample row.
+  
+  A sample record that a restart has already reset stays as the restart left it: make the change again, or reset the demo database. Records you create yourself were never affected.
+
+## 5.0.0
+
+### Major Changes
+
+- **HotCRM 5.0.0 needs an ObjectStack 18 host.** This release is built on ObjectStack 18.0.0-next.2,
+  a prerelease of the platform's next major. The protocol handshake compares majors, so a 17.x host
+  refuses to load this release before it reads a single object, and reports why. Upgrade the host
+  first.
+  
+  **The host runs the platform's migration before it serves this release.** Moving a host from 17.x
+  to 18 is the platform's migration, not this app's. An 18 runtime refuses to serve a database still
+  in the 17.x organization shape until the operator runs `os migrate organization-ownership`: plan
+  with `--out plan.json`, then `--apply --backup-taken --plan-file plan.json`. That migration keeps
+  existing data.
+  
+  **Nothing needs to be cleared.** No entry of this release asks for data to be cleared or reloaded,
+  and upgrading deletes no stored value.
+  
+  What changes for the people who use HotCRM:
+  
+  - **Tenant administrators no longer hold `manage_org_presentation`.** ObjectStack 18 retires the
+    capability together with per-organization overlays (ADR-0131 D6). The platform has no
+    organization-bounded authoring capability now, so a tenant administrator authors no metadata.
+  - **The App Launcher and Utility Bar pages are retired** (`app_launcher_page`,
+    `utility_bar_page`). Neither could be reached from the app. Reading either
+    (`GET /api/v1/meta/page/app_launcher_page` or `.../utility_bar_page`) now answers 404, and a
+    bookmark to either address stops working. To switch apps, use the console's own app switcher.
+  - **Sales Home is now three columns.** The *Ask the AI Assistant* and *Upcoming Events* cards sit
+    in a column to the right of the key metrics. Before, they stacked below the rest of the page at
+    full width.
+  
+  What changes in the data model, each with its own entry below:
+  
+  - **Quote line items lose Tax Rate %** (`crm_quote_line_item.tax_rate`). A write naming it is
+    refused with 400 `INVALID_FIELD`, and a line's **Total** is now its **Subtotal**. The stored
+    rates stay in the database, unread. `os migrate plan` lists dropping the column as a destructive
+    change, and `os migrate apply --allow-destructive` drops it, so read the rates first if you need
+    them.
+  - **Cases gain a read-only Escalated From field**, naming the agent an escalation took the case
+    from.
+  - **Campaign members, event attendees and article feedback name their parent as a master-detail
+    field** (Campaign, Event, Article), because ObjectStack 18 derives a row's access from its parent
+    only through a required master-detail field.
+  
+  What operators should know:
+  
+  - **Assign a sales manager or service manager again if their 17.x position assignment carries no
+    organization.** Such a row does not staff the case-escalation pool.
+  - **Scheduled flows still need `OS_AUTOMATION_SCHEDULED_WORK_ENABLED=true`.** Without it, none of
+    the eight scheduled flows runs.
+  - **A copy of Sales Home or of the lead, opportunity or case record page saved through Studio keeps
+    loading.** The platform refuses the next save of such a copy until it uses the new template and
+    region names.
+
+### Minor Changes
+
+- 8dfed90: Shared option lists are now platform picklists: Industry, Lead Source, Salutation, Payment Terms and Related To Type are each declared once
+  
+  Five option lists that several fields offer are now declared once, as platform
+  `picklist` metadata, and every field that offers one references it by name
+  instead of carrying its own copy:
+  
+  | Picklist | Fields that offer it |
+  |:--|:--|
+  | `industry` | Lead and Account **Industry** |
+  | `lead_source` | Lead, Contact and Opportunity **Lead Source** |
+  | `salutation` | Lead and Contact **Salutation** |
+  | `payment_terms` | Quote and Contract **Payment Terms** |
+  | `related_to_type` | Task and Event **Related To Type** |
+  
+  Nothing a user picks or stores changes: every value, label, color and default is
+  the same, and so is the order. What changes is that each list can no longer
+  drift between the objects that share it, because there is only one. A value
+  converted from a lead onto an account or an opportunity is always a value the
+  target accepts, and a value outside the list is refused on every object that
+  offers it, with a message that names the list.
+  
+  **FROM → TO for integrations that read metadata.** A picklist-bound field is
+  served with its resolved `options` as before, and now also carries
+  `picklist: 'NAME'`. The option labels of these five lists are translated once
+  per locale, under `picklists.NAME` in the language packs, instead of under
+  each field. Chart and report categories over these fields keep their
+  translated labels: the pinned platform (18.0.0-next.1) resolves a
+  picklist-bound dimension through the same `picklists.NAME` translations.
+  
+  Lists that only one field offers (Opportunity **Stage**, Task and Event **Type**,
+  Event **Status**, Attendee **Response**, Lead **Need Type** and Lead
+  **Duplicate Of**) moved back onto that field as its own options. The
+  **Update Stage** action and the **Schedule Follow-up** screen now read
+  their option lists from the field they mirror.
+- 2f3d898: Upgrade the ObjectStack platform to 18.0.0-next.0 (prerelease)
+  
+  All 24 `@objectstack/*` dependencies move from 17.7.0 to 18.0.0-next.0 together, pinned exact:
+  20 in `dependencies` and 4 in `devDependencies`. `specVersion` and `engines.protocol` follow to
+  `^18.0.0-next.0` in `objectstack.manifest.json` and in both package manifests (`src/sales`,
+  `src/service`). `pnpm install` regenerated `pnpm-lock.yaml` against the public registry: 790
+  `packages:` entries before, 791 after. The 54 `@objectstack/*` and `create-objectstack` keys moved
+  one for one, `@objectstack/service-mailbox@18.0.0-next.0` was added, and no third-party package
+  changed version.
+  
+  **This release needs an ObjectStack 18 runtime.** 18.0.0-next.0 is a prerelease. The protocol
+  handshake compares majors, so a 17.x host refuses to load this artifact before it reads a single
+  object, and reports why. Upgrade the host first.
+  
+  The platform changes that reached this app:
+  
+  - **Every flow is rewritten in the two 18.0.0-next.0 dialects.** The platform no longer accepts
+    `{…}` templates in a flow's value fields. A value is now a CEL expression, and a text field
+    (screen titles and descriptions, end messages, action links, HTTP URLs and headers) takes
+    `{{ … }}` holes. All 32 flows and the shared billing payload were rewritten, and `os validate`
+    goes from 340 refusals to none. Each site keeps what it did on 17.7.0, with one exception. On
+    **Close Case**, an agent who leaves *Resolved by Article* unanswered now clears a link that was
+    set earlier on the record form. On 17.7.0 that link stayed.
+  - **Flow dialogs translate more of their text.** 18.0.0-next.0 makes screen descriptions, select
+    options and refusal messages translatable, and `os lint` reports the missing keys. All 32 new
+    keys are translated in zh-CN, es-ES and ja-JP, using the words the packs already use for the
+    same objects.
+  - **Tenant administrators no longer hold `manage_org_presentation`.** 18.0.0-next.0 retires the
+    capability together with per-organization overlays (ADR-0131 D6). The platform has no
+    organization-bounded authoring capability now, so a tenant administrator authors no metadata.
+  - **Email templates no longer declare `category`.** The platform retires the key and refuses it.
+  
+  **What operators should know:**
+  
+  - **Scheduled flows still need `OS_AUTOMATION_SCHEDULED_WORK_ENABLED=true`.** Without it, none of
+    the eight scheduled flows runs: no contract or quote expiry, no SLA monitor, no reminders, no
+    forecast snapshots.
+  - **Every install now has an organization.** Under the `single` posture, the platform creates the
+    Default Organization at boot and loads the seed data into it.
+  - **A position assigned through Setup carries that organization.** A position row written without
+    one, such as a 17.x row an upgrade carries over, does not staff the case-escalation pool, which
+    stays inside each case's organization. A sales manager or service manager whose 17.x assignment
+    carries no organization should be assigned again.
+  - **Deleting an account removes its draft, expired and terminated contracts with it.** An activated
+    contract still blocks the delete, as the account documentation says.
+  - **An elevated scheduled or sub-flow can no longer be started by name**, not even by an
+    administrator. It starts from its own trigger, or as a sub-flow of a parent flow.
+  
+  The test suite moved with the platform. Every suite runs on the SQL datasource, by maintainer
+  ruling. The legs whose only subject was the absent-column shape of the in-memory driver are retired,
+  because that driver no longer serves an app with organizations. The token ceilings are raised 50%
+  by maintainer ruling and recorded as a grant.
+- 77de62d: Remove **Tax Rate %** from quote line items: a line's **Total** is now its **Subtotal**.
+  
+  A quote carried two tax models that never read each other. A quote's own **Tax** is an amount
+  typed on the quote, and its **Total Price** adds it: *Subtotal − Discount + Tax + Shipping &
+  Handling*. A quote line item also carried a **Tax Rate %**, but the rate reached only that
+  line's own **Total**, and the quote total never read it. So on a quote whose line carried a
+  rate, the lines on the quote's *Related* tab added up to more than the quote beside them: lines
+  10,945 against a quote total of 9,810, on a quote with a 10% discount and one line taxed at 5%.
+  
+  The quote's typed **Tax** is the model this app ships. It is on every demo quote, on the quote
+  form and the All Quotes list, and in the documentation's price formula, so the line rate is
+  removed. A line's **Total** is its price after its own discount, the same figure as its
+  **Subtotal**, and a quote's line totals add up to its **Subtotal**.
+  
+  **What this means for you.** `crm_quote_line_item.tax_rate` no longer exists on the object, in
+  any of the four language packs, or in the documentation. A write naming it is refused with 400
+  `INVALID_FIELD`. No demo line ever carried a rate, so the demo data is unaffected.
+  
+  **If you filled a line's Tax Rate % on an existing install**, that line's **Total** changes when
+  you upgrade, and its rate no longer shows. A line of 1 × 1,000 at a 10% line discount and a 5%
+  rate showed 945 and now shows 900. The quote's **Total Price** does not change, because the
+  quote total never included a line's rate. If that tax belongs on the quote, add it to the
+  quote's **Tax**.
+  
+  The upgrade does not delete the stored rates. The column stays in the database, unread. On boot
+  the server logs it as orphaned (`[schema-drift] crm_quote_line_item.tax_rate`), `os migrate plan`
+  lists dropping it as the one destructive change, and
+  `os migrate unmapped-columns --object crm_quote_line_item --json` reads each line's stored rate
+  by record id. `os migrate apply --allow-destructive` drops the column, so read the rates first if
+  you need them.
+  
+  A tax model where line rates roll up into the quote remains a possible future design; this
+  removal does not build it.
+- f4ac253: Upgrade the ObjectStack platform to 18.0.0-next.1 (prerelease)
+  
+  All 23 `@objectstack/*` dependencies move from 18.0.0-next.0 to 18.0.0-next.1 together, pinned
+  exact: 19 in `dependencies` and 4 in `devDependencies`. `specVersion` and `engines.protocol` follow
+  to `^18.0.0-next.1` in `objectstack.manifest.json` and in both package manifests (`src/sales`,
+  `src/service`). The protocol major is still 18, so any 18 runtime admits the artifact, and a 17.x
+  host still refuses it. `pnpm install` regenerated `pnpm-lock.yaml`: 705 `packages:` entries before,
+  707 after. The 55 `@objectstack/*` keys moved one for one. `@objectstack/connector-imap` and
+  `postal-mime@4.0.6` arrive with the platform's mailbox service. No other third-party package
+  changed version.
+  
+  The platform changes that reached this app:
+  
+  - **Campaign members, event attendees and article feedback now name their parent as a master.**
+    Access to each of these rows derives from its parent (the campaign, the meeting, the article).
+    Since 18.0.0-next.1 the platform derives that parent only from a required master-detail field,
+    and it refused the required lookup these three objects used. **Campaign** and **Event** are now
+    master-detail fields that refuse to delete a campaign or a meeting that still has members or
+    attendees, as before. **Article** is master-detail and still deletes the feedback with its
+    article, as before.
+  - **Scheduled notifications name the record they are about.** The contract renewal and expiry
+    reminders, the stalled-deal nudge, the task reminder and the case SLA alert now link their inbox
+    entry to the contract, deal, task or case. On 18.0.0-next.1 this link also decides which
+    organization owns the notification. Without it, an install holding more than one organization
+    would refuse each of these notifications on 18.0.0-next.1, and the sweep would abandon that
+    record: no renewal deal opened, no stalled-deal task written.
+  
+  The test suite moved with the platform. Test kits that mount the identity objects without the auth
+  plugin no longer create their own Default Organization, because the platform now creates it at boot.
+  The hierarchy read-depth suite saves its throwaway permission sets through the metadata API, because
+  the `sys_permission_set` data object is retired.
+- 63db83e: Remove the **App Launcher** and **Utility Bar** pages (`app_launcher_page`, `utility_bar_page`).
+  
+  Neither page could be reached from the app: no sidebar entry, button or other page pointed at
+  either, so each opened only at a typed address. Once opened, neither did what its name said.
+  The App Launcher was a search box and a "Your apps" strip holding one app, a copy of the app
+  switcher the console already has. The Utility Bar did not float: it laid out inline in the main
+  column as a heading, an empty **Quick Notes** card, a search box and a notifications block that
+  drew nothing. The console has no slot for a utility bar to dock into.
+  
+  HotCRM is also the reference app people read to learn how to build one, and these two pages
+  taught that a page of type `app` makes a launcher and a page of type `utility` makes a floating
+  bar. Neither is true on the current platform, so both pages are retired together with their
+  labels in the four language packs.
+  
+  **What this means for you.** The two pages are no longer in the app, and reading either one
+  (`GET /api/v1/meta/page/app_launcher_page` or `.../utility_bar_page`) now answers 404. A
+  bookmark to either address stops working. Every other page, **Sales Home** and the record
+  pages included, is unchanged. To switch apps, use the console's own app switcher.
+- e50d048: Upgrade the ObjectStack platform to 18.0.0-next.2 (prerelease)
+  
+  All 23 `@objectstack/*` dependencies move from 18.0.0-next.1 to 18.0.0-next.2 together, pinned
+  exact: 19 in `dependencies` and 4 in `devDependencies`. `specVersion` and `engines.protocol` follow
+  to `^18.0.0-next.2` in `objectstack.manifest.json` and in both package manifests (`src/sales`,
+  `src/service`). `pnpm install` regenerated `pnpm-lock.yaml`: 707 `packages:` entries before and
+  after. The 55 `@objectstack/*` keys and `create-objectstack` moved one for one, nothing was added or
+  removed, and no third-party package changed version.
+  
+  **This release needs an ObjectStack 18 host.** 18.0.0-next.2 is a prerelease of protocol major 18.
+  The handshake compares majors, so any 18 runtime admits the artifact and a 17.x host refuses it
+  before it reads a single object.
+  
+  The platform changes that reached this app:
+  
+  - **Pages name only the layouts and slots the console draws.** 18.0.0-next.2 refuses the page
+    template `full-width`, a region its template does not place, and `isDefault` on a page that is not
+    a record page.
+    - The lead, opportunity and case record pages move from `template: 'full-width'` to
+      `template: 'default'`, the layout `full-width` was a second name for. They render as before.
+    - Sales Home's `right_sidebar` region becomes `aside`, a slot its three-column layout places, and
+      the page no longer declares `isDefault` (where the app opens is set by its navigation). Its empty
+      `left_sidebar` region is removed: as a placed `sidebar` it would have reserved a blank column.
+    - What a user sees: on Sales Home, the *Ask the AI Assistant* and *Upcoming Events* cards now sit
+      in a column to the right of the key metrics. Before, the page stacked them below the rest of the
+      page at full width.
+  - **The console that ships with the platform changed what HotCRM users see**, with no change here:
+    - Text formula fields, such as a lead's full name, now read in the normal text font instead of a
+      code font.
+    - An inactive account is greyed out on *All Accounts*. Before, that tint painted nothing.
+    - On *All Leads*, **Add to Campaign** is offered in the selection bar and in each row's menu, and
+      no longer as a header button.
+    - A service agent or service manager now opens the app on **Leads**, the first entry their sidebar
+      shows. Before, they opened on the Executive Overview dashboard, which they cannot read.
+  
+  The test suite moved with the platform. A cascade-delete test now pins the platform's new
+  `referentialCascadeDelete` marker, the one signal a hook can use to tell a parent's cascade from a
+  hand delete. A forecast test hands the platform's seed-ownership claim the row it restores, because
+  since 18.0.0-next.2 the claim only takes over ownerless rows that the seed itself reports writing.
+  
+  **What operators should know:**
+  
+  - **No app data changes.** No object, field or stored value changes in this release, and nothing
+    needs to be cleared or reloaded.
+  - **A stored page customization keeps loading.** A deployment that saved its own copy of one of the
+    four pages above through Studio keeps serving it as stored. The platform refuses the next save of
+    such a copy until it uses the new template and region names.
+  - **A web lead or case that nobody was assigned stays unassigned.** On 18.0.0-next.2 the platform
+    no longer hands rows that nobody owns to the first administrator at the next restart, unless its
+    own seed wrote them. HotCRM still assigns web leads and cases as they arrive. A case that arrives
+    while nobody holds the Service Agent position now stays in *Unassigned — triage* until someone
+    takes it.
+  - **Moving a host from 17.x to 18 is the platform's migration, not this app's.** An 18 runtime
+    refuses to serve a database still in the 17.x organization shape until the operator runs
+    `os migrate organization-ownership` (plan with `--out plan.json`, then
+    `--apply --backup-taken --plan-file plan.json`). That ceremony keeps existing data.
+
+### Patch Changes
+
+- 6400397: Submissions from the public Web-to-Lead (Contact Us) and Web-to-Case (Support) forms are now routed like every other incoming lead and case: a web lead goes to the sales rep with the fewest open leads, and its new-lead alert reaches that rep; a web case goes to the service agent with the fewest open cases, instead of waiting in Unassigned — triage while agents are on the rota. A web enquiry from an address already in the CRM is now flagged as a suspected duplicate, and a sales rep's new lead is now flagged when it repeats a colleague's contact or lead the rep cannot see. The visitor who fills in a public form is still told only that the submission was received — never who it went to, or whether the address was already known.
+- 850f75c: A sales rep can now convert a lead into a new account. Before this fix the conversion stopped with "Field write denied … [annual_revenue]" whenever the lead's company had no account yet, and nothing was created; a sales manager had to convert it instead. The new account still carries the lead's **Annual Revenue**, and it is owned and created by the rep who converted it.
+  
+  **Annual Revenue** stays read-only for sales reps. The rep's conversion creates the account as before, and a new sub-flow, **Copy Lead Revenue to New Account**, copies the lead's revenue onto that account with system privilege. Nobody can start the sub-flow on its own, administrators included; it runs only as a step of **Lead Conversion Process**.
+  
+  A user who may not create accounts, such as a marketing user or a service agent, still cannot convert a lead into a new account, and nothing is written when they try.
+  
+  On every conversion into a new account, a sales manager's included, the revenue now arrives just after the account is created. The account's approval request records the account as it was submitted, so its snapshot in the approval inbox shows no annual revenue. The account itself carries it.
+- b8f5421: **An accepted or expired quote no longer takes new line items.** The quote itself was already
+  frozen once the customer accepted it (or it expired), but its line items were not: a rep could
+  add a line from the quote's Line Items panel, or change the quantity or price of an existing
+  one, and the save went through. The quote kept its accepted subtotal and total, so its lines no
+  longer added up to it, while the contract drafted from it carried the accepted figure.
+  
+  Adding a line to an accepted or expired quote, changing one of its lines, or moving a line onto
+  or off such a quote is now refused with *"Quote QTE-0007 - Annual Renewal is accepted, so its
+  line items can no longer be added or changed."* (409, `RECORD_LOCKED`). A draft, in-review,
+  presented or rejected quote takes line changes as before. Imports and other system writes are
+  not affected, and the one-time line-number back-fill (`scripts/backfill-line-number.ts`) still
+  numbers the lines of settled quotes.
+  
+  Not changed: removing a line from an accepted or expired quote is still allowed, and deleting
+  such a quote still deletes its lines. Whether a single line may be removed is an open decision
+  on #2060.
+- c7d0947: **Converting a lead with Create Opportunity ticked now requires an Opportunity Amount.** The
+  amount was optional on the conversion dialog, although every opportunity needs one. Submitting
+  the dialog with the box ticked and the amount empty used to create the account and the contact
+  first, then fail on the opportunity with "Amount is required". The lead was left half-converted:
+  a new account and contact, no opportunity, and the lead still not converted.
+  
+  The dialog now marks Opportunity Amount as required whenever Create Opportunity is ticked, and a
+  submission without one is refused before anything is created; enter the amount to finish the
+  conversion. A lead with an Estimated Amount still has it filled in for you, and converting
+  without an opportunity needs no amount, as before.
+- 628bd2a: **Converting a lead with Create Opportunity ticked and an amount of zero or less no longer leaves it half-converted.** Every opportunity needs an amount greater than zero, but the conversion dialog accepted 0 or a negative figure. Submitting it created the account and the contact first, then failed on the opportunity with "Amount must be greater than zero". The lead was left with a new account and contact, no opportunity, and still not converted.
+  
+  Such a conversion now stops right after the dialog, before anything is created, and says why: the opportunity amount must be greater than zero. Convert the lead again with the amount the deal is worth, or leave Create Opportunity unticked to convert it without one. A positive amount converts exactly as before.
+- f1c8083: **A refused lead conversion no longer tells the rep the lead was converted.** Convert Lead refuses three kinds of lead: one whose Duplicate Status is Confirmed, one whose Conversion Approval is Pending or Rejected, and one whose company has no match key. Each refusal opened a dialog with a Submit button, and clicking Submit showed "Lead converted successfully!" although nothing had been converted.
+  
+  The refusal now ends the conversion on the spot. The dialog shows the same explanation, opening with "Conversion refused", and offers Close only: no Submit and no success message. Which leads are refused is unchanged, and a refused conversion still creates nothing and leaves the lead as it was. A run started through the API reports the conversion as `refused`, with the explanation, rather than pausing on a screen.
+- 421bd1d: **A service agent no longer loses a case the moment it is escalated.** An escalated case is handed to the Service Manager with the fewest open cases, and an agent only sees the cases they own. So an agent who logged a Critical case saw "Case created successfully" over a "Record not found" page. An agent who pressed Escalate Case got the same page when it refreshed.
+  
+  The case now records the agent it was taken from in a new read-only **Escalated From** field. A new sharing rule, *Escalated Cases — Previous Owner*, lets that agent read the case until it is closed. They can follow the case but cannot edit it: the manager works it. No other agent gains access, and the manager's and director's access is unchanged. A case escalated with no owner names nobody, and nobody can type a name into the field.
+- bd5fda2: A service agent can now pick up a case that came in through the web support form. Such a case has no **Account** (the public form does not ask for one), and the case form marked **Account** as required, so moving the case to **In Progress** to claim it stopped at *"Please check the highlighted fields: Account"* and nothing was saved. The form no longer requires **Account**: the claim saves and the case becomes the agent's, as the Cases guide describes. **Account** stays on the form. A case raised in the console may now also be saved without one; its SLA target is the one for an **SMB** customer, the same as a web case's, and escalating it opens no account follow-up task.
+- d211930: The sidebar no longer offers a service agent pages it cannot open. **Home** (Executive Overview), **Sales Performance**, **CRM Overview** and **Pipeline Coverage** are built on opportunities, and a user who cannot read opportunities (the Service Agent and Service Manager permission sets) used to get each of them as a page of "You don't have access" tiles. Those entries are now left out for such a user; everyone who reads opportunities sees the same sidebar as before. **Sales Home**, the rep's page of pipeline figures, leads, open deals, open tasks and upcoming events, is now pinned in the sidebar under **Home**. Before, it could only be reached by typing its address. Its **Quick Create** card is gone: it drew a second copy of the sidebar's links and could create nothing, and the platform has no create-record block to put there yet. Each list page keeps its own **New** button. The app still opens on **Home** for every user, a service agent included: the console has no way to give each role its own landing page yet.
+- c0f3485: **A new lead with no owner no longer fails New Lead Routing & SLA.** A lead that lands without an owner — a Web-to-Lead submission while nobody can be assigned from the Sales Rep pool, or a lead written by an import or an integration without one — still got its Next Follow-up Date, but the routing run then failed while sending its alert, because there was no owner to send it to. The failure showed up only in the flow's run history and the server log.
+  
+  Such a lead now gets its Next Follow-up Date (tomorrow at four stars or better, otherwise in three days) and no alert, and the run ends successfully. A lead with an owner is routed exactly as before: its owner is alerted.
+- 5e314ff: HotCRM has a new icon: a flat orange tile with a white bold **H**. The old mark, an orange gradient with two arcs and a dot, was hard to make out at small sizes, such as a browser tab. The sidebar logo and the favicon both show the new mark. The app's primary theme colour changes from royal blue (`#4169E1`) to the icon's orange (`#EA580C`), so the theme and the logo match.
+- 71684fd: Accounts created on a deployment without approvals are no longer locked for good. Until now every new account started as *Pending*, even where no approval engine exists to decide it (a hosted plan that leaves approvals out, for example), so the record page showed it as locked for approval with Edit disabled and nothing could ever unlock it. A new account now starts with **Approval Status** blank and turns *Pending* when its approval request is opened. Where approvals are available nothing changes: the account is *Pending* as soon as it is created, waits in the approval inbox, and becomes *Approved* only through a decision. Where they are not, the account stays blank and editable. To switch account sign-off off, an admin now sets the default on **Approval Status** to *Approved*. Accounts already created as *Pending* with no request behind them are not changed by this update.
+- e419d50: Converting a lead now keeps the person's communication preferences. The new contact carries the lead's **Do Not Call** and **Email Opt Out**, along with its mobile, lead source and salutation. Before this fix, a lead that had opted out became a contact you could email and call. If the conversion reuses an existing contact, an opt-out on either record wins: the conversion can turn a flag on but never clears one.
+- 283a31f: A case that is resolved or closed after its **SLA Due Date** is now marked **SLA Violated** at that moment. Until now only the hourly SLA sweep set the flag, and the sweep only looks at open cases, so a case finished late before a sweep reached it — or on any deployment that does not run scheduled work, which is the platform default — stayed marked as within SLA. The **SLA Performance** report showed a 0.0% violation rate and the service dashboard's **SLA Compliance** gauge showed 100% over closed cases that had finished days late. Those surfaces now count every late finish, on every deployment. A case finished on time is not flagged, a case resolved on time is not flagged when it is closed later, a case with no due date is never flagged, and flagging a finished case does not escalate it or send any alert. The demo data's resolved and closed cases now carry the flag their own dates call for, so a fresh demo database shows 2 of 8 closed cases within SLA instead of 8 of 8. Cases closed late before this update keep the flag they already have.
+- df5cbb9: The **SLA Violations** tile on the service dashboard now counts open breaches when it is read, so it is right on every deployment, including one that runs no scheduled work (the platform default). It used to count only cases flagged **SLA Violated**, and an open case is flagged only by the hourly SLA sweep, which never runs where scheduled work is off. Such a deployment showed far fewer violations than it had: on a fresh demo database the tile read **13** while **29** cases had breached. The tile now counts a case that is flagged, or a case that is still open (neither *Resolved* nor *Closed*) and whose **SLA Due Date** has passed, using the same rule the sweep applies. A fresh demo database now shows **29**. The tile only counts: escalating a breached case and alerting its owner still need the sweep, so where it does not run, an open breach is in the count but not yet in **Escalated Cases**.
+- 29bf17e: Calls and meetings you log on a case, an opportunity or an account now appear on that record. **Log a Call** and **Log a Meeting** saved the interaction, but the record page never listed it: on a case or an opportunity it was missing from the **Activity** tab, and on an account, whose activity shows in the **Discussion** feed below the tabs, it was missing there. These feeds now list the logged calls and meetings. The case's *resolved* and *closed* entries and the opportunity's *won* and *lost* entries were hidden in the same way, and now appear too. Leads already showed their logged calls and are unchanged. Contacts do not change yet: a contact uses the platform's standard record page, which still hides logged calls.
+- 598ac4a: An unowned case can now be claimed from its own record page, and a meeting can be logged or scheduled there. The case page's header offered only **Escalate Case**, **Close Case** and **Log a Call**, so an agent who opened a case from **Unassigned — triage** had to go back to the list to use **Claim Case**, and **Log a Meeting** and **Schedule a Meeting** were reachable from the list's row menu only. The header now offers all six. **Claim Case** shows only on a case that has no owner and is neither resolved nor closed, and it is the header's first button there; actions the header has no room for are under **⋯**.
+- abc1663: **A closed opportunity no longer takes new line items.** A closed-won or closed-lost deal was
+  already locked, but its line items were not: a rep could add a product line to it from the
+  Products panel, change the quantity or price of an existing line, or move a line onto it from an
+  open deal, and the save went through. The deal kept its closed Amount, so its lines no longer
+  added up to it.
+  
+  Adding a line to a closed deal, changing one of its lines, or moving a line onto or off a closed
+  deal is now refused with *"Opportunity Acme Renewal is closed (closed_won), so its line items can
+  no longer be added or changed."* (409, `RECORD_LOCKED`), the same lock the deal's own fields
+  have. An open deal takes line changes as before. Seed data and other system writes that carry no
+  signed-in user are not affected, and the one-time line-number back-fill
+  (`scripts/backfill-line-number.ts`) still numbers the lines of closed deals.
+  
+  Not changed: removing a line from a closed deal is still allowed, and deleting a closed deal still
+  deletes its lines. Whether a single line may be removed is an open decision on #2078.
+- 9e064b3: Editing a quote's own **Discount %**, **Tax** or **Shipping & Handling** now updates its **Discount Amount** and **Total Price** in the same save. Before this fix the two totals stayed at their old figures until a line item was added, changed or removed. A quote accepted in that window drafted its contract at the old total. For example, a quote with a 95,000 subtotal, 7,220 tax and 2,500 shipping had its discount raised from 5% to 10% and was then accepted: its contract was drafted at 99,970 instead of 95,220.
+  
+  The totals follow one formula, whichever field changed: Discount Amount = Subtotal × Discount %, and Total Price = Subtotal − Discount Amount + Tax + Shipping & Handling. An accepted or expired quote is still frozen, and editing one is refused exactly as before. A quote with no Subtotal keeps the totals it has.
+- e094ec7: The **All Leads** list now shows its column headers in the user's language. In Chinese, Spanish and Japanese the nine headers were in English: Name, Company, Email, Status, Score, Source, Need Type, Est. Amount and Owner. The **Account** column on **Open Deals** and **All Opportunities** was also in English. Each header now uses its field's label, which the app translates into every supported language. In English, five lead headers now use the full field name: *Name* is now **Full Name**, *Score* is **Lead Score**, *Source* is **Lead Source**, *Est. Amount* is **Estimated Amount** and *Owner* is **Lead Owner**. The other English headers do not change.
+- 6782f78: Three screen-flow dialogs no longer repeat their own name as the step title in Chinese, Spanish and Japanese. The small line above the dialog's title names the flow, and the title names the step, as it already did in English: **Convert Lead** now opens on **转化详情** / **Detalles de la Conversión** / **変換詳細** (Conversion Details), **Generate Quote** on **报价单详情** / **Detalles de la Cotización** / **見積詳細** (Quote Details), and **Enroll Members** on **加入条件** / **Criterios de Inscripción** / **登録条件** (Enrollment Criteria). Each wording reuses the term the app already uses for that object or action. Before this change, all three dialogs showed the flow's name twice, for example **线索转化流程** on both lines.
+- 4f38942: A sales rep can create a lead without first picking themselves as its owner. The **New Lead** form marked **Lead Owner** as required, so clicking **Create** with the field left blank stopped at *"Lead Owner is required"* and nothing was saved. The form no longer requires it. A lead created with the field left blank is owned by the person who created it, as on the **Opportunity**, **Account** and **Contact** New forms. **Lead Owner** stays on the form.
+- 4de5343: List rows are tinted only when they need attention. Nine list views used to give every row a colour, one per value of a field that already shows as a coloured badge in its own column, so a whole page of colour marked no row. Now:
+  
+  - **Cases** (*All Cases* and *Unassigned — triage*): a case flagged **SLA Violated** is red. Before, the tint followed priority and painted every case, breached or not.
+  - **Tasks**: an urgent task is red.
+  - **Event Attendees**: a declined invitation is red.
+  - **Accounts**: an inactive account is grey; active accounts are no longer green.
+  - **Open Deals**, **Events**, **Knowledge Articles** and the **High Priority** leads list are no longer tinted.
+  
+  The *Unassigned — triage* and *All Accounts* tints are not visible yet. The console fetches only a list's columns, and neither list has a column for the field its tint reads (**SLA Violated**, **Active**). They will show once the platform fetches that field.
+
+## 4.0.1
+
+### Patch Changes
+
+- 4547858: The sidebar logo and favicon now show on hosted installs.
+- d7decd4: **4.0.1 is the first 4.x release that installs whole.** HotCRM 4.0.0's marketplace publish
+  carried an empty app and was withdrawn, so an installer upgrades from 3.x straight to 4.0.1.
+  That upgrade still carries 4.0.0's one-time step: convert the contact mailing addresses with
+  `scripts/backfill-contact-mailing-address.ts` before `os migrate apply --allow-destructive`.
+  The 4.0.0 entry of `CHANGELOG.md` holds the commands.
+  
+  4.0.0's empty app had no objects, views, dashboards, flows or sample data, so a hosted
+  install of it had nothing to show. 4.0.1 publishes the whole app, including the Cases,
+  Knowledge and Service Overview entries in the app's navigation, and the publish now stops
+  with an error instead of uploading an app that is missing any of its objects.
+
+## 4.0.0
+
+### Major Changes
+
+- f44ab64: **A contact's mailing address is now one structured field.** `crm_contact` stored its
+  address as five separate text fields — `mailing_street`, `mailing_city`, `mailing_state`,
+  `mailing_postal_code`, `mailing_country`. It now carries one `mailing_address`
+  (`Field.address()`), the same shape as an account's Billing Address and a lead's Address.
+  FROM five fields TO one: the contact detail page shows the address as one unit, the
+  contact form's Mailing Address tab edits it as one field, and each locale pack carries one
+  label instead of five. A report, list view, integration or API client that read or wrote
+  `mailing_street` … `mailing_country` must read and write `mailing_address` and its parts
+  (`street`, `city`, `state`, `postalCode`, `country`) instead. **An existing deployment runs
+  `scripts/backfill-contact-mailing-address.ts` once after upgrading, before
+  `os migrate apply --allow-destructive`**: upgrading does not move the old addresses, and
+  that command deletes them. The last paragraph below gives the commands.
+  
+  **The contact import template does not change.** `assets/import-templates/contacts.csv`
+  keeps its five `Mailing …` columns. The `crm_contact_import` mapping now sends each column
+  to one part of `mailing_address` (`mailing_address.street` … `mailing_address.country`), so
+  a customer's existing file imports exactly as before; a row with all five cells blank
+  leaves the address empty.
+  
+  **Existing deployments: run the one-time conversion after upgrading.** Upgrading does not
+  move the old values; the five old columns stay in the database, unused. This release
+  runs on ObjectStack 17.7.0, where no REST read returns those columns, so first export them
+  from the project root with
+  `pnpm exec objectstack migrate unmapped-columns --object crm_contact --json > contact-unmapped.json`.
+  Then run `pnpm exec tsx scripts/backfill-contact-mailing-address.ts --url https://<your-org>
+  --email <admin> --password <pw> --unmapped contact-unmapped.json` to see what it will write,
+  and again with `--apply`. It composes
+  each contact's `mailing_address` from the non-blank old columns, writes only an empty
+  `mailing_address` (an address someone entered after the upgrade is kept and listed), never
+  changes or deletes the old columns, and is safe to re-run — a converted org reports nothing
+  to do. Run it **before** `os migrate apply --allow-destructive`: that command drops unused
+  columns, and with them the only copy of the old addresses.
+
+### Minor Changes
+
+- bea1bf9: The SaaS tenant administrator may now author their own organization's views, dashboards and reports
+  
+  In the SaaS / multi-org composition (`HOTCRM_COMPOSITION=saas`), the
+  **Tenant Administrator** permission set now holds the platform's org-scoped
+  `manage_org_presentation` capability. The platform admits a metadata save from
+  this capability only for the types it lets each organization override (views,
+  dashboards, reports, translations and email templates). The save becomes an
+  overlay for the caller's own active organization, and other organizations see
+  none of it.
+  
+  Everything else stays as it was. Objects, flows, apps, pages, permission sets
+  and positions still require `manage_metadata`, which reaches every
+  organization in a deployment, so a tenant admin still cannot author them. The
+  community app's **System Administrator** and the default composition are
+  unchanged.
+- 4807ed9: An opportunity can now require **qualification approval (立项)** before it is committed:
+  until the deal is approved, its stage cannot move, and it can be neither closed won/lost
+  nor asked to be. Everything else stays open, *Will Bid* included, so a new deal can still
+  be worked, and its bid intent recorded for the approver, while it waits. **The gate ships
+  off** (REQ-0006 step 11:
+  「销售立项需走审批流程；新增商机可跟进，立项通过后方可更新阶段、投标、赢丢单操作。」).
+  
+  **How it works, once armed.** The rep ticks *Request Qualification Approval* in the deal's
+  **Qualification** section, and one request appears in the approval inbox HotCRM already
+  mounts, routed to the `sales_manager` position. Approved, the deal is qualified for good.
+  Rejected, the box is unticked and the deal stays held; ticking it again asks again. The
+  verdict lands on a new read-only field, *Qualification Approval*, and a refused move is
+  answered `409 RECORD_LOCKED` with a sentence naming what was held and the way forward.
+  Unlike the status-change gate, the deal is **not** locked while the request waits — that
+  is the customer's own 「新增商机可跟进」.
+  
+  **Off by default, bit for bit.** The switch is the field default on *Qualification
+  Approval*, shipped as *Not Required*: no deal is ever born pending, the new flow
+  (*Opportunity Qualification Approval*) opens nothing, and moving the stage and closing
+  behave exactly as before. An install arms the gate by changing that one default
+  to *Pending*; deals that already exist keep *Not Required*.
+  
+  **With the status-change gate armed too, qualification comes first.** A deal that is not
+  yet qualified cannot raise a won/lost request either; once it is qualified, the
+  status-change gate behaves exactly as it does alone. Each gate keeps its own verdict
+  field, and the amount-based *Large Deal Approval* is unchanged.
+- 9531cde: An account now records **who it is on paper**, **what it spends**, **what it may be sold**,
+  and **whether it has been signed off**. Six new fields on `crm_account`, a new **Business
+  Profile** section, a capability gate on new opportunities, and an account approval flow
+  (REQ-0003 — the `crm_account` half of REQ-0002's steps 1, 3, 4 and 5).
+  
+  **Registration Number.** The counterparty's registered identity as issued by its own
+  government registry. Until now nothing on the account carried one: `Account Number` is a
+  sequence *we* issue and already spends itself as half the record title, so invoicing,
+  credit checks and entity resolution had no key to work from. The field is deliberately
+  country-neutral — the requirement arrived as 社会信用代码 because that customer registers
+  in China, but a Japanese install writes 法人番号 here, a German one a
+  Handelsregisternummer and a US one an EIN, and a field named after one country's registry
+  could not be renamed by any of them. It is searchable, so the value is findable from
+  global search and the lookup picker.
+  
+  **Commercial Capability, and the gate that reads it.** Some counterparties are payable but
+  not sellable — tender agencies, resellers-of-record, intra-group billing entities, dormant
+  accounts. An account set to *Settlement Only* stays fully usable for invoicing, payments
+  and collections, but **a new opportunity can no longer be opened against it**: the save is
+  refused, naming the account and the remedy. The restriction is a **transition gate, not an
+  invariant** — opportunities that already point at the account keep working and keep being
+  editable, including after someone reclassifies it, and only the new link is refused. The
+  gate sits beside `Account Type` rather than inside it, because type is a relationship
+  stage that the system itself advances (a won deal promotes an account to *Customer*), and
+  a restriction that a won deal could silently overwrite would not be a restriction.
+  
+  **Business Profile** — **Incumbent Vendor**, **Annual Purchasing Budget** and **Payment
+  Cycle**, in their own new section. Generic B2B sales intelligence: who holds the account
+  today, how much there is to win this year, and how they pay. The existing `Annual Revenue`
+  answers none of the three — it is what the counterparty *earns*, not what it will *spend*
+  with vendors.
+  
+  **Approval Status**, and the **Account Approval** flow behind it. A newly created account
+  now starts at *Pending*, appears in the approval inbox HotCRM already mounts, and reaches
+  *Approved* only through a decision on that request. The shape is the one
+  `crm_opportunity.approval_status` already uses — `readonly`, with a real field-level
+  default — and not a second boolean beside `Active`, which answers a different question
+  ("is this account live at all", rather than "has this record been signed off"). An install
+  that wants no account sign-off changes that one default to *Approved*, whereupon the flow's
+  start condition is false for every record and the gate is off but still switchable.
+  
+  Ships in all four locale packs (en, zh-CN, es-ES, ja-JP), with the account, automation and
+  approval documentation updated in English, Simplified and Traditional Chinese.
+- 661d2fa: A contact now records the **buying centre**: who this person is in the purchase
+  decision, where they stand on us, and how well we actually know them. Three new
+  optional fields on `crm_contact`, in their own **Buying Function** / **Attitude
+  to Us** / **Relationship Strength** trio under a new **Buying Centre** section
+  (REQ-0004, the `crm_contact` half of REQ-0002's step 2).
+  
+  Until now the app leaned on the buying centre and could not express it. `Job
+  Title` is the employer's job title, which is a fact about the person's employer
+  rather than about this deal — the same manager can be the decision maker on one
+  purchase and the blocker on the next. `Primary Contact` is a one-bit answer to
+  "who do we call", and it leaves every other person at the account undescribed.
+  Nothing anywhere said whether a named individual was a champion or hostile, and
+  `Last Contacted` measures recency, which is not the strength of a relationship.
+  
+  What a rep sees:
+  
+  - **Buying Function** — Decision Maker · Economic Buyer · Technical Evaluator ·
+    User · Influencer · Gatekeeper. The generic buying-centre slots, not one
+    company's role model.
+  - **Attitude to Us** — Champion · Supportive · Neutral · Skeptical · Blocker,
+    ordered best to worst.
+  - **Relationship Strength** — Distant · Acquaintance · Working Relationship ·
+    Strong · Trusted Advisor, ordered weakest to strongest.
+  
+  All three are also columns on **All Contacts**, which already groups by account
+  with the groups collapsed — so expanding an account reads as a map of who
+  decides and who is on our side, rather than as a directory.
+  
+  Nothing is refused and nothing is derived: no hook, no flow and no validation is
+  authored against the three, none is required, and none carries a default. A
+  contact with all three blank saves exactly as it did before. They are sales
+  intelligence for people and for later reporting, never a gate.
+  
+  Shipped in all four languages (en · zh-CN · es-ES · ja-JP), with a new
+  user-facing page — *The Buying Centre* under Sales — explaining the concept in
+  all three doc locales.
+  
+  ⚠️ The field is `buying_function`, labelled **Buying Function**, and not
+  `buying_role` / *Buying Role*: `role` is reserved platform security vocabulary
+  and the author-time `security-role-word` rule (ADR-0090 D3) refuses it on both
+  the name and the label. The three non-English packs keep the natural term in
+  their own language.
+- 391990e: A lead now records **what the prospect needs and roughly what it is worth**, and
+  conversion can be put behind a **sign-off** (REQ-0005, the `crm_lead` half of
+  REQ-0002's steps 6-7). Three new fields on `crm_lead`, all optional, all in the
+  **Qualification** group.
+  
+  Until now the pipeline had no value at all before conversion. `Annual Revenue`
+  is the prospect *company's* turnover — a size signal, and the number lead
+  conversion copies onto the account it creates — so the first figure describing
+  the *deal* appeared only after conversion, on the opportunity, typed into the
+  conversion screen from memory. And nothing recorded what the prospect was
+  asking for: `Industry` says what they *are*, `Lead Source` says where they came
+  from, and neither routes, scores or reports on demand.
+  
+  What a rep sees:
+  
+  - **Need Type** — New Implementation · Expansion · Replacement · Renewal ·
+    Consulting · Support & Maintenance · Other. A generic starter vocabulary; a
+    customer's own demand taxonomy is picklist configuration on top of it, the
+    same way `Industry` values are.
+  - **Estimated Amount** — the value of the demand, before qualification. Both
+    fields are columns on **All Leads**, so the list filters and groups by either.
+  - **Conversion Approval** — read-only, and **Not Required** on every lead
+    unless an admin arms the gate.
+  - The conversion screen's **Opportunity Amount** box now opens **prefilled from
+    the lead's estimate** instead of blank. It stays an editable box: an estimate
+    taken before qualification becomes a forecast number only when a person
+    confirms it.
+  
+  **The approval gate ships OFF, and turning it on is one line.** Out of the box
+  every lead reads *Not Required*, no approval request is ever opened, and
+  conversion behaves exactly as it did before — a single-seller install is not
+  forced through a sign-off. An admin arms it by changing the default value of
+  **Conversion Approval** from *Not Required* to *Pending*; from then on each new
+  lead opens a request routed to the `sales_manager` position (the new **Lead
+  Conversion Approval** flow), and until an approver signs it off the lead cannot
+  be converted — the **Convert Lead** button is withheld *and* a conversion
+  attempted over the API is refused with `RECORD_LOCKED`.
+  
+  Arming the gate invalidates nothing. It is a transition gate, not an invariant:
+  what is refused is the act of converting, so a lead converted before the gate
+  existed is untouched, and a lead awaiting a decision stays fully workable —
+  calls, activity, notes, status and follow-ups all continue.
+  
+  New user-facing page: **Sales Cloud › Lead Approval**, in all three doc
+  languages.
+- 1551914: **Line items now carry their line number.** `line_number` on opportunity and quote line
+  items is read-only and platform-assigned, but nothing assigned it: every line a rep added
+  stored an empty `Line #`, and the billing hand-off sent `"line_number": null` for each of
+  them on every won deal and every activated contract. A new hook on both
+  line-item objects now stamps `(highest line number under the parent) + 1` — a line added
+  from the Products or Line Items panel, through the API, or in a batch gets the next number
+  under its opportunity or quote, a number supplied by the caller is ignored, and an existing
+  number is never renumbered. The seed's own numbering is kept as authored.
+  
+  **Existing deployments: run the one-time back-fill.** Lines created before this release
+  still have no number. The same hook numbers such a line the next time it is edited; to
+  number them all now, in creation order under each parent, run
+  `pnpm exec tsx scripts/backfill-line-number.ts --url https://<your-org> --email <admin>
+  --password <pw>` to see the count, then again with `--apply`. It is safe to re-run — a
+  converged org reports zero rows. Each touched line re-runs the parent rollups, exactly as
+  an edit would: an open deal's amount and a draft quote's totals are recomputed from their
+  lines.
+- 087b7c5: **Every CRM notification now arrives in the recipient's own language.** The 19 `notify`
+  nodes across the sales, service and revenue flows stop sending a fixed English title and
+  body and reference a `sys_email_template` bundle instead — 19 templates, four locales
+  each (`en-US`, `zh-CN`, `ja-JP`, `es-ES`), 76 rows — supplying their record values as
+  render inputs. The delivery path resolves the template per recipient **after fan-out**,
+  off that person's own `sys_user.locale`, so one alert addressed to a Chinese-speaking rep
+  and a Japanese-speaking manager reaches each of them in their own language instead of
+  reaching both in English.
+  
+  Wording is unchanged: every string is the text its node already sent, and no notification
+  says anything new. Administrators can now edit and re-translate this copy in Studio as
+  `sys_email_template` rows, rather than needing a code change for a typo.
+- 284b9e4: Upgrade the ObjectStack platform to 17.5.0
+  
+  All 21 `@objectstack/*` dependencies move 17.4.0 → 17.5.0 together — 20 in
+  `dependencies`, `@objectstack/formula` in `devDependencies` — pinned exact, no
+  caret. `specVersion` and `engines.protocol` follow to `^17.5.0`, in
+  `objectstack.manifest.json` and in the stack manifest in `objectstack.config.ts`.
+  `pnpm-lock.yaml` was regenerated by `pnpm install` against the public registry:
+  726 `packages:` entries before, 725 after. 54 `@objectstack/*` and
+  `create-objectstack` keys moved 1:1, and `@objectstack/plugin-reports` left the
+  tree because the platform removed the saved-report stack. 15 third-party keys
+  moved: the eleven `better-auth` / `@better-auth/*` packages 1.7.2 → exact 1.7.3,
+  `nodemailer` 9.0.5 → 10.0.12 (a major, taken by `@objectstack/plugin-email` for
+  GHSA-6vj9-mwq6-2f5v), `zod` 4.4.3 → 4.6.5, `@xmldom/xmldom` 0.9.11 → 0.9.12, and
+  `yaml@2.9.0` dropped. `hono@4.13.11` was added next to `hono@4.13.3`, which the
+  MCP SDK still resolves through the kept lock entry.
+  
+  The platform changes that reached this app:
+  
+  - **Dashboard widgets no longer carry chart structure in `chartConfig`.** On a
+    dataset-bound widget, `@objectstack/spec@17.5.0` refuses `chartConfig.type`,
+    `xAxis`, `yAxis` and `series`. The widget's own `type`, `dimensions` and
+    `values` were always what the renderer read, so the stack would not load with
+    them. 34 keys are removed across the Sales Activity, CRM Overview, Sales
+    Performance and Service Overview dashboards. Every removed `type` and `field`
+    agreed with the widget's own binding, so no chart changes family or plots a
+    different column. **What readers will see:** the eight bar and area charts that
+    had axis titles (*Rep*, *Week*, *Month*, *Revenue*, *Channel*, …) now render
+    without them. The platform offers no replacement for an axis title on a
+    dataset-bound widget. Value formatting still comes from each measure's own
+    `format`.
+  - **The *Close Case* screen offers a real knowledge-article picker.** 17.5.0 adds
+    `reference` to screen fields and requires it on a `lookup` screen field. On
+    17.4.0, *Resolved by Article (optional)* rendered as a plain text box asking
+    for an article id. The field now declares `reference: 'crm_knowledge_article'`,
+    the same target as the case's own `resolved_by_article` lookup. The
+    "Knowledge article id" placeholder is gone with the text box.
+  - **The Sales Home KPI cards state their filters as rule arrays.** The four
+    `object-metric` cards (*Revenue (Won)*, *Deals Won*, *Pipeline Value*, *Open
+    Leads*) wrote `filter` as a record. From 17.5.0, page and `object-*` filters
+    take only the `ViewFilterRule` array, and the platform converted the record
+    form on load. The source now says it in the accepted shape, as
+    `os migrate meta --from 17` lists. The numbers are unchanged.
+  - **Decision nodes are now exclusive by default. HotCRM needs no edit.** An
+    edge-branched `decision` with no `mode` now takes the first out-edge whose
+    condition holds, not every one of them. `os migrate meta --from 17` offers
+    `mode: 'inclusive'` on 13 of this app's decisions. Each of the 13 was checked
+    by hand, and in every one the out-edge conditions are exact complements, so
+    first-match runs exactly what every-true-edge ran. The key is deliberately not
+    written, as the platform's own migration note prescribes for partitioned
+    branches.
+  - **Scheduled flows are off until the deployment turns them on.** 17.5.0 runs
+    package-authored scheduled work only when `OS_AUTOMATION_SCHEDULED_WORK_ENABLED`
+    is set. HotCRM ships nine scheduled flows: contract and quote expiry, campaign
+    completion, forecast snapshot, stalled-deal alert, contract renewal, case SLA
+    monitor, task due reminder and demo bootstrap. **An operator who upgrades and
+    sets nothing runs none of them.** The admin *Automation* page now says so in
+    all three locales. Under the `isolated` posture a scheduled flow must also name
+    its organization, and these do not.
+  - **Six pages drop `assignedProfiles`. Who can open them does not change.**
+    `@objectstack/spec@17.5.0` removes `page.assignedProfiles` and refuses it. No
+    renderer, route or metadata read on 17.4.0 ever read the key, so the six pages
+    that set it were already open to every caller who could reach them. The pages
+    are *App Launcher*, *Sales Home*, *Utility Bar*, *Lead Detail*, *Opportunity
+    Detail* and *Case Detail*. Deleting the key keeps that behaviour. The platform
+    gates what a page shows through the object permission sets, which HotCRM
+    already declares. Two tests checked the retired key and are deleted with it.
+    One was "assignedProfiles name real profiles" in
+    `test/metadata-references.test.ts`. The other was "every related list is
+    readable by every profile its page is assigned to" in
+    `test/authorization-coverage.test.ts`. With no page able to declare the key,
+    both ran over zero pages and could no longer fail.
+  - **The contact form section *Account & Role* is now *Account & Title*.**
+    17.5.0 adds the author-time rule `security-role-word`: "role" is a reserved
+    word in labels, because the platform no longer has a Role concept. The section
+    holds the contact's owner, account, job title and department, so the English
+    label now says *Title*. The Chinese, Japanese and Spanish labels already said
+    "job title" and are unchanged.
+  - **Detail pages and Sales Home carry translated copy for nested components.**
+    From 17.5.0, `os lint` checks the translation of every component in a page's
+    tree, not only the top-level ones. There are 14 new keys in each of zh-CN,
+    ja-JP and es-ES:
+    - the Account Detail title and subtitle, and its discussion panel;
+    - the details sections of Case, Lead and Opportunity;
+    - the Lead Detail related, activity and field-history panels;
+    - the three "My …" lists on Sales Home.
+  
+    These labels name the components. In a zh-CN browser check of Lead Detail on
+    17.5.0 none of them is drawn as visible text: the visible headings come from
+    the tab items and the object's field groups, which were already translated.
+    So readers should see no change. The keys exist to satisfy the new lint rule.
+    `os i18n extract` scaffolds page keys only with `--no-objects-only`, since its
+    default covers objects alone. The i18n gate's failure hint now gives that
+    command instead of the bare one.
+  - **One driver test reads the withheld filter diagnostic.** 17.5.0's SQL
+    drivers no longer put caller-supplied operator and field names in the thrown
+    message of a refused filter. The full text rides on the error, and
+    `withheldFilterDiagnosticOf` reads it. The retired-`$regex` premise test now
+    checks two things. The public message says RETIRED and does not name the
+    operator. The withheld diagnostic still names `$regex`.
+  - **Claims that named 17.4.0 as the current pin are re-scoped**, not renumbered,
+    across source comments, tests and maintainer docs. Each now dates itself to the
+    pin it was measured on. None was re-measured on 17.5.0 in this change. Four
+    stale "current pin 17.3.0" claims that the 17.4.0 sweep missed are re-scoped
+    the same way.
+  
+  **Known issue on 17.5.0, fixed upstream but not yet released.** The *Products*,
+  *Knowledge Articles* and *Forecasts* default lists show
+  `Unknown field '[object Object]'` (`INVALID_FIELD`) in every group instead of
+  rows. On 17.5.0 the
+  console fetches grouped rows from the server, and the query it builds for a
+  view whose `columns` are objects sends the objects instead of field names. The
+  same views work on 17.4.0. HotCRM's views are valid and are left unchanged. The
+  fix is objectui#11105 (PR objectui#11119, merged). It reaches HotCRM with the
+  first platform release whose `@objectstack/console` carries it, and HotCRM then
+  needs only a pin bump.
+- 68f3701: Upgrade the ObjectStack platform to 17.6.0
+  
+  All 21 `@objectstack/*` dependencies move 17.5.0 → 17.6.0 together — 20 in
+  `dependencies`, `@objectstack/formula` in `devDependencies` — pinned exact, no
+  caret. `specVersion` and `engines.protocol` follow to `^17.6.0`, in
+  `objectstack.manifest.json` and in the stack manifest in `objectstack.config.ts`.
+  17.6.0 still implements protocol 17, so both declarations stay on major 17.
+  `pnpm-lock.yaml` was regenerated by `pnpm install` against the public registry:
+  725 `packages:` entries before, 727 after. 54 `@objectstack/*` and
+  `create-objectstack` keys moved 1:1, none added or removed. 14 third-party keys
+  moved: `@oclif/core` 4.14.0 → 5.1.2 (a major, taken by `@objectstack/cli`),
+  `@modelcontextprotocol/sdk` 1.30.0 → 1.31.0, `mongodb` 7.5.0 → 7.7.0, `bson`,
+  `@mongodb-js/saslprep`, `@noble/hashes`, `chalk`, `js-yaml`, `pinyin-pro` and
+  `sql.js` on patch or minor lines, and `@noble/ciphers`, `jose` and a second `tsx`
+  were added. `hono@4.13.3`, which the 17.5.0 lock kept for the MCP SDK, left the
+  tree.
+  
+  The platform changes that reached this app:
+  
+  - **Six page headers drop `breadcrumb`.** 17.6.0 retires `page:header`'s
+    `breadcrumb` (`page-header-breadcrumb-removed`) because no renderer ever drew
+    a trail for it. *App Launcher*, *Sales Home*, *Account Detail*, *Lead Detail*,
+    *Opportunity Detail* and *Case Detail* set it, so `os migrate meta --from 17`
+    listed six edits. The keys are deleted. **What readers will see:** nothing
+    changes. The console's own breadcrumb trail above every record is drawn by the
+    app shell and is unchanged.
+  - **Grouped lists whose columns are objects load their rows again.** This
+    closes the known issue recorded with the 17.5.0 upgrade. On 17.5.0 the
+    *Products*, *Knowledge Articles* and *Forecasts* default lists showed
+    `Unknown field '[object Object]'` in every group. The 17.6.0 console carries
+    the fix (objectui#11105). A browser check on 17.6.0 shows rows in every group
+    of all three lists, and the same check on 17.5.0 still shows the error.
+    HotCRM's views did not change.
+  - **The audit-log docs now say what Setup → Audit Logs shows.** From 17.6.0
+    the audit log shows each reader, administrators included, only rows about
+    records that reader can still open. So a `delete` row, a `logout` row and a
+    `login` row whose session has ended no longer appear in the console, though
+    they are still stored. The FAQ said the audit log "records who deleted what and
+    when" for an administrator to read there. A browser check on 17.6.0 found the
+    delete row stored and shown in neither audit-log screen. The FAQ answer is
+    corrected, and the *Security & Compliance* page gains a note. Both changes are
+    in all three locales.
+  - **Decision nodes need no edit, again.** `os migrate meta --from 17` still
+    offers `mode: 'inclusive'` on the same 13 decisions it listed on 17.5.0. Each
+    one partitions its out-edges, as the 17.5.0 upgrade checked, so the key stays
+    unwritten.
+  - **Claims that named 17.5.0 as the current pin are re-scoped.** The
+    platform-version line on the *What's new* page and in `docs/STATUS.md` moves
+    to 17.6.0. Three source and maintainer-doc comments that called 17.5.0 the pin
+    now date themselves. Claims written as "not re-run on 17.5.0" are dated truth
+    and stay as they are. None was re-measured on 17.6.0 in this change.
+  
+  The upgrade was exercised in place on a database that HotCRM on 17.5.0 had
+  created, seeded and written to. `os migrate meta --stored` found one stored
+  row (a list view saved on 17.5.0) and nothing to rewrite, and
+  `os migrate audit-metadata-bodies` found no copied metadata body to redact. The
+  17.6.0 server booted on that database with no errors.
+  
+  **What operators should know:**
+  
+  - **The public Web-to-Lead and Web-to-Case forms keep working.** They are
+    public forms, not anonymous endpoints, and HotCRM declares no
+    `authRequired: false` endpoint. An anonymous submission of each form on 17.6.0
+    created its record.
+  - **Imports read dates strictly.** A `date`, `datetime` or `time` cell must be
+    ISO 8601 (`2026-07-15`), the export's own `YYYY-MM-DD HH:mm:ss`, or year
+    first. A month-first cell such as `07/15/2026`, an Excel serial number or a day
+    that does not exist (`2026-02-30`) now fails its row with `invalid_date`. The
+    other rows of the file still import. Before 17.6.0, such cells imported as a
+    different date.
+  - **Studio refuses two saves at this console pin.** A new dataset measure saved
+    from the dataset designer is refused with `measures.0.field`, and a new
+    datasource set to *External* is refused with `requires 'external' settings`.
+    Both are known platform issues, fixed upstream after the pin. HotCRM's own
+    datasets are packaged and read-only in Studio, and HotCRM declares no
+    datasource, so neither issue reaches HotCRM metadata.
+- c967803: Upgrade the ObjectStack platform to 17.7.0
+  
+  All 21 `@objectstack/*` dependencies move 17.6.0 → 17.7.0 together — 20 in
+  `dependencies`, `@objectstack/formula` in `devDependencies` — pinned exact, no
+  caret. `specVersion` and `engines.protocol` follow to `^17.7.0`, in
+  `objectstack.manifest.json` and in the stack manifest in `objectstack.config.ts`.
+  17.7.0 still implements protocol 17, so both declarations stay on major 17.
+  `pnpm-lock.yaml` was regenerated by `pnpm install` against the public registry:
+  706 `packages:` entries before, 704 after. The 54 `@objectstack/*` and
+  `create-objectstack` keys moved 1:1, `@noble/ciphers` and `jose` left the tree, and
+  no third-party package changed version. The install still prints the peer note
+  17.6.0 printed (`better-auth` asks for `better-sqlite3@^12`; 13.0.3 is installed).
+  
+  The platform changes that reached this app:
+  
+  - **The screen-flow dialogs speak the reader's language.** The 17.7.0 console's
+    flow runner reads the `flows` translation group (the spec's liveness row for it
+    is now `live`), and `os lint` reports a missing key as `i18n/missing-flow`. It
+    reported 108 on this app: the seven screen flows' labels, screen titles and
+    field labels, in zh-CN, es-ES and ja-JP. All 108 are translated, in each
+    locale's `app.ts`, using the words the packs already use for the same objects
+    and actions. A screen with no authored title shows its flow's label, so each
+    `screen_1.title` repeats the flow label. The quote dialog's discount label is
+    interpolated from `QUOTE_DISCOUNT_CEILING`, so the ceiling is still written in
+    one place only (#1711). **What readers will see:** a zh-CN seller opening
+    *Escalate Case*, *Close Case*, *Claim Case*, *Convert Lead*, *Schedule
+    Follow-up*, *Generate Quote* or *Enroll Members* now reads Chinese titles and
+    field labels where they read English. Six of the seven were opened in a zh-CN
+    browser; *Claim Case* is offered only on an unowned case, and the demo data
+    holds none. Select-option labels and screen
+    descriptions on these dialogs stay as authored: a screen field's options are
+    not a translatable key on the platform (`FLOW_SCREEN_FIELD_NO_OPTIONS`). This
+    closes #1210 and #1975.
+  - **The lead page's Tasks list drops three action ids that named nothing.**
+    17.7.0 adds an author-time rule (`action-name-undefined`) that refuses a
+    `record:related_list` action id the related object does not define. The lead
+    page's Tasks list named `new_task`, `edit` and `complete`, and `crm_task`
+    defines no action, so none of them ever drew a button. The 17.7.0 console would
+    draw a refusal notice above the list for them instead. The ids are removed.
+    **What readers will see:** no change. The list's own *New* and *View all*
+    affordances are drawn by the platform and stay.
+  - **The contact mailing-address conversion (#1836) works on 17.7.0.** 17.7.0
+    serves declared fields only, so no REST read returns a retired field's
+    leftover column any more. The conversion script read the five old `mailing_*`
+    columns that way, and on 17.7.0 it would have found nothing to convert. It now
+    takes `--unmapped FILE`, the JSON that the platform's new operator-only
+    `os migrate unmapped-columns --object crm_contact --json` prints, and still
+    writes through the REST API. Measured on 17.7.0 against a contact whose
+    `mailing_street` column held a value: the REST read carried no `mailing_*`
+    key; the command read it; the script converted it, read the address back, and
+    a second run reported it already converted.
+  - **Claims that named 17.6.0 as the current pin are re-scoped.** The *What's
+    new* platform line and `docs/STATUS.md` name 17.7.0. A flow comment, a
+    composition comment, a maintainer-doc line and two test comments that read as
+    "17.6.0 is the pin" now date themselves. Claims written as "measured on
+    17.6.0" are dated truth and stay as they are. None was re-measured on 17.7.0
+    except the REST query door the backfill test models, which is unchanged.
+  
+  The test suite needed three adjustments, all to its harnesses: the engine now
+  refuses an object name its registry does not hold (objectstack#21545), so nine
+  files register the platform identity objects `plugin-auth` registers in a real
+  boot; a by-id write to a row the caller cannot read now answers
+  `RECORD_NOT_FOUND` instead of a permission error (objectstack#21812), so the
+  reach tests expect that for unreadable rows, still refused and still unwritten;
+  and the share-link test's response stub gains the `header()` the 17.7.0 route
+  calls. No assertion was loosened.
+  
+  The upgrade was exercised in place on a database that HotCRM on 17.6.0 had
+  created, seeded and written to, including an opportunity whose amount opened an
+  approval request. `os migrate meta --stored` found no stored metadata row, so it
+  attests nothing here; `os migrate audit-metadata-bodies` found nothing to
+  rewrite; `os migrate plan` reported the schema in sync. The 17.7.0 server
+  booted on that database with no errors, the 17.6.0 records opened, and the
+  approval request opened on 17.6.0 was decided on 17.7.0 by an administrator's
+  override. A fresh boot seeded the demo data, and a browser pass covered sign-in,
+  dashboards, lists, record pages, record creation, a screen flow run, reports,
+  the approvals inbox, both public forms and the zh-CN dialogs.
+  
+  **What operators should know:**
+  
+  - **The public Web-to-Lead and Web-to-Case forms keep working.** 17.7.0 serves
+    a form anonymously only when its `sharing` sets `enabled: true`, and both
+    forms already did. An anonymous Web-to-Lead submission on 17.7.0 created its
+    lead.
+  - **Upgrading a deployment from HotCRM 3.1.0 moves contact addresses with the
+    new route.** Before `os migrate apply --allow-destructive`, run
+    `objectstack migrate unmapped-columns --object crm_contact --json > FILE` from
+    the project root, then the conversion script with `--unmapped FILE`.
+  - **A write to a record the caller cannot see answers 404 `RECORD_NOT_FOUND`**,
+    where it answered 403 before. An integration that branches on 403 for this
+    case reads a 404 now.
+  - **Not exercised here:** the release's rotate-after-first-boot step for flow
+    secrets. HotCRM's two billing-handoff flows carry a `signingSecret` only when
+    the build sets `HOTCRM_BILLING_SIGNING_SECRET`, and no run of this upgrade set
+    it. A deployment that does should rotate that secret after the first 17.7.0
+    boot, as the 17.7.0 upgrade checklist says.
+- 4e072fd: An opportunity now records **whether it is worth pursuing**, **the customer's own
+  procurement calendar**, **the story behind the deal**, and **whether a won/lost call has
+  been signed off**. Eighteen new fields on `crm_opportunity`, two new derived sections, a
+  new list view, and a status-change approval gate that ships switched off (REQ-0006 — the
+  `crm_opportunity` half of REQ-0002's steps 8 through 14).
+  
+  **Qualification.** *Will Bid*, *Controllability*, *Priority*, *Deal Level* and
+  *Involves Subcontracting* (with a note), in their own **Qualification** section. This is
+  the triage vocabulary of any seller that cannot pursue every deal, and nothing on the
+  object carried it before: *Forecast Category* answers a different question — it is the
+  roll-up bucket, derived from the stage — and a judgement about whether to chase a deal is
+  not a forecast. The values are generic on purpose; a grading scale of your own is
+  configuration on top of them.
+  
+  **The customer's procurement calendar.** *Customer Initiation Date*, *Expected Tender
+  Date* and *Expected Signing Date*, with the amounts expected at tender and at signing.
+  *Close Date* is a single date and it is **our** forecast close — it could never carry
+  three distinct buyer-side events, which is what an outsourcing seller actually plans
+  against. A new **Tender This Quarter** list view windows the tender date alone, so "deals
+  whose tender lands this quarter" is one tab and touches the forecast close date nowhere.
+  
+  **Deal Narrative** — *Customer Background*, *Project Background*, *Risk Analysis* and
+  *Payment Terms*, in their own section. Everything a rep wanted to write about a deal used
+  to collapse into one *Description* field; split apart, each part is reviewable on its own.
+  
+  **Business Line**, beside *Opportunity Type* rather than inside it: type's values are a
+  relationship taxonomy (new business, renewal, expansion) that reporting already reads, and
+  a line-of-business classification is a different axis. Generic delivery-model values only.
+  
+  **Status Change Approval**, and the flow behind it. With the gate armed, declaring a deal
+  *Won* or *Lost* is a **request** — the rep sets *Requested Status* with the win/loss
+  reason, the request appears in the approval inbox HotCRM already mounts, and the stage
+  moves only when the request is approved. Irreversible transitions are the ones worth
+  gating, and the approval this app had could not see them: it keys on amount alone, so a
+  $10K deal reached *Closed Won* with no sign-off at all. **The gate ships off.** Its switch
+  is the field default on *Status Change Approval*, shipped as *Not Required*, so no deal is
+  ever born pending, the flow's start condition is false for every record, and amount-tiered
+  approval behaves exactly as it does today. An install arms the gate by changing that one
+  default; deals that predate the arming are untouched.
+- c418c5f: **Quotes and contracts now follow the account** (#549). Both `crm_quote` and
+  `crm_contract` move from `sharingModel: 'private'` to `controlled_by_parent`
+  under `crm_account`, with the account lookup promoted to master-detail — the
+  same derivation contacts already use. A rep who receives an account through a
+  territory or team sharing rule now sees that account's *Quotes* and *Contracts*
+  related lists complete, renewals included, instead of the own-only keyhole this
+  issue reported. Access is computed per account, at every level: a quote under
+  an account you cannot see stays invisible, and so do its line items (measured
+  on `@objectstack/*` 17.4.0, which carries the two-level chain fix for
+  objectstack-ai/objectstack#11082 — the reason this change waited).
+  
+  FROM → TO, per persona:
+  
+  - **Sales Rep** — reads the quotes and contracts of every account they can see
+    (own, territory-shared, team-shared, manually shared); edits the quotes of
+    accounts they hold edit on (a territory share carries edit); still never
+    edits a contract (the object-level right is unchanged). The inert
+    `readScope: 'own'` on both objects is gone.
+  - **Sales Manager** — edits every contract, on every edition: the write gate
+    now asks for edit on the account, which the manager holds org-wide. The #880
+    hierarchy write depth (`own_and_reports`, Enterprise-only) is no longer
+    declared because it is inert on a parent-derived object; the
+    `hierarchy-security` capability declaration stays.
+  - **Tasks, events, cases and opportunities** stay own-only, as ruled.
+  
+  An account delete would now cascade its quotes and contracts (master-detail),
+  so `account_protection` refuses to delete a customer account while an
+  *Activated* contract still references it — `Cannot delete customer account: 1
+  activated contract still references it. Terminate or reassign it first.` —
+  alongside the existing open-opportunity refusal. An account carrying only
+  drafts or ended contracts is still refused by the platform's own referential
+  pass (the contact cascade stops on the contract's required Primary Contact), so
+  in practice an account with contracts cannot be deleted until they are gone.
+
+### Patch Changes
+
+- c75dd42: An account's page header now shows its company logo
+  
+  Open an account that has a **Company Logo** uploaded (the **Branding** section
+  of the form) and the logo now sits beside the title at the top of the page,
+  the same way it already heads the account's card in **Account Cards**. An
+  account without a logo shows no picture there: no placeholder and no initials.
+  
+  `crm_account` declares `imageField: 'logo'`, the object-level picture the
+  platform draws in every record page header. The platform refuses an
+  `imageField` that names anything other than an image or avatar field, so the
+  declaration cannot point at the wrong field and still save.
+- 5ae5249: An opportunity's Details tab now keeps Classification, Campaigns and Notes & Next Steps on screen when they are empty
+  
+  A section with nothing filled in used to disappear from the Details tab. On a
+  new deal that carries only its required fields, that meant the tab showed
+  just Sales Process and Forecast & Metrics: there was no place to see, or fill
+  in, the deal's **Type**, **Lead Source**, **Campaign**, **Description** or
+  **Next Step**.
+  
+  These three sections now always show, with an empty row for each field.
+  Campaigns still starts collapsed: click the heading to open it. Campaigns no
+  longer waits for a campaign to be set before it appears. A section that has
+  at least one value looks the same as before, with its empty fields behind
+  **Show N empty fields**.
+  
+  Basic Information and Financials are unchanged. Every field in Financials is
+  already shown in the strip at the top of the page. In Basic Information, only
+  **Primary Contact** is not already shown in the page title or the strip.
+- c529de2: The "Ask the AI Assistant" card on Sales Home now shows its paragraph, and `pnpm lint` fails on warnings
+  
+  **What users see.** The **Ask the AI Assistant** card on Sales Home used to
+  show only its title. Its paragraph was stored in a place the card does not
+  draw. The card now shows it in all four languages: "Open the assistant panel
+  from the right edge of the page and ask 'what should I focus on today?' — it
+  sees your live pipeline, schema, and accounts."
+  
+  **For developers.** `pnpm lint` now runs `objectstack lint --strict`, so a
+  warning fails it the way an error already did. Suggestions still never fail
+  it. `pnpm verify` and the CI lint step both run `pnpm lint`, so a change that
+  adds a lint warning now turns them red. The paragraph was the last warning
+  standing, so `main` starts at 0 errors and 0 warnings.
+  
+  The paragraph's four translations moved out of the language packs
+  (`pages.sales_home_page.components.ai_briefing.description`) and into the page
+  itself, next to the copy. The packs have no key for this kind of text.
+- 572aa44: Retire the `Demo Bootstrap` flow: seeded records get their owner from the platform, once
+  
+  HotCRM shipped a scheduled flow, **Demo Bootstrap** (`demo_bootstrap`), that ran every ten
+  minutes forever in every tenant. Each run filtered twelve objects for records with no owner
+  and gave them to the first user. A seed cannot name a user, so seeded demo records arrive
+  with no owner, and the flow existed to fix that after the fact. On a production tenant it ran
+  1,776 times in 13 days, took up to 26 minutes, and changed nothing after its first pass.
+  
+  From ObjectStack 17.6.0 the platform does this itself, on a new install's first boot: when the
+  seed data finishes loading, it hands every seeded record that has no owner to the first
+  administrator. A fresh `pnpm dev` boot on this release, with the flow kept from running,
+  leaves no ownerless record on any of the twelve objects the flow used to cover. So the flow is
+  removed.
+  
+  **What changes for you:**
+  
+  - A fresh install no longer carries a `flow-schedule:demo_bootstrap` job (`*/10 * * * *`) in
+    `sys_job`, and **Flow Runs** no longer shows a Demo Bootstrap run every ten minutes.
+  - HotCRM now ships 30 flows, eight of them scheduled. The admin *Automation* page says so in
+    all three locales.
+  - Seeded demo records are still owned by the first administrator, as before. Known limit: seed
+    records that a later upgrade adds to an existing install do not get an owner from the
+    platform yet (tracked in objectstack-ai/objectstack#21486). `pnpm demo:staff` works unchanged.
+  - The `saas` composition no longer differs from the community app in its flows. It already
+    left this flow out.
+  
+  **Upgrading an existing install:** the platform leaves the old
+  `flow-schedule:demo_bootstrap` row in `sys_job`, still marked active, when the flow disappears.
+  Nothing runs it any more. An operator who wants the table clean can delete that one row.
+- b54380c: HotCRM now ships as one artifact carrying two packages: the HotCRM app and its Service module.
+  It still installs as one app, and the one change a user sees is the menu order: **My Cases**
+  is now the last item of **My Work**.
+  
+  **What changes for an installation.** The artifact still installs as one app,
+  **HotCRM** (`app.objectstack.hotcrm`), and every object keeps its name, its
+  table and its REST path. Inside it, cases, knowledge articles and article
+  feedback now belong to a second package, **HotCRM Service**
+  (`app.objectstack.hotcrm.service`), a module of the app. The package list
+  (`GET /api/v1/packages`, and the package picker in Studio) shows both rows,
+  and each object reports the package that owns it.
+  
+  **One navigation difference.** The Service module puts its five entries into
+  the app's menu: **Cases**, **Knowledge** and **Service Overview** under
+  **Service**, **SLA Performance** under **Insights**, and **My Cases** under
+  **My Work**. A module's entries come after the app's own entries in a group,
+  so **My Cases** is now the last item of **My Work**, after **Inbox**; it used
+  to sit fourth, after **My Leads**. Every other menu entry is where it was.
+  
+  **What does not change.** The permission sets stay whole in the HotCRM app
+  package, Service grants included, so no one's access moves. Translations stay
+  in the app package too. The **Products**, quotes, contracts, campaigns and the
+  rest of revenue and marketing are still part of the HotCRM app package; they
+  become modules of their own in later releases.
+  
+  **For developers.** `src/sales/index.ts` and `src/service/index.ts` each call
+  `defineStack` with their package's manifest, and `objectstack.config.ts`
+  composes them with `composeStacks(…, { manifest: 'preserve' })`. A suite that
+  needs every collection of the app reads `test/helpers/composed-stack.ts`,
+  because the built artifact keeps each package's metadata inside that
+  package's entry in `packages[]`.
+- 4fbfde1: The in-product guide **Administration — Positions, Sharing & Automation Knobs** no longer tells admins that the business rules are in a `src/flows/` folder. That folder went away when HotCRM was split into packages. The *Automation knobs* section now says that each package keeps its own flows in its `flows/` directory. The thresholds, and the flows that define them, are unchanged.
+  
+  For maintainers: source comments that still named the pre-package folders (`src/flows/`, `src/translations/`, `src/objects/` and the rest) now name each file's package home. That includes one comment inside the shipped script body of the *Log a Call* / *Log a Meeting* / *Schedule a Meeting* actions; the script does exactly what it did before. A comment that records where something used to live keeps the path it had then. No behaviour changes.
+- c7c5fb7: The case **SLA Due Date** field now says its unit: calendar hours
+  
+  The SLA deadline on a case has always been counted in calendar (wall-clock)
+  hours. Nights, weekends and holidays count, because this app has no
+  business-hours calendar. Until now the form never said so. The **SLA Due Date**
+  field now carries a help text in all four languages:
+  
+  > Set from the case priority and the account’s Customer Tier, in calendar
+  > hours: nights, weekends and holidays count.
+  
+  No deadline changes. The matrix, the stamping rule and every published field
+  and hook name are the same as before. For maintainers: the unit is now carried
+  in code names (`CASE_SLA_CALENDAR_HOURS`, `caseSlaCalendarHours` and the
+  hook-body `slaCalendarHours` table). The repeated warning comments are reduced
+  to one, in `src/service/objects/_case-sla.ts`. The test now drives the shipped
+  hook body with the clock fixed at Friday 17:00. A Critical case is due Friday
+  21:00. On an SMB account, a Medium case is due Sunday 17:00 and a Low case the
+  next Friday 17:00.
+- 518c06b: The *All Forecasts* list no longer shows a column total under **Expected**
+  
+  **Expected** is a formula field (Closed Won + Commit, computed per row), so the
+  database has no stored value for it to add up. The platform's aggregate rules
+  refuse a `sum` over a formula field, and the view no longer asks for one. The
+  column itself stays, with each row's value. **Closed Won** and **Commit** keep
+  their totals, so the expected figure for a group or for the whole list is still
+  the sum of those two totals. Quota, Best Case and Pipeline keep their totals too.
+- 1e88edc: Cases you create now count in "Cases Opened by Priority × Day" and in the Customer Service dashboard's date range
+  
+  A case created in the app or through the REST API never showed up in the
+  **Cases Opened by Priority × Day** report or inside the **Customer Service**
+  dashboard's date range. Both read the case's **Created Date** field, and nothing
+  filled that field in on a real case: only the demo data set it. So a new case
+  stored no Created Date, the report left it out, and the dashboard range skipped
+  it. Managers saw the 38 demo cases and none of their own.
+  
+  **FROM → TO.** Cases now use one creation timestamp, the platform's own
+  `created_at`, which is recorded on every case however it is raised. This is the
+  same change opportunities got earlier (#575).
+  
+  - `crm_case.created_date` is removed. Read `created_at` instead, the field every
+    object already carries. An integration that read `created_date` through the
+    API should switch to `created_at`.
+  - The `case_metrics` dataset's day dimension is now `created_at` (label
+    **Created**, still bucketed by day). It was `created_date`. A saved query or
+    widget that grouped by `created_date` should group by `created_at`.
+  - **Cases Opened by Priority × Day** buckets on `created_at` and no longer
+    filters anything out. The Customer Service dashboard's date range and its
+    **Daily Case Volume** chart use `created_at`. So does the **Case Timeline**
+    view, whose bars now start on the day each case was created. Before, a case
+    created in the app had no start date there.
+  - **Resolution Time (Hours)** is measured from `created_at` to **Closed Date**.
+  - The **SLA & Priority** group on a case has six fields instead of seven.
+    **Created Date** is no longer one of them, and the four language packs no
+    longer translate it.
+  
+  The demo data keeps its history. The seeded cases now set `created_at` to the
+  day each one was opened. Since `@objectstack/*` 17.7.0 the platform keeps that
+  value when a fresh database is seeded, so the report and the dashboard spread
+  the demo cases over their own days, not the day you ran the demo.
+- 5b1f79b: The shipped contact import template now imports all 50 of its rows
+  
+  `assets/import-templates/contacts.csv` writes `HR` in its **Department** column.
+  The import matches a picklist cell against an option's code exactly and its
+  label case-insensitively, so `HR` matched neither the code `hr` nor the label
+  **Human Resources**, and six of the template's fifty rows failed with
+  `Department: "HR" is not a known option`. The contact import mapping
+  (`crm_contact_import`) now translates `HR` to **Human Resources**, the same way
+  it already translates foreign lead-source words such as *Trade Show*.
+  
+  The template file itself is unchanged. A dry run and a real import of it now
+  both report 50 rows and no errors.
+- 9466837: The line-number and owner back-fill scripts run again on ObjectStack 17.6.0
+  
+  `scripts/backfill-line-number.ts` (the one-time line-number back-fill this release asks you to
+  run) and `scripts/backfill-owner-id.ts` (`pnpm backfill:owner`) both stopped on their first
+  read and changed nothing. They printed `Backfill failed: query crm_opportunity_line_item → 400:
+  Invalid query request` and `Backfill failed: cannot read sys_user (400)`. On 17.6.0 the record
+  query endpoint refuses two request shapes the scripts sent: an empty filter list and a sort
+  written as text (`'id asc'`). Both scripts now send the same shapes as
+  `scripts/backfill-contact-mailing-address.ts`. Each still reads the same records and writes the
+  same values, and is still report-only until you pass `--apply`.
+  
+  Measured on a fresh 17.6.0 boot:
+  
+  - **Line numbers.** 12 line items had no line number, across three opportunities and two quotes.
+    The report listed all 12. `--apply` numbered each one in creation order under its parent,
+    after any number that parent already had. A second `--apply` found 0 rows to change.
+  - **Owner.** The test org had the old `Owner` field on leads and accounts. The report listed the 3
+    records whose Owner did not match the access owner, and separately listed the 1 record whose
+    Owner names no real user, which it skips. `--apply` updated the 3, and a second `--apply` found
+    no differences. On an org that is already upgraded, the script says so for each object and
+    makes no changes.
+  
+  A new test runs every `scripts/backfill-*.ts` against the installed query schema. If a future
+  platform version refuses one of their requests, `pnpm verify` fails before the script ships.
+- f24c196: A lead's and a case's Details tab now keep the sections you are expected to fill on screen while they are empty
+  
+  A section with nothing filled in used to disappear from the Details tab. On a
+  new lead that carries only its required fields, that hid Contact Information,
+  Address and Additional Info, so there was no place to see, or fill in, the
+  lead's **Mobile**, **Website**, **Address**, **Annual Revenue**, **Number of
+  Employees**, **Description** or **Notes**. On a new case it hid Origin &
+  Routing, and with it **Case Origin**.
+  
+  These four sections now always show, with an empty row for each field. Address
+  and Additional Info still start collapsed: click the heading to open them. A
+  section that has at least one value looks the same as before, with its empty
+  fields behind **Show N empty fields**. The opportunity page already worked this
+  way.
+  
+  Sections that are filled in later, or by the app, still appear only once they
+  hold a value. On a lead that is Duplicate Management, which the duplicate check
+  fills in. On a case it is SLA & Priority, whose dates are recorded for you, and
+  Resolution, which **Close Case** records. Assignment is unchanged: the lead
+  owner is shown in the strip at the top of the page.
+- 4054ec2: Qualification approval (立项) leaves *Will Bid* open
+  
+  While a deal waits for qualification approval, or after an approver rejects it, the rep can
+  now record and change *Will Bid*. Whether you intend to bid is part of what the approver
+  decides on: REQ-0006 step 8 has the rep fill 是否投标 as input to 立项, so holding it until
+  approval had the approver decide without it. Step 11's 投标 is the act of bidding, which
+  HotCRM does not model.
+  
+  The gate still holds the two acts that commit the deal: moving its stage (which includes
+  closing it directly), and asking for won or lost with *Requested Status*. Both are refused
+  `409 RECORD_LOCKED` until the deal is approved, and the refusal sentence now names only what
+  was held. The gate still ships off; nothing changes for an install that has not armed it.
+  
+  This narrows the qualification-approval gate that ships in this same release; its entry
+  above now describes the gate as it ships.
+- a2f2a40: Accepting a quote whose opportunity is still waiting on an approval is now refused with a message saying which approval must be granted first, a sales rep's accepted quote now gets its draft contract, a deal opened on a Settlement Only account is refused even for someone who cannot see that account (and the message no longer names the account), and a service agent's completed task or held call now refreshes the account's last activity date.
+- dc58e04: Sales reps, service agents and marketing users now see the follow-on updates their own saves trigger: a rep's won deal or converted lead updates its campaign, a rep's win promotes the account to customer, an agent's resolved case refreshes the account's last activity date, an agent's own escalation hands the case to a service manager, a marketing user's contact unsubscribe opts the contact out, a marketing user's enrollment no longer drops Private won deals from the campaign's numbers, and a withdrawn knowledge-article vote stops being counted.
+- 49fe305: Generate Quote now works on a deal that is waiting for approval
+  
+  A deal of $100K or more is locked while a manager reviews it. Clicking
+  **Generate Quote** on such a deal used to create the quote and then report
+  that generating it had failed, because the deal could not be moved to
+  *Proposal* while it was locked. The quote stayed behind anyway.
+  
+  Generate Quote now finishes normally on a deal under review: the draft quote is
+  created, you are notified as usual, and the deal keeps its current stage until
+  the approval is decided. A deal that is not under review still moves to
+  *Proposal* as before.
+- 17e91ba: Converting a lead whose company has no match key now stops with a clear message instead of attaching the lead to another customer's account
+  
+  Lead conversion finds the existing account by a match key that the app derives from the lead's Company. A lead can lack that key: a row from before the key existed, or a company sent through the record API as a number. Such a lead used to convert onto an unrelated account that also had no key. Its new contact and opportunity were filed under the wrong customer.
+  
+  **Convert** now opens a "Conversion refused" dialog for such a lead, before the conversion form. The dialog says why the lead was stopped and that nothing was created. To fix it, save the lead's Company again, which rebuilds the key, and then convert the lead. Leads with a company key convert exactly as before.
+- f7cfb65: Converting a lead now marks its campaign memberships as Converted on the standard SQL database too: before, the campaign counted the converted lead, but every one of that lead's campaign members stayed Sent or Responded.
+- 08cfa20: Deleting an account or a contact now tells you what really lets the delete through
+  
+  A customer account with a deal on it said "Close or reassign it first", but
+  closing the deal did not help: a closed deal is part of the account's sales
+  history and still keeps the account. The message now counts every deal on the
+  account, open or closed, and says to delete the deals first or to mark the
+  account inactive to retire it instead.
+  
+  A contact named on an activated contract was told to "Close or reassign those
+  records first", but terminating or expiring the contract did not help either:
+  a contract keeps its primary contact after it ends. The message now says to
+  give each contract another primary contact, which does let the contact go and
+  keeps the contract.
+  
+  The **Accounts** page states the same rule in English, Simplified Chinese and
+  Traditional Chinese.
+- ac162c9: Sales reps, managers, marketers and service agents can now see the attachments on the quotes, accounts, opportunities, contacts, contracts and cases they can open (uploading and deleting stay with administrators until a platform fix lands), `pnpm demo:staff` runs to the end again, and the Email & Calendar guide now describes the notification email templates the app ships instead of saying it has none.
+- c12a251: Sales reps, managers, marketers and service agents can now read the comments and the activity timeline on the records they can open, post comments there and edit their own (deleting a comment stays with administrators until a platform fix lands). Before, the Discussion panel refused them both halves with "You don't have permission to view comments on this record". The Quotes and Contracts pages now say that the nightly quote and contract expiry and the daily renewal reminder run only on a deployment that has switched scheduled work on, and what a default install does instead. The Automation page's email-template section now describes the notification templates the app ships instead of saying it has none. The in-product guides (Sales, Service, Administration and the overview) now give the same condition for every sweep they name, with the times unchanged.
+- f562142: Where qualification approval (立项) is turned on, Generate Quote on a deal that is not yet approved now tells you qualification approval comes first and creates nothing, instead of reporting a failure and leaving a draft quote behind.
+- f6d2379: The account page header shows the account's name, and the demo accounts can be edited
+  
+  - **The header shows the account's name.** In English, the record page title
+    read "Account Detail" (the page's label) on every account. The English
+    language pack carried no header title for that page, so the platform used
+    the page label in its place. The pack now carries it, as the Chinese,
+    Spanish and Japanese packs already did.
+  - **The nine demo accounts are no longer locked.** The platform loads demo
+    rows without running automation, so these accounts never entered the
+    account approval flow. They still took the field's default, **Pending**, so
+    each one showed "Locked for approval", Edit was disabled, and **Recall
+    approval** found nothing to recall. The demo rows now arrive as **Approved**,
+    which is the state of an established account. An account a user creates
+    still starts at **Pending** and enters the approval flow, as before.
+  - **The accounts guide describes the tabs that are really there.** The
+    *Account detail layout* section, in English and both Chinese versions, listed
+    seven tabs the record page does not have. It now describes **Details**,
+    **Related** and **Attachments**, the **Approvals** tab that an account
+    shows once it has been through approval, and the **Discussion** feed below
+    the tabs.
+- f0afcbd: The Automation and Cases guides send readers to the record history they can actually open
+  
+  - **Users are sent to the record's own activity, not to an audit log.** The
+    Automation guide's *Tips for users* told users to "check the audit log". A
+    sales rep cannot open it: Setup is not among their apps and the audit log
+    refuses their reads. The tip now points to the record's activity (the
+    **Activity** tab on a case, lead or opportunity, the **Discussion** feed on
+    other records, and the **History** tab on a lead), where a change to a
+    tracked field shows its old and new value, and asks an admin to read the
+    audit log when the question is what else a save changed.
+  - **Admins are told where the audit log is.** *Where to monitor automation*
+    named an "Object → audit log" that no record page shows. It now names
+    **Setup → Diagnostics → Audit Logs** and says what one entry holds: the time,
+    the user who saved, and the old and new value of every field the save
+    changed.
+  - **The Cases guide no longer says every object tracks its history.** It said
+    every CRM object ships with history tracking switched on and that the audit
+    log feeds the case's Activity tab. Neither is so: tracking is chosen field
+    by field, and the Activity tab does not read the audit log. The paragraph now
+    says what the tab shows for a tracked field and for any other edit.
+  
+  Both guides changed in English, Simplified Chinese and Traditional Chinese.
+- 81f8644: Tables keep cell editing when the console moves to the next objectui release
+  
+  Every HotCRM table (each list view shown as a grid, such as **All Leads**,
+  **Open Deals** or **My Open Tasks**) now states that its cells can be edited in
+  place. The platform treats a table that says nothing about this as read-only,
+  and the next console release follows that rule. Without this change, the
+  **Edit inline** button would have disappeared from every HotCRM table, and
+  people could only have edited a record through its form.
+  
+  Who may edit has not changed. **Edit inline** is still offered only to a user
+  who can edit records of that object. A user with read-only access sees the
+  table without it, as before.
+- 1e47470: The Details tab of the lead, opportunity and case record pages now shows the object's own field groups
+  
+  Each of the three record pages used to list its own hand-picked sections, and
+  those sections had drifted from the field groups the object declares. Fields
+  that existed on the record were missing from the page. Each section now points
+  at one of the object's field groups, so the Details tab shows the same groups,
+  with the same headings and icons, as the rest of the app. A field added to a
+  group appears on the record page too.
+  
+  **Leads.** The Details tab now shows Identity, Company Information, Contact
+  Information, Communication Preferences, Qualification, Assignment, Address,
+  Conversion, Duplicate Management and Additional Info. These fields could not be
+  seen on the Details tab before and now can: **Notes**, **Do Not Call**, **Email
+  Opt Out**, **Next Follow-up Date**, **Last Contacted**, **Need Type**,
+  **Estimated Amount**, **Conversion Approval** and the conversion result
+  (**Converted**, the converted account, contact and opportunity, and the
+  conversion date). **Description** is now inside **Additional Info**, together
+  with Notes. Address, Additional Info, Communication Preferences, Conversion and
+  Duplicate Management start collapsed: click the heading to open them.
+  
+  **Opportunities.** The Details tab now shows Basic Information, Financials,
+  Classification, Campaigns, Sales Process, Forecast & Metrics and Notes & Next
+  Steps. Newly visible: **Primary Contact**, **Stage Entry Date**, **Approval
+  Status**, **Approved Date**, **Win Reason**, **Loss Reason**, **Loss/Win
+  Details**, **Days in Current Stage** and **Private**. Campaigns and Forecast &
+  Metrics start collapsed.
+  
+  **Cases.** The Details tab now shows Case Information, Origin & Routing, SLA &
+  Priority, Escalation, Resolution and System. **Escalated Date** is shown for
+  the first time, under Escalation. **First Response Date** and **Resolved by
+  Article** are also new. Internal Notes moved to the System group. Escalation
+  and System start collapsed. SLA & Priority and Resolution appear once the case
+  has a value in them, for example when **Close Case** records the resolution.
+  
+  Fields already shown in the strip at the top of the page (status, owner,
+  amount, priority and similar) still appear only there.
+- 5bec6eb: **Currency fields no longer declare `scale`.** ObjectStack's next release refuses `scale` on a
+  `currency` field: a currency amount's decimal places come from its currency's ISO 4217 minor unit
+  (2 for USD), not from a field setting. The refusal has no automatic conversion, so an app that
+  keeps the key cannot load on that release. `scale` is removed from all 23 money fields: account
+  revenue and purchasing budget, campaign costs and revenue, contract value, forecast amounts, lead
+  amounts, opportunity amount and expected revenue, product price and cost, and the quote totals.
+  `scale` on number, percent, formula and roll-up fields is unchanged.
+  
+  What changes at the current ObjectStack 17.4.0:
+  
+  - **Totals show whole units for a while.** List-view summary footers on money columns (for example
+    the **Amount** total under **Open Deals**) and the **Revenue (Won)** and **Pipeline
+    Value** tiles on **Sales Home** read the field's `scale` for their decimals. They show
+    `2,017,500` instead of `2,017,500.00` until the console takes decimals from the currency. That
+    console fix ships with ObjectStack's next release. Record cells are unaffected: they
+    already use the currency's own decimals.
+  - **More-precise money writes are accepted.** A money value with more than 2 decimals used to be
+    rejected with "must have at most 2 decimal places". It is now accepted as written, which is the
+    platform's rule for currency fields from the next release on. The **Generate Quote** flow still
+    rounds its discount and total to whole cents, so quote amounts are unchanged.
+- b1123a2: **Docs: every `src/` path the product documentation prints now resolves against the real
+  tree.** ADR-0130 (#1905) made a directory under `src/` a package, and the two top-level
+  directories the docs quoted most stopped existing: flows became `src/sales/flows/`,
+  `src/service/flows/`, `src/revenue/flows/` and `src/marketing/flows/`, and the locale
+  bundles became `src/sales/translations/`. 48 sites over 39 pages still named the old
+  flows directory and 21 sites over 9 pages the old translations directory, in all three
+  languages.
+  
+  Two of them cost a reader real time. The fork tutorial opened with a copy-pasteable
+  `mv src/translations/crm.translation.ts …`, whose **source** path was not there, so step
+  one of forking HotCRM failed on paste (the destination name is the reader's own and is
+  unchanged). And *Customization › Extending Objects* told readers to put new automation in
+  a directory ADR-0130 had removed, and to export it from a barrel that no longer exists —
+  that step now names the package that owns the trigger object and its own `flows/index.ts`.
+  
+  The prefix is per file, not per documentation area: the quote expiration flow the Sales
+  pages cite lives under `src/revenue/flows/`. Three sites had no single successor to point
+  at — the bare "under `src/flows/`" in Quotes, Cubes and Extending Objects — and were
+  rewritten to say which package, rather than mechanically prefixed.
+  
+  **Contacts: the department roster now matches the picklist.** The admin tip listed ten
+  departments — inventing *IT*, *Legal* and *Other*, and omitting *Support*, which the app
+  actually ships. It now lists the eight values `crm_contact.department` declares, in
+  declaration order: Executive, Sales, Marketing, Engineering, Support, Finance, Human
+  Resources, Operations.
+- c4e5518: Docs: repoint the product documentation at the real package tree — the third and last family of ADR-0130 dead directories.
+  
+  A directory under `src/` is a package, so the app-wide `src/objects/`, `src/views/`, `src/datasets/`, `src/skills/`, `src/reports/`, `src/pages/`, `src/dashboards/`, `src/actions/`, `src/sharing/`, `src/hooks/`, `src/mappings/` and `src/apps/` directories stopped existing. 426 citations across `content/docs/` in all three languages still named them. Every one now resolves against the real tree, or says what it means without writing a path at all.
+  
+  Three tutorials were sending readers into a directory that does not exist, where nothing would have registered the file they were told to write:
+  
+  - **Extending Objects** — the three code fences that head `// src/objects/warranty.object.ts`, `// src/objects/index.ts` and `// src/objects/warranty.hook.ts` now name the package that owns them, and the hook section names the real registration point (`src/<package>/objects/hooks.ts`, assembled into `allHooks` by `objectstack.composition.ts`) instead of the removed `src/hooks/index.ts`.
+  - **AI Skills** — registering a skill is two steps, not one: a re-export from the package's own `skills/index.ts`, then an entry in `allSkills` in `objectstack.composition.ts`. The old single fence put `allSkills` in the barrel, where it is not.
+  - **Fork HotCRM** — the `rm src/objects/{…}.object.ts` command died on paste. Cutting Service, Revenue and Marketing now removes them as the packages they are, and the file-suffix protocol table carries the package dimension.
+- cf422b8: Quote pricing and the nightly forecast snapshot now compute their amounts with CEL, the
+  expression language the platform declares for flow values, instead of the older `{…}`
+  template form. Nothing you see changes: a quote prices exactly as before (whole cents,
+  and a cleared discount still means no discount), and the forecast's pipeline, best case,
+  commit and closed-won totals are the same sums. An opportunity with no amount still
+  counts as 0, and an amount with cents keeps its cents. `objectstack validate --strict`
+  no longer reports these six expressions.
+- 7c50e95: Docs: **Extending Objects** now teaches the whole flow registration path, and a guard keeps it that way.
+  
+  **Add automation** told readers to put a new flow in the `flows/` directory of the package that owns its trigger object and export it from that directory's `index.ts`. That is necessary and not sufficient. `allFlows` in `objectstack.composition.ts` is an explicit ordered list — the registration order interleaves the four packages, so no per-package barrel can carry it — and a flow that reaches the barrel but never that array is handed to `defineStack()` by nobody. It binds no trigger, it never runs, and `pnpm validate` still exits 0 and names it nowhere. An author following the page shipped automation that did nothing, with no signal anywhere.
+  
+  The page now spells out both steps in all three languages, in the same shape the **AI Skills** page already used for `allSkills`. `test/flow-registration-completeness.test.ts` fails when a flow a package barrel exports is missing from `allFlows`, and in the opposite direction when `allFlows` carries a flow no barrel exports — which would run in the app while staying invisible to every suite that reads the barrels.
+- c881114: A fresh demo install now shows logged interactions on the lead **Activity** tab, which
+  used to read "No activity recorded" on every lead. **Lisa Thompson** (CloudFirst) and
+  **David Kim** (EduTech Labs) each show two logged interactions from the past fortnight:
+  a call or meeting, with its duration and a **View source** link to the calendar event
+  behind it. These are the same timeline entries **Log a Call** / **Log a Meeting** write,
+  seeded for held lead events that already existed plus two new earlier touches on those
+  leads. A lead with no held interaction, such as Alice Martinez, still reads empty.
+  
+  This became possible with the pinned platform (17.4.0): a seeded timeline entry can now
+  point at a lead and an event by their natural keys, and the platform resolves them to the
+  real records at boot. Timeline entries are telemetry that the platform keeps for 14 days,
+  so only interactions younger than that are seeded. They carry no acting user, because a
+  seed cannot name one; the tab shows them as **System**.
+- aa61e1d: Two fields that were stored but shown on no list now appear in the panels
+  where people read them.
+  
+  - **Subtotal** on a quote line item is now a column in the line items panel on
+    a quote's *Related* tab. It sits between **Sales Price** and **Total**. It is
+    the line after its own discount and before tax, so a rep can see how much of
+    a line's total is tax without opening each line.
+  - **Comment** on article feedback is now a column in the feedback panel on a
+    knowledge article, after **Verdict** and **Reader**. That is the note a
+    reader types to explain a *Not Helpful* vote. The article's author could
+    only read it by opening each feedback row.
+  
+  Nothing is added, removed or renamed on either object. Both panels still show
+  every column they showed before.
+- df49be2: The **Customer Service** dashboard's case table is personal again: **Open Cases
+  by Priority** → **My Open Cases by Priority**, showing only the open cases the
+  signed-in user owns. It had been team-wide since the analytics query path could
+  not resolve `{current_user_id}`; the pinned platform (17.4.0) now does, and two
+  different reps measured on one dashboard each saw only their own cases.
+  
+  The widget ignores the dashboard's **Agent** filter. Picking another agent used
+  to leave "my" cases empty; it now keeps showing your own cases, while every
+  other widget still follows the pick.
+  
+  `{current_user_id}` scopes what the widget shows — it is not an access boundary;
+  row-level security still decides which cases a user can reach.
+- 2f7b232: **The demo pipeline board is draggable out of the box.** In a freshly seeded database nine of the
+  ten open opportunities were priced at $100K or more, so every one of them was born into the
+  **Large Deal Approval** flow, which locks the record while the approval is pending — on the
+  **Sales Pipeline** kanban those cards refused every drag with `RECORD_LOCKED`, and only one open
+  card could be moved (#1902).
+  
+  The seeded active pipeline is re-priced so that exactly **two** open deals exhibit the approval
+  flow, one per tier:
+  
+  - **Acme Platform Upgrade** ($150,000) — Sales Manager review only.
+  - **Wayne Enterprise License** ($1,200,000) — Sales Manager review, then Sales Director sign-off.
+  
+  The other seven open deals are now scoped under $100K (their product lines were re-scoped, and
+  each amount is still derived from its lines), so every active stage keeps at least one card
+  that moves. On a fresh database: open deals locked by a pending approval **9 → 2**, draggable
+  open cards **1 → 8**. The **Globex Manufacturing Suite Proposal** quote follows its deal's new
+  lines. The approval flow and the $100K / $500K thresholds are unchanged.
+  
+  This is a change to the demo seed only, measured on a fresh database. An existing demo database is
+  not re-priced in place — approval requests already open there stay open until decided or
+  recalled; run `pnpm demo:reset` to start from the new seed.
+- 39ba05e: Clear the `os validate --strict` findings that were dead metadata
+  
+  The 17.6.0 upgrade left `os validate --strict` reporting 111 warnings. This
+  change clears 97 of them. The 14 that remain are deliberate, and each is listed
+  below with its reason.
+  
+  - **List rows are now tinted as the docs said they were.** Nine `rowColor` maps
+    wrote hex colours (`#dc2626`, …). The console resolves only colour names (or a
+    full `bg-*` class), so no row was ever tinted. The maps now name the same hue
+    (`red`, `orange`, `yellow`, `slate`, `green`, `blue`, `sky`, `teal`, `amber`,
+    `purple`, `emerald`, `gray`). **What readers will see:** soft row tints by
+    priority on *All Cases*, *Unassigned Triage* and the task list; by stage on
+    *Open Deals*; by status on events and knowledge articles; by response on
+    event attendees; and by rating on *High Priority* leads. The *Cases* and
+    *Opportunities* pages already described these tints. Accounts declare an
+    active/inactive tint too, but it belongs to a list the *All Accounts* landing
+    tab does not use, so that tab is unchanged.
+  - **Dashboard widgets drop 86 `options` keys that no renderer reads**: tile
+    icons and formats, table `columns` / `striped` / `density`, a `suffix`, the
+    pivot's field keys and its `drillDown`, and the SLA gauge's
+    green/amber/red `thresholds`. A dataset-bound widget takes its labels and
+    formats from the dataset, and every removed `format` matched its measure's
+    own, so no dashboard changes. The pivot never opened a drill-down drawer and
+    the gauge never drew those bands. Two tests pinned these keys, and both
+    changes go with the keys. `test/ownership-model.test.ts` loses its check of
+    the pivot's drill-down columns, which would have run over nothing. In
+    `test/sla-compliance-gauge.test.ts`, the band assertions go, and the gauge
+    still pins its compliance measure, value and target line.
+  - **Four permission-set row-security policies drop `label` / `description`.**
+    17.6.0 marks those keys as having no runtime effect. Their wording moves into
+    a comment beside each policy.
+  
+  Still reported, on purpose:
+  
+  - `hierarchy-security` in `requires` (the enterprise capability). It stays
+    declared under the #1378 ruling.
+  - Six approval nodes routed to positions. The warning is that an unstaffed
+    position leaves a request waiting. That is a staffing fact about each
+    deployment, not a metadata defect.
+  - Six `{…}` template expressions in *Quote Generation* and *Forecast
+    Snapshot*. The lint says the template form keeps working. Moving the arithmetic
+    to CEL changes how it divides, so that is its own change with its own tests.
+  - The *Ask the AI Assistant* card's `description` on Sales Home. A
+    ruling-backed guard pinned it. A later change in this release (#1581) moves
+    the paragraph into the card's body, which clears this finding too.
+
+## 3.1.0
+
+### Minor Changes
+
+- 3497c88: Give the triage claim gesture a **Claim Case** button.
+  
+  Claiming an unowned case already worked, and had done since the claim seam
+  shipped: an agent moves a case out of **Unassigned — triage** by setting its
+  status to *In Progress*, *Waiting on Customer* or *Waiting on Support*, and the
+  `case_self_claim` hook stamps them as the owner. The gesture was real, and
+  completely invisible — nothing on the record page or the triage row said "this
+  is how you take a case", so the only people who used it were the people who had
+  been told. Documenting it (the first half of this card) closed the gap for a
+  reader; it did not close it for the agent looking at the record.
+  
+  There is now a **Claim Case** action on the case record header and in the triage
+  list's row menu. It opens a one-field screen asking which working status you are
+  claiming into, defaulted to *In Progress*, and moves the case there. The case
+  leaves the triage tab and appears in **My Open Cases**, owned by you.
+  
+  **The button does not write ownership, and that is the point.** Ownership on a
+  case has exactly one writer — the claim hook, which stamps the *caller* and can
+  stamp nobody else. The action's flow performs the status move and stops; the
+  seam does the rest. Anything else would be a second writer of ownership: the
+  transfer gate refuses a payload carrying `owner_id` before any hook runs, and
+  for the one caller who could get past it, supplying the column takes the claim
+  seam out of the path entirely. A guard ships with the button asserting the flow
+  never carries `owner_id`, so that is enforced rather than merely intended.
+  
+  The button appears on exactly the cases the `Unassigned Cases — Triage` sharing
+  rule grants you edit on — unowned, and neither *Resolved* nor *Closed*. Those
+  two are deliberately the same sentence: a button offered outside the grant is a
+  button that answers "insufficient privileges", and one offered on a narrower set
+  hides a case you may legitimately claim. Note this is *not* "any unclosed case":
+  a resolved unowned case is history rather than backlog, and reopening one is an
+  admin move.
+  
+  The action's label and its success message are translated in all four bundles (en, zh-CN,
+  es-ES, ja-JP), and the new flow has its row in the built-in flow table on the
+  automation page in all three doc locales.
+- a6be39a: HotCRM now runs on **ObjectStack 17.2.0**. All twelve `@objectstack/*` packages
+  move together — they ship from one release and a mixed line produces interface
+  mismatches that only surface at runtime — and the declared protocol range moves
+  with them, from `^17.1.0` to `^17.2.0`, in `objectstack.config.ts`,
+  `objectstack.manifest.json` and the docs that state it.
+  
+  Nothing an author writes in `src/` changes shape, and no stored record or
+  metadata document is rewritten. What the platform does underneath changes in
+  four places worth knowing about:
+  
+  **SLA and win-rate numbers are right on every driver now.** A measure that
+  averages a **boolean** column — `SLA Violation Rate` on the case dataset is this
+  app's one — answered `null` on the in-memory driver while every SQL deployment
+  answered the real percentage (objectstack#11065). Deployments on SQL, which is
+  every production one, see no change; an install running the memory driver stops
+  seeing a blank tile where a rate belongs.
+  
+  **A dashboard filter that names a related object's field is now refused instead
+  of quietly answering the wrong number.** On deployments served by the memory or
+  MongoDB drivers, an analytics filter reaching across objects — inside an `$or`,
+  or on a dataset's own definition-level `filter` — used to return rows with the
+  cross-object branch silently dropped, so a widget showed a narrower figure as if
+  it were the answer (objectstack#10759, #10861). It now answers `400` and names
+  the field. No dataset in this app writes such a filter, so no shipped widget
+  changes; a customer who has authored one will see the refusal instead of a
+  plausible wrong number.
+  
+  **A record update addressed by id is now stricter about its own predicate.** An
+  update or delete whose `where` carries keys beyond `id`, or whose `where.id`
+  names a different row than the payload's `id`, is refused (`UPDATE_ID_MISMATCH`)
+  rather than silently binding one of the two (objectstack#11009, #11142). Every
+  hook and action in this app already writes `{ where: { id } }` against a payload
+  carrying the same id, so nothing here changes; a customer's own extension that
+  took the looser shape will now hear about it.
+  
+  **Sharing rules are materialised per organization on walled deployments.** A
+  multi-organization install could previously not list, inspect or administer
+  positions, permission sets or sharing rules at all — the catalogue read as empty
+  while the tables held rows (objectstack#10103). Single-organization deployments,
+  which is what this app ships as, seed exactly as before: measured on a real boot
+  of this app, all ten declared rules are seeded with no organization stamp, the
+  same rows as on 17.1.0.
+- 71a3452: Upgrade the ObjectStack platform to 17.3.0
+  
+  All twelve `@objectstack/*` dependencies move 17.2.0 → 17.3.0 together; they ship
+  from one version-locked release train, so a mixed line produces interface
+  mismatches that only surface at runtime. `pnpm-lock.yaml` was regenerated by
+  `pnpm install`, and all 53 resolved `@objectstack/*` packages report 17.3.0.
+  `specVersion` and `engines.protocol` follow to `^17.3.0`.
+  
+  Seven platform changes reached this app. Two required authored metadata to
+  change; the rest are behaviour this app already had, now enforced or reported
+  differently.
+  
+  - **`crm_opportunity_line_item.crm_opportunity` and `crm_quote_line_item.crm_quote`
+    become `master_detail`.** Both objects declare
+    `sharingModel: 'controlled_by_parent'` and carried two REQUIRED lookups, so
+    which object each row's record-level access derived from was decided by field
+    declaration order. 17.3.0's new `security-controlled-by-parent-ambiguous-relation`
+    author-time rule refuses that, and `os validate` / `os build` fail on it. The
+    intended master is now authored rather than positional. Required, cascade and
+    every other declared behaviour are unchanged.
+  - **Nine more auto-numbered identifiers gain a unique index.** An `autonumber`
+    field that omits `unique` now parses to `unique: 'organization'`. ⚠️ **Operators
+    upgrading an existing database:** a table already holding duplicate
+    auto-numbers cannot take the index. The SQL driver does not fail the boot and
+    does not skip silently — it logs on the `error` channel and the drift pass names
+    the conflicting key groups with row counts. Run `os migrate duplicates` to list
+    the holders, deduplicate (which duplicate keeps its number is a business
+    decision), then re-run `os migrate plan`. Until then the constraint is not
+    enforced.
+  - **`delete ctx.input.<field>` in a hook now actually removes the field.** It was
+    a silent no-op on both execution paths through 17.2.0. This app's intake hooks
+    never relied on it — they were rewritten to assign — and they still assign,
+    because what they write is load-bearing: `case_auto_assign` and
+    `lead_duplicate_check` stand down on a `null` value, not on an absent key.
+  - **A hook body can now see it is on a per-row predicate dispatch.** `ctx.dispatch`
+    and an `ctx.input.options` projection cross the sandbox boundary. This lifts the
+    blocker that parked the batch-widening fix; the fix itself is not in this change.
+  - **An undeclared key written by a hook is refused by every driver, in one
+    envelope.** `driver-memory` used to accept and store it — outside field-level
+    security, since an undeclared field can carry no `fieldPermissions` entry. All
+    three drivers now answer `INVALID_FIELD` / 400.
+  - **A flow value expression naming an unknown function refuses the run.** The
+    unwrapped form used to interpolate to literal text (`LOWER(ACME Corp)`) and
+    land in the database.
+  - **Translations for datasets, validation messages, bulk actions and home KPIs**
+    are authored in zh-CN, ja-JP and es-ES — 143 strings per locale. 17.3.0's lint
+    widened `i18n/missing-*` to surfaces it had not checked before, and these were
+    genuinely untranslated rather than newly broken.
+- 965933b: Upgrade the ObjectStack platform to 17.4.0
+  
+  All 21 `@objectstack/*` dependencies move 17.3.0 → 17.4.0 together — 20 in
+  `dependencies`, `@objectstack/formula` in `devDependencies` — pinned exact, no
+  caret. `pnpm-lock.yaml` was regenerated by `pnpm install` and the movement is
+  narrow: 725 `packages:` entries before and after, 55 keys replaced 1:1 (54
+  `@objectstack/*` plus `create-objectstack`), and **zero third-party packages
+  added, removed or re-resolved**. The one added line is
+  `@objectstack/trigger-schedule@17.4.0` newly declaring `croner: 10.0.1`, a
+  version already in the tree. `better-auth` resolves at exact `1.7.2`, which is
+  also how `@objectstack/plugin-auth@17.4.0` now declares it (17.3.0 declared
+  `^1.7.2`). `specVersion` and `engines.protocol` follow to `^17.4.0`.
+  
+  Three platform changes reached this app.
+  
+  - **`dashboard.refreshInterval` is renamed `refreshIntervalSeconds`.** The old
+    key is a tombstone in `@objectstack/spec@17.4.0`
+    (`z.ZodOptional<z.ZodNever>`), so authoring it is a hard type error and the
+    stack does not load at all — `os lint` answers `STACK_SCHEMA_INVALID` and
+    validate, typecheck and build all refuse. Taking 17.4.0 therefore requires the
+    rename; it cannot be sequenced after the bump. The value is unchanged and
+    still in seconds. All five dashboards moved. ⚠️ **Consumers rendering HotCRM
+    dashboards** must read the new key: until a console adopts it, a dashboard's
+    auto-refresh has no reader.
+  
+  - **A static `readonly` field is now stripped from a non-system caller's INSERT
+    payload, not only from an update.** The create-side strip moved inside
+    `engine.insert`, so a flow's `create_record` node — which reaches the engine
+    directly — no longer seeds a read-only column under the default
+    `runAs: 'user'`. `crm_campaign_member.added_date` is exactly that shape, and
+    **Enroll Members in Campaign** wrote it. The enrollment INSERT therefore moved
+    into two dedicated `runAs: 'system'` sub-flows, **Enroll Lead in Campaign** and
+    **Enroll Contact in Campaign**, reached through `subflow` nodes. The screen
+    flow itself stays `runAs: 'user'`: elevating it would also lift row-level
+    security off its two bulk reads, and `crm_lead` is `sharingModel: 'private'`,
+    so a rep clicking Enroll Members would have enrolled the whole organisation's
+    lead pool instead of the leads they can see. **Nothing users see changes** —
+    memberships still carry their enrollment date, and elevation is not anonymity,
+    so each row is still attributed to the person who enrolled it.
+  
+  - **`driver-memory` refuses any call handed a tenant scope.** It has no
+    row-level tenant isolation, so rather than answer a scoped call unisolated it
+    now refuses it by name. Three test harnesses passed an incidental
+    `tenantId` into single-tenant fixtures that measure nothing about tenancy;
+    they no longer ask an unisolating driver to isolate.
+  
+  A new author-time rule, `field-no-consumers`, reports 12 declared fields that no
+  view column, page binding, flow node, dataset, formula, validation, hook or
+  action names. Nothing was suppressed or re-severitied: the 12 are reported as
+  findings for triage, and every one of them still renders to users through its
+  `fieldGroup` on the synthesized detail layout, which the rule does not resolve.
+- e8a3ae9: Remove the knowledge base's **Review Queue** tab.
+  
+  The **Knowledge** list now ships three tabs — **All Articles**, **Published** and
+  **My Drafts**. The fourth, **Review Queue · Oldest First** (`stale_articles`),
+  is gone, along with its four locale labels (`复核队列 · 最久未复核在前`,
+  `Cola de revisión · Más antiguos primero`, `レビューキュー · 古い順`) and the
+  product-docs bullets and workflow step that pointed readers at it.
+  
+  Why: the tab returned every published article, merely sorted least-recently-
+  reviewed first, so as a knowledge base grows it degrades into "all articles,
+  different sort" rather than a queue of work. The open question was whether it
+  should instead become a real 180-day cut; that question is now closed in the
+  other direction — the feature does not stay.
+  
+  **What is NOT removed.** `last_reviewed_at` is untouched. The publish hook still
+  stamps it on first publish and refreshes it on every later edit made while an
+  article is published, it remains on the article form under **Engagement**, and
+  the field's four locale labels are unchanged. Only the tab that ranked by it is
+  gone. Nothing needs migrating: no data changes, and a saved link to the tab
+  simply lands on the list's default view.
+  
+  The guard that keeps a view label from promising a time window its filter does
+  not apply is retained in full. Its subject is every list view the app ships, not
+  this one tab, so a label that reclaims an N-day window over a filter carrying no
+  matching `{N_days_ago}` still fails the build.
+- 1486ec0: Remove **Default Tax Rate %** from the product catalog.
+  
+  A product record carried a default tax rate that nothing ever applied. It was not
+  on the product form, so no admin could set it in the console — only the REST API
+  could — and no total anywhere read it: the price fill that copies a product's List
+  Price onto a quote or opportunity line does not copy a rate, a quote line item
+  carries its own per-line **Tax Rate %**, and a quote's total takes **Tax** as an
+  amount typed on the quote itself. The field looked wired and was not, which is the
+  shape that misleads the next author into building on it.
+  
+  Wiring it up instead was measured and is provably wrong: stamping the product's
+  rate onto a line makes the quote's total disagree with the sum of its own line
+  totals, and double-taxes any rep who also fills in the quote's Tax amount.
+  
+  **What this means for you.** `crm_product.tax_rate` no longer exists on the object,
+  in any of the four language packs, or in the product documentation. Any value
+  written to it through the REST API is dropped, and a write naming that field is no
+  longer accepted; no seeded catalog product ever carried one, so the demo data is
+  unaffected. Tax is unchanged everywhere it was actually computed — the quote line
+  item's own rate and the quote's Tax amount both stay exactly as they are. Making a
+  product rate drive the quote-level tax figure remains a possible future design;
+  this removal does not foreclose it.
+- 1539306: Add a SaaS / multi-org composition of HotCRM, for operators running one
+  database with many tenant organizations behind a walled tenancy posture. The
+  community app is unchanged — build it the way you always have and you get the
+  same demo org, the same seed data and the same `system_admin` profile.
+  
+  Build the new shape with `HOTCRM_COMPOSITION=saas`. Three registrations differ
+  and nothing else does; there is no runtime branch anywhere in the app, no
+  per-tenant switch to set, and no enterprise package to install — an artifact
+  built either way still runs on the community runtime.
+  
+  **Every new tenant gets the product catalogue, and only the catalogue.** The
+  platform already gives each newly founded organization its own private,
+  editable, deletable copy of the app's seed data. What it replays is whatever
+  the app registers, so the SaaS composition registers the catalogue alone: a new
+  tenant needs priceable products on day one, and it does not need somebody
+  else's pipeline. The demo storytelling families — accounts, contacts, leads,
+  opportunities, cases, campaigns, contracts, quotes, forecasts — stay out of
+  tenant organizations entirely.
+  
+  **The `demo_bootstrap` sweep is not registered in this shape.** It exists to
+  bind demo records to the first user of a demo install, and under a tenant wall
+  that is the wrong thing to do: it runs as the system, and a system context is
+  the one context an organization boundary does not apply to, so a single user id
+  would be stamped onto ownerless rows in every tenant's organization. The
+  catalogue also has no ownership column for it to claim, so nothing is lost by
+  leaving it out.
+  
+  **A tenant administrator replaces the system administrator.** The new
+  `tenant_admin` profile holds the same authority over its own organization's
+  records that `system_admin` holds over a single-org install's — every object,
+  full CRUD, all-records depth, transfer and export — but it manages MEMBERS with
+  the organization-scoped `manage_org_users` capability instead of the
+  platform-wide `manage_users`, and it holds no platform-scoped capability at
+  all. `view_all_data` / `modify_all_data` are kept and mean what they say inside
+  the wall: every row of the tenant's own organization, regardless of owner. They
+  cannot reach further, because the organization boundary is applied beneath
+  permissions and sharing rather than by them.
+- d9a9aaf: The sidebar is back to what the docs promise. `content/docs/whats-new.mdx`
+  sells a "slimmed nav … so a new user can find their way around in 30 seconds",
+  and the nav had grown to 7 groups and 31 items, all but two of them expanded on
+  load. It is now 6 groups and 27 items.
+  
+  Almost all of the excess was one pattern: the same object surfaced repeatedly
+  through its own saved views, while the list page it opened already carried a
+  tab for every one of them. `crm_event` held four rows, `crm_opportunity` three.
+  The redundant rows are gone and **no destination went with them** — each is a
+  tab on its object's list page:
+  
+  - **Pipeline** → the `pipeline` tab on **Opportunities** (`pipeline_kanban`).
+  - **Calendar** and **Interaction History** → the `calendar` and `history` tabs
+    on **Events** (`event_calendar`, `held_events`).
+  - **All Tasks** → the `all` tab, which is the landing tab of the page
+    **My Tasks** opens (`all_tasks`).
+  
+  Three items also moved to where they belong. **Products** is now under
+  **Sales**: the catalogue is the master data every quote line and opportunity
+  line item points at, so it is revenue data that happened to be filed next to
+  campaigns. The approvals **Inbox** is now under **My Work** — an approval
+  waiting on you is your work — and the one-item **Approvals** group it used to
+  sit alone in is dissolved. **Marketing** stays a single-item group on purpose:
+  it is a domain of its own, and the Approvals group was dissolved because its
+  item *was* personal work, not because one child is too few. Because **My Work**
+  is expanded on load, a pending approval is now visible without opening a group.
+  
+  What is deliberately *not* trimmed is the demonstration. HotCRM is the app
+  authors read to learn what each kind of navigation entry looks like, and nav
+  items come in six kinds — plain `object`, object + `viewName`, `page`,
+  `dashboard`, `report`, `component`. Every kind keeps at least one entry;
+  `page` and `component` are down to one each, so the next slimming pass is a
+  single deletion away from removing a demonstration silently.
+  
+  `test/app-navigation-shape.test.ts` holds both properties shut from both
+  directions: every one of the six kinds must keep an exemplar, no two entries
+  may open the same destination, and no object may hold more than one plain list
+  entry (a personal saved-view entry alongside it is fine — that is what **My
+  Work** is). The nav-item count is not pinned there, because
+  `docs-quick-tour-navigation.test.ts` already holds the group-by-group roster
+  against the tour table.
+  
+  The four locale bundles drop the orphaned `apps.crm_enterprise.navigation`
+  entries and keep the labels of the two items that moved. The documentation that
+  enumerates the sidebar is re-cut in all three doc locales — the quick tour, the
+  sales and revenue indexes, the approvals page, and the activities and
+  meetings pages that cited a removed row as a sidebar entry. Each retired name
+  is re-pointed rather than deleted, so a reader arriving with the old name is
+  told where the thing actually is.
+
+### Patch Changes
+
+- d863d54: Remove `list.tabs[]` from every view file. #1304 removed the entries' `label`;
+  this removes the rest of the entry, because the console never read any of it.
+  
+  The object-view switcher builds its tab strip from the view descriptors — one
+  tab per `listViews` entry, plus the primary `list`, which the builder moves to
+  the front of the strip and marks default. Re-measured on the shipped renderer
+  (`@objectstack/console` 17.1.0): the strip comes from
+  `Dm({ definedViews: U.listViews, primary: U.list, primaryId, savedViews, … })`,
+  and `tabs` appears nowhere in that path. The tab's text is the view's `label`;
+  its icon is `viewTypeIcons[view.type]`, from a map the console hardcodes over
+  eight view types (`grid`, `kanban`, `calendar`, `gallery`, `timeline`, `gantt`,
+  `map`, `chart`).
+  
+  So the 48 authored `icon:` keys were the same trap `label` was, only quieter.
+  All 48 are inert — the authored string is never looked up anywhere; the icon
+  beside a tab is chosen by the view's `type`. Measured against what each tab's
+  target view actually renders, 33 of the 48 name an icon that cannot appear
+  there at all (`crown`, `inbox`, `git-commit-horizontal`, `triangle-alert`,
+  `user`, `columns-3`, …). The 15 that appear to match do so by coincidence: 8
+  exactly (`calendar`, `map`) and 7 by prefix (`gallery-thumbnails` on a
+  `gallery` view, `gantt-chart` on a `gantt` one) — which is precisely why the
+  strip read as authored. An author editing `icon: 'crown'` to change what a
+  user sees gets nothing, and has no way to find that out. `name`, `order`, `pinned`, `isDefault`, `visible` and `filter` were
+  inert for the same reason. Under ADR-0049 the honest treatments are enforce or
+  remove; this repo removed, and #1283 already ruled remove over enforce here.
+  
+  **Nothing users see changes** — 60 entries deleted across 12 files, and the
+  strip they described was never drawn from them. To rename a tab, rename the
+  `label` of the view it points at. To add one, add a `listViews` entry: a view
+  is on the strip by existing.
+  
+  Two beliefs in this repo rested on the removed model and are corrected with it.
+  `test/view-references.test.ts` asserted that a `listViews` entry left out of
+  `tabs` was *unreachable*, and recorded seven working queues (`renewals_due`,
+  `at_risk_accounts`, `stale_opportunities`, `closing_this_quarter`,
+  `sla_at_risk`, `todays_tasks`, `overdue_tasks`) as having shipped "defined,
+  tested, unreachable". They were reachable the whole time; `tabs` curated
+  nothing. That suite now guards the direction that can still dangle — a
+  navigation entry naming a view no view file defines, which nothing checked.
+  `src/apps/crm.app.ts` pointed authors at `list.tabs` as the string to edit to
+  rename a tab; it now points at the target view's `label`.
+  
+  `test/view-tab-label-inert.test.ts` is re-aimed rather than retired: with no
+  entries left, "carries no `label`" would pass vacuously, so it now pins that
+  `tabs` is absent, with an anti-vacuity half that pins the walk really reached
+  the twelve `list` blocks it claims to have cleared.
+  
+  This does not touch `userFilters.tabs[]`, a different key that reuses the same
+  `ViewTabSchema` on page lists (ADR-0047). Its `label` **is** read and
+  translated. The console is explicit about the split: on an object list view it
+  logs that a tabs-shaped `userFilters` block is *ignored* because "the view
+  switcher owns the tab bar here". Nothing here should be read as a claim about
+  that key, and `ViewTabSchema.label` stays.
+- a7a97c1: Stop dating the Acme renewal from the account description. The ARR line said the
+  renewal was signed in **Q1 2025**; the deal it describes closes `daysAgo(15)`,
+  so on the day this was read it had closed three weeks earlier — the disagreement
+  was in both the quarter and the year.
+  
+  ### An absolute label on a relative-date record
+  
+  `src/data/sales.seed.ts`, the `Acme Corporation` description:
+  
+  ```
+  - ARR: $220K (signed Q1 2025 renewal). Up 22% YoY.
+  ```
+  
+  The record it names is `Acme Annual Renewal 2025`, whose close is seeded
+  relatively — `close_date` is a `daysAgo(15)` CEL expression — and whose contract in
+  `src/data/revenue.seed.ts` stamps the same day as its `signed_date`. A fixed
+  calendar quarter sitting on a record that moves with the calendar is wrong the
+  moment the two disagree, and gets further from the truth every day the demo is
+  not re-seeded. The other half of the same sentence — `$220K`, the deal's
+  line-item total — is exactly right, which is what made the wrong half credible.
+  
+  ### The date now lives only where the records keep it
+  
+  The line reads:
+  
+  ```
+  - ARR: $220K (signed renewal). Up 22% YoY.
+  ```
+  
+  The quarter is not re-derived here, it is **gone**. The seed book already
+  derives period labels where a label is the value — the forecast rows in
+  `src/data/revenue.seed.ts` compute theirs precisely so a list never mixes
+  "This Quarter" with "Q3 2026" — but this sentence is prose about a record that
+  already carries its own date twice, on the opportunity's `close_date` and on the
+  contract's `signed_date`. Computing a third copy in the account's description
+  would mean re-stating that record's offset in a second place, which is the same
+  defect one level down. The neighbouring `next_step` on `Acme Platform Upgrade`
+  settled this for the same account: no date goes back into seed prose, absolute
+  **or** relative, because a second copy is a second thing to drift.
+  
+  What is left is true whenever the demo renders it: the renewal *is* signed — the
+  deal is `closed_won` and its contract `activated`. A reader who wants the date
+  follows the related opportunity or contract, which is where it is maintained.
+  
+  `$220K` and `Up 22% YoY` are unchanged, and so are the renewal opportunity, its
+  name, and the `Acme Platform Upgrade` record.
+- 851dc6e: Re-anchor the Acme contract on the deal it was actually signed off, and stop
+  seeding an accepted quote on an open deal.
+  
+  `src/data/revenue.seed.ts` shipped an `activated` contract, signed
+  `daysAgo(32)` for `150000`, linked to `Acme Platform Upgrade` — a deal that is
+  still `stage: 'proposal'`, 60% probability, closing `daysFromNow(30)` (#1661).
+  Nothing in this app can produce that pairing, and the proof is mechanical
+  rather than narrative: `quote_on_accepted` in `src/objects/quote.hook.ts`
+  close-wins an opportunity the moment its quote is accepted, and `closed_won` is
+  a **terminal** stage in `opportunity_stage_progression` (`closed_won: []`). A
+  signed contract therefore cannot reach an open deal from either direction — the
+  deal cannot still be open when the paper was signed, and it cannot have been
+  reopened afterwards.
+  
+  The link and the amount had come from **two different deals**, which is why
+  fixing only the link would not have closed it. Computed from the line items,
+  which this seed treats as the one source of truth for deal value:
+  `Acme Platform Upgrade` totals exactly `150000` — the contract's own
+  `contract_value` — while `Acme Annual Renewal 2025`, the `closed_won` deal
+  whose description says it was "signed two weeks ahead of the renewal date",
+  totals `220000`. `220000` is also the ARR the account description reports for
+  the signed renewal, and no contract in the app carried it.
+  
+  So the contract now derives every contested field from the renewal:
+  `crm_opportunity` is `Acme Annual Renewal 2025`; `contract_value` is `220000`;
+  `signed_date` is that deal's `close_date` (`daysAgo(15)`, the day
+  `quote_on_accepted` would stamp); `start_date` is signature + 14 days, which is
+  what "two weeks ahead of the renewal date" means; and `end_date` keeps the
+  365-day span every other contract row uses for a 12-month term. It stays the
+  one `activated` contract in the seed, which three scheduled flows
+  (`contract_renewal`, `contract_expiration`, `billing_handoff`) filter on.
+  
+  The same contradiction had a **third leg** the card did not name: the
+  `Acme Platform Upgrade Quote` was seeded `accepted` on that same open deal. It
+  is now `expired` — the value `quote_expiration` computes for a presented quote
+  past its `expiration_date`, and the state the deal's own next step assumes,
+  since the revised Enterprise proposal still has to go out.
+  
+  Moving it off `accepted` would have left
+  `test/quote-contact-required-when.test.ts`'s anti-vacuity pin with no accepted
+  quote to check, so the renewal gains the accepted quote it should always have
+  had: `Acme Annual Renewal 2025 Quote`, carrying that deal's line items, no
+  discount (the multi-year option was declined this round) and Acme's 8.5% San
+  Francisco tax rate — the rate the other Acme quote bills at, where every
+  non-Acme quote bills 8%. That also completes the chain a reader traces to learn
+  the model: deal won → quote accepted → contract drafted, completed and
+  activated.
+  
+  `Acme Platform Upgrade` itself is untouched — its `stage`, `probability` and
+  `close_date` are the record PR #1657's account description derives from.
+- e506dca: Stop restating the platform upgrade's close horizon in the Acme account
+  description. The bullet said the upgrade "closes in 30 days" while the record it
+  describes seeds `close_date` as `daysFromNow(30)` — the two agree at the instant
+  the seed loads and never again. A demo database seeded three weeks ago shows an
+  upgrade closing in nine days beside a description that still says thirty.
+  
+  ### Two rulings met in one paragraph
+  
+  This line is not an oversight. It is where two earlier decisions collided, and
+  neither one was wrong when it was made.
+  
+  - **#1657** wrote this sentence on purpose. The line before it read *"Renewal due
+    in 45 days"*, which named no record at all; it was rewritten to name the open
+    `Acme Platform Upgrade` **and its real horizon**. Giving the sentence a horizon
+    was that fix.
+  - **#1660** then settled the opposite for the sibling field on the very same
+    record. The standing comment above `next_step` on `Acme Platform Upgrade`
+    reads: *"Do not put a date back here, absolute OR relative: a second copy is a
+    second thing to drift."* That ruling never swept back over the account
+    description one screen up.
+  
+  **The horizon comes out: #1660 generalises.** Its stated reason is about *copies
+  and drift*, not about which fields a rep may edit, so nothing in it stops at
+  `next_step`. The ARR bullet in this same **Current state** block was put under
+  exactly that rule one card earlier, and the note that landed above this
+  `description` with it already states the rule in general terms — no date goes
+  back into this prose, absolute **or** relative. Leaving this bullet alone meant
+  one three-bullet block running two opposite rules, which is worse for a reader
+  than either uniform answer.
+  
+  ### What the bullet says now
+  
+  ```
+  - AI agent governance became a hard requirement for that upgrade
+    after their internal compliance review, so the workshop now on
+    the calendar is the gate on signature.
+  ```
+  
+  The horizon is not re-derived here, it is **gone**. Deriving it would re-state
+  the offset outside the record that owns it — the same defect one level down, and
+  `src/data/revenue.seed.ts` already imports from this module, so the existing
+  period-label helper cannot be reused in this direction without a circular import.
+  
+  `daysFromNow(30)` is correct and stays: the record owns that date, and a reader
+  who wants it follows the opportunity. What is left is true whenever the demo
+  renders it — the bullet above already says the upgrade is open and in `proposal`
+  stage, and the governance workshop that gates the signature is booked, wherever
+  that event ends up scheduled.
+  
+  The `Acme Platform Upgrade` record is untouched — `close_date`, `stage`,
+  `probability` and `next_step` are all unchanged — and so is every other account
+  description in the seed book. No object, view, report, dataset or test changed.
+- 0ec59c2: Correct three hand-written assertions in the hero account's seeded description
+  against the records they name, and give the seed book one flagged **partner**
+  so the *CSM-Flagged Accounts* panel can show the split it groups for.
+  
+  ### The Acme description said three things the data does not
+  
+  `Acme Corporation` carries the longest piece of hand-written narrative in the
+  seed book, and it is the one an evaluator is most likely to read end to end.
+  Three of its lines had drifted away from the rows sitting beside them:
+  
+  - **"Renewal due in 45 days — they've already verbally committed but want a
+    workshop on AI agent governance before signing."** No record has a 45-day
+    renewal horizon. The renewal (`Acme Annual Renewal 2025`) is `closed_won`
+    and closed 15 days ago; the contract runs another 335 days and auto-renews;
+    and the governance workshop belongs to the OPEN `Acme Platform Upgrade`,
+    which closes in 30 days. The sentence had folded an open upgrade into a
+    renewal that was already won. It now names the upgrade, its real horizon and
+    the workshop that gates the signature.
+  - **"Slipped one opportunity ($75K add-on) in the last quarter due to slow
+    procurement cycle on their side."** `Acme Add-on (Lost)` closed `closed_lost`
+    on `loss_reason: 'timing'`, and its `loss_details` say why: the marketing org
+    is locked into a two-year HubSpot contract. Procurement slowness appears
+    nowhere on that deal. The line now states the loss and the reason the record
+    gives.
+  - **"Login issues ticket is approaching its SLA."** Since SLA due dates became
+    derived from the priority × tier matrix, that case — `high` priority on an
+    `enterprise` account, opened two days ago — is due **8 hours** after creation,
+    so its clock ran out roughly 40 hours before the demo boots. It is past its
+    SLA, not approaching it; `case_sla_monitor` flags it on its first sweep. The
+    line now says so, and still says the ticket needs eyes today.
+  
+  Everything else in that description reconciles and is unchanged: the $220K ARR
+  and the 22% uplift match the closed renewal, the open $150K upgrade matches the
+  opportunity, and the open ticket and the billing dispute match seeded cases.
+  
+  ### The flagged panel grouped by `type` and could only ever render one row
+  
+  `csm_flagged_accounts` groups by `type` in order to separate a flagged customer
+  from a flagged prospect or partner — the one thing the grid view
+  `crm_account.at_risk_accounts` cannot show, because it filters
+  `type == 'customer'` before anything else. Every flagged account in the seed
+  book was a `customer`, so the panel rendered a single group row and demonstrated
+  none of that.
+  
+  **Stark Medical** (`type: 'partner'`) now carries `health_score: 'at_risk'`. It
+  is the honest severity as well as the matching one: its pilot was won, its
+  expansion died on a capital freeze 60 days ago, and the partnership contract is
+  still in legal review — a partner can be at risk, while `churning` would have
+  described a subscription it never had. Its clock stays at `today()`, so like
+  Wayne it is outside every windowed panel and visible only in the flagged one.
+  
+  Computed with the panel's own criterion read off the report metadata:
+  
+  ```
+  FLAGGED = is_active AND health_score in [at_risk, churning]
+  
+                before                              after
+  rows          Initech  (at_risk,  customer)       Initech  (at_risk,  customer)
+                Wayne    (churning, customer)       Wayne    (churning, customer)
+                                                    Stark    (at_risk,  partner)
+  
+  group by type customer: 2          → 1 row        customer: 2, partner: 1 → 2 rows
+  ```
+  
+  One field added, one paragraph of narrative rewritten. The territory partition
+  (6 NA / 2 EMEA / 1 other) and the 41 / 72 / 104-day activity bands are both
+  untouched — no address and no activity clock changed. No report, panel
+  criterion, object, view or test changed.
+- 5a12a2e: Take the seat count out of the Acme renewal's description. The opportunity's prose read `Annual renewal of the Acme Standard subscription (40 seats), …` while the deal's own line item bills **45** — the hero account's most-read record disagreeing with itself about the number the whole renewal narrative is built on.
+  
+  `45` was never the half that could move. It is what makes the deal total `220,000`, and that same total is the `contract_value` on the Acme contract in `src/data/revenue.seed.ts` and the `$220K` on the ARR line in the account description. Three consumers hold it in place; a 40-seat line would total `215,000` and break all three.
+  
+  So the sentence stops carrying a seat count at all, rather than restating `45` in prose. That is this file's own doctrine, written a few hundred lines above for **dates**: a value a record already owns is not repeated in prose, because the copy is a second source of truth and the copy is what drifts. A seat count is the same shape as a date, and `quantity: 45` on the `AI Agent Seat (Annual)` line is where this number lives — a reader who wants it opens the deal's Products panel. Writing `(45 seats)` would have kept exactly the duplicate that doctrine exists to remove, and next to "22% YoY uplift driven by seat expansion" it would also have invited the reading that all 45 seats are new, which does not produce 22%.
+  
+  The description now reads:
+  
+  > Annual renewal of the Acme Standard subscription, signed two weeks ahead of the renewal date. 22% YoY uplift driven by seat expansion in the new EMEA team. Multi-year option declined this round — they want to see how the platform upgrade lands first.
+  
+  Two clauses are deliberately unchanged. **"signed two weeks ahead of the renewal date"** survives word for word: the Acme contract's `start_date` is derived from it (signature + 14 days), so a paraphrase would cost that derivation. **"22% YoY uplift"** stays as narrative — no prior-year ARR is seeded anywhere in this repo, so the figure is *consistent with* the seeded numbers rather than derivable from them; nothing in the book can confirm it and nothing can contradict it, and the alternative fix would have had to write a prior term nobody seeded.
+  
+  Nothing else moves: the line item and its own description (`Seat expansion driven by the new EMEA team`), `contract_value: 220000`, the account's `$220K` ARR line and the quote totals are all untouched. Free prose and the rows it narrates have no mechanical relation, so nothing is added to check one against the other — removing the second copy is what closes this off on the record.
+- 65e4968: Give the Acme AI governance workshop **one** schedule. It was seeded three
+  different ways across three records, and the task to book it was due a day
+  after the meeting it asked someone to book.
+  
+  ### Three records, three answers
+  
+  One workshop, read off the seed book:
+  
+  | record | said | resolved to |
+  |:--|:--|:--|
+  | `crm_opportunity` *Acme Platform Upgrade* `next_step` | "Schedule the AI governance workshop for the week of `close_date - 14d`" | `close_date` is `daysFromNow(30)`, so **`daysFromNow(16)`** |
+  | `crm_event` *Acme — AI agent governance workshop* | `status: 'planned'`, `daysAgo: -6` | **`daysFromNow(6)`** |
+  | `crm_task` *Acme — schedule AI governance workshop* | `status: 'not_started'`, `due_date: daysFromNow(7)` | **`daysFromNow(7)`** — a day *after* the workshop |
+  
+  The task was not merely inconsistent, it was self-defeating: an open
+  "schedule it" task for a meeting that, on the same seed load, was already
+  booked and already invited.
+  
+  ### The event is the record that gets to be right
+  
+  The workshop's date is now authored **once**, on the event, and the other two
+  records were rewritten to agree with it rather than to restate it.
+  
+  The event won on evidence, not on preference. It is the only one of the three
+  that carries a real instant in the world — a start, a 90-minute length, a
+  location, an attendee — and it is the only one another record derives from:
+  the attendee builder dates the invitation
+  `daysAgo(max(daysAgo + invitedDaysBefore, 0))`, which for this row is
+  `max(-6 + 9, 0)` = **`daysAgo(3)`**. The invitation went out three days before
+  the demo boots, and `john.smith@acme.example.com` has already answered
+  `tentative`. That is an act that has happened and been replied to; a date you
+  cannot un-send outranks two dates nobody has acted on. By contrast `next_step`
+  had no anchor of its own — its value was entirely parasitic on `close_date`,
+  which #1646 has just made load-bearing for the account description — and the
+  task's due date was an authored number that nothing else read.
+  
+  ### What changed
+  
+  - **The task is completed, not re-dated.** Sending the invitation *is* the act
+    of booking the workshop, so the task was finished the day that happened:
+    `status: 'completed'`, `completed_date` and `due_date` both `daysAgo(3)`,
+    with `is_completed` and `progress_percent` mirrored the way the seed book
+    already mirrors what `task_completion` would stamp on a real write. Re-dating
+    it would have kept the contradiction and only moved it: an open task to book
+    a meeting whose invitations are already out is the contradiction itself.
+  - **`next_step` no longer carries a date at all.** It states what is still
+    true however the event is scheduled — the workshop is booked and the
+    invitation is out — and leads with the work that is genuinely still open,
+    the revised proposal for Jordan Park, which the seed book already tracks as
+    its own `not_started` task. The clamp at `daysAgo(0)` in the attendee builder
+    means a planned event's invitation is never in the future, so "the
+    invitation is out" cannot go stale either.
+  - **The event is untouched.** So is the opportunity's `close_date`.
+  
+  The story a reader now gets, opening the three records in any order: the
+  workshop was booked three days ago, Acme has tentatively accepted, it happens
+  in six days, and the only thing still owed on the deal is the proposal.
+  
+  ### Movement this causes
+  
+  Two counts move by one, both intended and neither pinned: the *Tasks
+  Completed* tile on the Activity dashboard reads 2 instead of 1, and
+  *My Priority Tasks* lists 3 open high/urgent tasks instead of 4. The completed
+  task now bubbles `last_activity_date` onto Acme Corporation, which was already
+  `today()` from a held event two days ago, so no activity clock and no churn
+  band moves. No object, view, dashboard, report or test changed.
+- 65fdf42: Say `*.actions.ts` everywhere, because that is what is on disk. The file-suffix
+  protocol contradicted itself: `AGENTS.md` drew the plural in its directory
+  diagram and then spelled the singular `*.action.ts` in four normative places —
+  the AI-Native rule, the Phase 2 implementation step, the Core File Types list,
+  and the Development Workflow step. On disk the plural wins outright: every
+  action file in the tree is `<entity>.actions.ts` (`campaign`, `case`, `contact`,
+  `global`, `knowledge_article`, `lead`, `opportunity`), and there is no
+  `*.action.ts` file anywhere. The disk is the source of truth, so the prose is
+  the drift — no file was renamed.
+  
+  The contradiction was not confined to `AGENTS.md`, so this corrects the class
+  rather than one file. `README.md` stated the plural convention outright in its
+  layout section ("actions are the one plural") and then listed the singular twice
+  a few lines later; `.github/instructions/logic.md` and `ui.md` — the per-role
+  agent instructions — named the singular in their capability lists and worked
+  examples; and `content/docs/marketplace/fork-hotcrm.mdx` handed forkers a
+  file-suffix table telling them to create `src/actions/<entity>.action.ts`, in
+  all three locales. Nineteen occurrences across seven live files now agree.
+  
+  Two things guard against the same drift returning. The Core File Types entry now
+  says *why* the suffix is plural — one file bundles an entity's actions, making
+  it the one plural suffix in an otherwise singular protocol, which is exactly why
+  readers keep "correcting" it. And the Development Workflow step now reads
+  `src/actions/{entity}.actions.ts`, matching its sibling steps and the bundling
+  rule; `{action}` implied one file per action, which no file on disk does.
+  
+  Nothing mechanical enforces this suffix: registration is an explicit barrel
+  (`objectstack.config.ts` imports `./src/actions/index.js`), not a glob, so a
+  misnamed file is never silently dropped — it is simply off-convention until
+  someone hand-adds it to the barrel. `docs/archive/` still spells the singular
+  throughout and is deliberately untouched: that tree is a historical record by
+  its own README, and the docs-drift repo-tree guard already excludes it.
+- 1c8cceb: Make every action `visible` predicate in `src/actions/` TOTAL, so a record page
+  stops logging `A conditional predicate failed to evaluate` on every load.
+  
+  Opening any lead record page printed two console warnings — one for **Convert
+  Lead**, one for **Schedule Follow-up** — each ending
+  `Reason: [runtime] No such key: status`. Eleven action predicates across six
+  files read `record.x` with no `has(record.x)` guard, which the house rule
+  *Validation predicates must be TOTAL* has required since #630: strict CEL aborts
+  the whole predicate the moment one key is absent, and an aborted predicate is not
+  the rule anyone wrote.
+  
+  **What was actually absent, measured rather than assumed.** Instrumenting the
+  shipped predicate evaluator in a real browser shows the record page evaluating
+  each header action's `visible` twice against an **empty** record — zero keys —
+  before the row arrives, then re-evaluating it against the full row. The stored
+  row was never the problem: the REST payload this surface reads carries every
+  declared column, and on `crm_lead` `status` is `required` with
+  `storage: { notNull: true }` and a `defaultValue`, so a lead with no status
+  cannot exist. The absent key means *"no record yet"*, never *"a lead with no
+  status"*.
+  
+  **So the guards fail closed**, `has(record.x) && record.x …`: an action is not
+  offered against a record nobody has read yet. That is the policy the platform was
+  already applying through its own error fallback, now stated in the predicate
+  instead of reached by way of an exception — the buttons appear and hide exactly
+  where they did, minus the warnings. The alternative arrangement,
+  `!has(record.x) || …`, would have bought nothing (there is no statusless lead to
+  rescue) and cost something real: **Convert Lead** flashing for a beat on an
+  already-converted or disqualified lead, on an action that is irreversible.
+  
+  One predicate is deliberately left unguarded: **Claim Case**. Its `visible` is
+  the `Unassigned Cases — Triage` sharing grant's own text, verbatim, and a sharing
+  condition compiles to a pushdown filter that rejects `has()` outright — a guard
+  there makes the rule untranslatable and the seeder drops it. Making that one total
+  means moving the grant and the button together, which is a decision for the
+  maintainer rather than a sweep. Both files now say so where the next reader will
+  look.
+- 1d3a347: Pin that the Customer Service dashboard's **Agent** filter really filters.
+  
+  The control was proved to work by a browser measurement, but nothing in the
+  repository asserted it. Had a dataset change or a platform bump made it inert,
+  every widget would have gone on rendering plausible numbers with no error —
+  the same failure class that once shipped an all-zero dashboard, found by eye
+  rather than by CI.
+  
+  A new suite executes the shipped Service dashboard against a real SQLite
+  database over cases staged across two agents, and asserts that the two
+  per-agent shards **partition** the unfiltered totals — on a metric tile, on a
+  grouped chart, and across every filter-bound widget the dashboard declares,
+  with and without the date picker applied. The expected figures are computed
+  from the fixture in the same run rather than written down, so the suite pins
+  the behaviour without freezing one database's numbers.
+- 8bc80fa: `AGENTS.md` §⬆️ Platform Upgrades step 4 stops telling an upgrader to hand-write
+  `CHANGELOG.md`, and the stranded `[Unreleased]` block is relabelled as the closed
+  history it is.
+  
+  Step 4 was written when `CHANGELOG.md` was hand-maintained. The 3.0.0 release
+  consumed the pending changesets into a generated section that is now the top of
+  the file, so the step pointed an upgrader at a file the release process owns —
+  and it does not fail loudly. The last upgrade to follow it (the 17.1.0 bump,
+  `9e832d2d`, 2026-08-20) appended six lines under `## [Unreleased]`; three days
+  later `162ad562` cut 3.0.0 and buried them. Step 4 now says what the repo
+  already practises everywhere else: the upgrade's release-notes entry **is** the
+  PR's changeset, carrying the same content the step always asked for (what
+  changed on the platform, what metadata was migrated and why), and `CHANGELOG.md`
+  is not hand-edited.
+  
+  The `[Unreleased]` heading is renamed to `Pre-3.0.0 hand-written history (closed
+  — not a live section)` and its one-line body, which claimed the entries under it
+  were "Not yet versioned or published", now says they shipped in 3.0.0. Measured,
+  not assumed: the block sits at `CHANGELOG.md:9009`, directly **above**
+  `## [2.2.2] — 2026-07-21` and directly below the file's own Keep a Changelog
+  preamble — precisely where a *live* Unreleased section belongs — so an upgrader
+  who scrolled past the generated section found it in the position that says
+  "write here". Relabelling is safe because `changeset version` never reads the
+  block: `@changesets/apply-release-plan` splices each release in after the first
+  line of the file and re-emits everything below it unchanged. A real
+  `changeset version` run on this tree moved the block from `:9009` to `:11800`
+  and left it byte-identical.
+  
+  No `src/` metadata changed: no object, field, view, label, flow or hook. The
+  frontmatter is a `patch` rather than the sanctioned empty "releases nothing"
+  declaration because `CHANGELOG.md` is itself the published release-notes
+  artifact, and this PR edits a heading in it that a reader of that file sees.
+- b159950: Correct `AGENTS.md` item 3 of §🔒 Schema Validation Requirements: flows are authored as
+  typed object literals, not with a `FlowSchema.parse()` call.
+  
+  The line told authors to build flows with `FlowSchema.parse()` from
+  `@objectstack/spec/automation`, noting that `defineFlow()` is that call. Both halves of
+  that are true about the *platform* and wrong about *this repo*, which is the combination
+  that makes it costly: an agent reading it writes a call with no in-repo precedent to
+  pattern-match against, then either invents an import or silently diverges from every
+  existing flow file.
+  
+  Measured on the installed tarball rather than the docs, because the card's three
+  possibilities (real-but-unused / renamed / invented) needed distinguishing.
+  `@objectstack/spec` 17.2.0 exports both, as functions:
+  `FlowSchema` (with `.parse`) and `defineFlow`, where
+  `function defineFlow(config) { return FlowSchema.parse(config); }`. So the API is real and
+  the parenthetical was accurate — "invented prose, delete it" was the wrong fix.
+  
+  What the repo does instead: every `src/flows/*.flow.ts` file takes a **type-only** import
+  (`import type * as Automation from '@objectstack/spec/automation'`) and annotates a plain
+  object literal. That is a first-class form, not a lag: the spec publishes `Flow` as
+  `z.input<typeof FlowSchema>` precisely so a literal can be annotated with it, and
+  `defineFlow()` returns `FlowParsed` (`z.infer`, the output type), so the two are not
+  interchangeable drop-ins. `AGENTS.md` already described this form correctly one section
+  earlier, in the File Suffix Protocol — the two sections disagreed with each other.
+  
+  Nothing in `src/` is left unvalidated by the wording change, which was confirmed by
+  ablation rather than assumed: with a flow's `type` mutated to a bogus value on disk,
+  `pnpm validate` exits 1 with
+  `✗ flows.17.type: Invalid value 'os_probe_bogus_type'. Expected one of: autolaunched,
+  record_change, schedule, screen, api.` — and passes on the restored tree. Validation is
+  real; it just happens at `objectstack validate` and again when the platform parses at
+  `AutomationEngine.registerFlow` on boot, not in the metadata file.
+  
+  Item 3 only. The same list's other six items have a related but distinct problem, filed
+  separately — a seven-item rewrite of a governed instruction surface is its own change.
+- 53a5d81: Stop `AGENTS.md` teaching the broken related-list filter spelling. The ObjectQL
+  section — the paragraph every metadata author reads before their first edit —
+  described a page component's `filter:` as taking "the AST-array form" and cited
+  `src/pages/lead_detail.page.ts:217` as the canonical example. That line is
+  `filter: [['status', '!=', 'completed']]`, and `objectstack build` rejects it:
+  `record:related_list: filter.0: Invalid input: expected object, received array`.
+  The AST array is not a second legal spelling. It is dropped, and the list then
+  renders unfiltered — on that page, an "Open Tasks" list that lists completed
+  tasks.
+  
+  The paragraph now states the shape the schema actually declares. A page
+  component's `filter:` is whatever that component's entry in `ComponentPropsMap`
+  (`@objectstack/spec/ui`) says it is; for `record:related_list` that is an array
+  of rule objects, `[{ field, operator, value }]`, with `operator` drawn from a
+  closed vocabulary and no other key accepted — which is why the `op:` shorthand
+  is rejected too (`Unrecognized key(s) on this filter rule: op`). No in-repo line
+  is cited in its place, deliberately: all three `record:related_list` filters
+  currently under `src/pages/` are one of those two rejected forms (#1248), so a
+  citation to any of them would rebuild the same trap with a different line
+  number. The instruction points at the schema instead.
+  
+  The prohibition that followed — "Do not 'fix' one surface's spelling into
+  another's" — is narrowed to the hazard it was written for. Flow `filter:` versus
+  hook `where:` genuinely are two surfaces, and that half is kept verbatim in
+  effect; but the sentence had been stretched to cover a case where there is no
+  second surface, only one correct shape and one the build refuses. It no longer
+  reads as licence to ignore a component's declared props.
+  
+  Also refreshed the flow-side measurement in the same paragraph, which had
+  drifted: `filter:` now appears 47 times across 18 of the 22 `*.flow.ts` files
+  (was 44 / 17 / 21), and `where:` still appears in none of them.
+- 21e1829: Restate `AGENTS.md` §🔒 Schema Validation Requirements around where validation actually
+  happens, replacing seven per-type `XSchema.parse()` prescriptions that no file under `src/`
+  follows.
+  
+  The section opened with "All metadata files MUST be validated against their corresponding
+  `@objectstack/spec` schemas" and then listed one `XSchema.parse()` call per metadata type.
+  Measured on the tree rather than on the type signatures: `.parse(` appears in `src/` **zero**
+  times (control: `Field.` matches 25 files, so the zero is a real reading and not a broken
+  pattern). An agent following the list wrote a call with no in-repo precedent to pattern-match
+  against — the same failure this repo has now corrected twice on this surface (#1229 `filter`
+  vs `where`, #1436 flows), and the reason a wrong instruction here is worse than no
+  instruction.
+  
+  Repairing the seven items in place was the other option and was rejected on the measurement.
+  The list's organising principle — one schema symbol per metadata type — is not how this app
+  is authored. What the tree actually contains is **three** authoring forms and **one**
+  enforcement point:
+  
+  - a validating constructor called in the file (`ObjectSchema.create()` in 18 object files,
+    `defineView()` in 14 view files, `defineSkill()` in 6 skill files);
+  - a typed object literal with no runtime call (pages, dashboards, flows);
+  - a plain literal with no `@objectstack/spec` import at all (permission sets in
+    `src/profiles/`, sharing rules).
+  
+  All three converge on `defineStack()` in `objectstack.config.ts`, which `pnpm validate` and
+  `pnpm build` run and which the platform parses again at registration on boot. `AGENTS.md`
+  named none of those four functions anywhere in the file, while `docs/ARCHITECTURE.md`,
+  `docs/developers/code_examples.md` and `README.md` all already described them correctly.
+  
+  Confirmed by ablation rather than assumed. With an unknown key added on disk to a page
+  (a typed literal) and to a permission set (a file that imports nothing from the spec),
+  `pnpm validate` exits 1 with `✗ pages.7: Unrecognized key(s) on this page` and
+  `✗ permissions.1: Unrecognized key(s) on this permission set`; it passes on the restored
+  tree. Nothing in either metadata file performed that check.
+  
+  Two traps the old list could not express are now written down, both measured:
+  
+  - `defineFlow()` is exactly `FlowSchema.parse(config)` and is **not** the authoring form for
+    `src/flows/`, even though the sibling `defineView()` and `defineSkill()` *are* the form for
+    theirs.
+  - a metadata file that is never re-exported from its `src/{type}/index.ts` barrel is
+    validated by nothing: a valid new object file left out of the barrel leaves `pnpm validate`
+    at exit 0, still reporting `Data: 18 Objects`, naming the new file nowhere.
+  
+  `XSchema.parse()` is kept and correctly placed: the schemas are real exports that do carry
+  `.parse()`, and calling one is right in a test or when building metadata programmatically —
+  `content/docs/customization/testing-and-ci.mdx` shows that shape and
+  `scripts/analytics-reconcile/run.ts` calls `DatasetSchema.parse()`. It is not the authoring
+  form for `src/`.
+  
+  The File Suffix Protocol one section earlier is brought into agreement, since the two
+  sections disagreeing with each other is what produced this card: `*.object.ts` said
+  `ObjectSchema.parse()`, and `*.permission.ts` named a suffix this app authors nowhere — its
+  permission sets are `src/profiles/*.profile.ts`.
+- a9a9a30: Retire the cubes/dataset inventory from `content/docs/analytics`, in all three
+  locales, and rewrite the pages around it as a business-concept introduction.
+  
+  `analytics/cubes` carried a nine-row table transcribing every dataset's
+  dimensions and measures, and `analytics/reports` repeated the same roster in
+  prose. Neither had a producer: `src/datasets/` declares those names, nothing
+  compares the pages against it, and this neighbourhood has paid for that four
+  times (#610, #965, #977, #1228 — the last one turned two load-bearing negative
+  sentences into falsehoods about a measure the dashboards were already plotting).
+  The single source of truth is the self-describing metadata, so the pages now
+  point at it and say why, rather than carrying a second copy that is correct only
+  on the day it is typed.
+  
+  What the pages keep is the analysis. `analytics/reports` used its `case_metrics`
+  inventory as an argument — five unshipped reports "cannot be built" — so each of
+  those arguments was rewritten to rest on the one specific fact that actually
+  carries it (no owner dimension, no join to `crm_account`, no measure over
+  `customer_rating`, nothing recording a reopen) instead of on the completeness of
+  a transcribed list. The same rewrite runs through the sales, service and
+  marketing sections of `analytics/cubes`: what the layer answers, and where it
+  stops, stated as business questions. The shipped report and dashboard rosters are
+  untouched — those are things a user can see in the product, which is the line
+  that separates a documentable navigation fact from a hand-copied semantic layer.
+  
+  No guard is added and no test changes. With the inventory gone there is no drift
+  left to pin, and gate-type mechanisms belong to the platform rather than to this
+  repo. The three existing wording pins (analytics vocabulary, dashboard tiles,
+  conversion-rate spelling) are unchanged and still green.
+- f29304c: Sweep the pre-#597 campaign engagement vocabulary off the last surface carrying
+  it — the **Cubes** and **Reports** pages, all three locales of each. Both pages
+  argue *why campaign analytics has no cube*, and the force of that argument comes
+  from an accurate inventory of what the records do carry. The inventory was wrong
+  in the reader's favour twice over.
+  
+  ### The member record does not stamp an open or a click
+  
+  Both pages said `crm_campaign_member` "stamps **First Opened**, **First
+  Clicked**, **Response Date** and **Responded** per member". Two of those four
+  fields were deleted in #597 because nothing in the product or on the platform
+  could ever write them, so the sentence told a reader that per-member open and
+  click data exists and merely is not aggregated — the opposite of the truth. The
+  member's response block is *Status*, *Response Date* and *Has Responded*, under
+  its *Response Tracking* section, and the pages now say so. Each also states the
+  stronger fact the old wording hid: an open or a click is not an unaggregated
+  figure, it is an unrecorded one — the app tracks no opens, clicks or bounces at
+  all.
+  
+  The **Reports** page carried the same claim a second time as a paraphrase that
+  named no field — "the opens, clicks and responses are stamped on each member
+  record, and nothing rolls them up" — in Simplified and Traditional as well as
+  English. That bullet now says what a member record answers (whether and when the
+  person responded) and that opens and clicks are absent rather than one layer
+  down.
+  
+  ### Two formula fields, two different sections
+  
+  Correcting the member half surfaced a second error in the same sentence: both
+  pages placed the campaign's whole money block in the **Performance** section.
+  Five of the fields they name are not there. `crm_campaign`'s *Budgeted Cost*,
+  *Actual Cost*, *Expected Revenue*, *Actual Revenue* and the *ROI %* formula are
+  grouped under **Budget & ROI**, a section of its own — the form agrees, and puts
+  `roi` beside the two manual-entry cost fields it divides by, rather than at the
+  bottom of *Performance* where its dependency was invisible. **Performance** holds
+  the six counters and the *Response Rate %* formula. The pages now name both
+  sections, and use each counter's declared label (*Number Sent*, *Number of
+  Responses*, *Number of Leads*, *Converted Leads*, *Opportunities Created*, *Won
+  Opportunities*) instead of the compressed `Num …` list they had transcribed.
+  
+  The Simplified pages take their response vocabulary from the zh-CN language pack
+  (响应 · 已响应) and the Traditional pages mirror it in each page's own conventions
+  (回應 · 已回應), the wording PR #1846 established for this family. Field and
+  section names stay in English on both Chinese pages, which is what these pages
+  already do for every other campaign field they name.
+  
+  No metadata changes: this is the doc surface catching up with a trim that
+  shipped in #597.
+- 427c985: Re-weight every phantom name on the **Cubes** and **Reports** analytics pages, all
+  three locales of each. The prose on both pages was already honest — its headings say
+  outright that the reports are published nowhere — but the typography contradicted it,
+  and a reader who skims bold runs reads the typography.
+  
+  ### What was wrong
+  
+  The repo reserves **bold** for names the app really has and *italics* for a name a
+  reader arrives with that the product does not carry; a phantom must still be named —
+  say where the thing really lives, never delete it silently. Measured against the
+  declared labels under `src/` (every `label:` / `title:` string literal, 2936 of them),
+  `analytics/reports` carried **20** bolded names per locale that resolve to nothing,
+  and `analytics/cubes` **9** — 87 bold runs across the six pages.
+  
+  They were not a long tail of near-misses. They were whole sections of report names:
+  *Forecast vs Actual*, *Win/Loss Analysis*, *Big Deals Won*, *Sales Cycle Length*,
+  *Discount Approval Activity*, *Lead Conversion Funnel*, *Aged Leads*,
+  *Lead Source ROI*, *Case Volume by Origin*, *Case Resolution Time*,
+  *Top Accounts by Case Volume*, *Reopened Cases*, *CSAT by Agent*,
+  *Contracts Expiring*, *Active Contracts by Product*, *Renewal Pipeline*,
+  *Campaign ROI*, *Campaign Engagement* — plus *Top Performing Reps*, which the page
+  itself introduces as a name whose real one is different, and the retired
+  *Customer Satisfaction* rating, bolded on both pages inside the sentence that says it
+  was retired. On `cubes` the *Name by name* list under the marketing section bolded
+  eight metric names that are questions a reader arrives with, one of them beside a real
+  formula field on the same line.
+  
+  ### What changed
+  
+  Every one of those 87 runs is now italic, at the same site in English, Simplified and
+  Traditional Chinese — nothing was deleted, and every phantom still names where the
+  real thing lives. Three sites needed judgement rather than a sweep:
+  
+  - *Campaign spend*, *cost per lead* and *cost per opportunity* now sit in italics
+    beside **ROI %** in bold, on the same line: the ROI percentage is a real formula
+    field on `crm_campaign`, the three spend figures are carried by no field at all.
+  - *Persona (job role)* is italic; the **Title** field it points at stays bold.
+  - The bullet that called **period** a real field on `crm_campaign` was corrected
+    rather than re-marked. The campaign carries **Start Date** and **End Date** and no
+    Period field, so italicising the word alone would have left a sentence that reads
+    "real fields on `crm_campaign`" over a name that is not one.
+  
+  Nothing under `src/` changed, no count on any page moved, and the bold runs that name
+  something real — 72 on `reports`, 36 on `cubes` — were re-read against source and left
+  alone.
+- b7e80e7: Replace the hand-copied `crm_*` object roster on the published API reference with a
+  pointer at its source of truth, in all three locales. `content/docs/customization/
+  api-reference.mdx` and its `.zh-Hans` / `.zh-Hant` siblings each tabulated fifteen
+  object names while `src/objects/*.object.ts` registers eighteen —
+  `crm_article_feedback`, `crm_event` and `crm_event_attendee` had zero hits in all
+  three files, with no phantom entries in the other direction. This is the
+  customer-facing documentation site, so a developer reading it to learn what HotCRM
+  models was told three of its objects do not exist, in three languages.
+  
+  The same page also pointed readers at `docs/developers/api_reference.md` for "the
+  current object and field inventory" — a fourth hand-copied transcript of the same
+  roster, carrying the same fifteen names, reached by a relative link out of the
+  content root that does not resolve on the built site. Both statements are replaced by
+  one pointer at `src/objects/*.object.ts`.
+  
+  The list is not completed. A completed transcription drifts again next quarter, which
+  is 2026-08-31 ruling item 5 and the case law behind it (#610, #965, #977, #1228); this
+  roster had already drifted in four separate files from one original. The pointer
+  carries the wording PR #1438 landed in `AGENTS.md` and PR #1476 reused in
+  `docs/ARCHITECTURE.md`, unchanged, because these are copies of one original. The
+  supersession note those two internal-tree sites carry is deliberately not reproduced
+  here: `Supersedes` has zero occurrences anywhere under `content/docs`, and a dated
+  ruling reference is maintainer bookkeeping rather than something a customer can act
+  on. It is recorded in this changeset instead.
+  
+  The enumeration was measured to be decorative rather than load-bearing on this page.
+  The table listed bare object names grouped by business domain — byte-identical in
+  content to the domain table PR #1476 removed from `docs/ARCHITECTURE.md` — while the
+  page states two paragraphs above that route shape varies by runtime version and that
+  readers should prefer their own runtime's API explorer. `content/docs/guides/
+  integrations.mdx` sends readers here "for the object inventory" in all three locales,
+  and that promise is now kept more accurately than the stale table kept it.
+  
+  No guard is added, and none is retired: 2026-08-31 ruling item 3 keeps gate-type
+  mechanisms on the platform.
+- d22368a: Stop `docs/ARCHITECTURE.md` presenting two incomplete enumerations as complete, and
+  give the one that must stay complete a rule a reader can check it against.
+  
+  The `requires` sentence named seven capabilities and closed with "and"; the stack
+  declares eight. The member it dropped was `hierarchy-security` — the one
+  enterprise-edition capability this app declares, and a hard prerequisite for
+  `sales_manager`'s `own_and_reports` write scope on `crm_contract`, which `defineStack`
+  refuses to accept without it. That made the paragraph underneath read wrong as well:
+  it explained why `ai` is deliberately *absent* while the config's own comment draws
+  that as one half of a contrast with `hierarchy-security`, which is deliberately
+  *present* and, unlike `ai`, safe on an open-edition boot. The page shipped half a
+  contrast. The roster is now pointed at where it is declared, and the section states
+  the two deliberate decisions instead — the part of the section a roster could never
+  carry.
+  
+  The Metadata Areas table omitted `mappings`, a real registration key backed by
+  `src/mappings/` and referenced by name from the import endpoint. That table is a
+  directory-to-key map whose whole value is completeness, so a pointer would lose the
+  point and appending the row alone would leave the next registration key to go missing
+  the same way. It gets the row *and* the rule that makes the row's absence detectable:
+  every directory under `src/` is either a row or one of the two named beneath the
+  table, with `src/docs/` and `src/interfaces/` named there and why. The Overview
+  diagram, which omits three registered areas, stops implying it is a roster and points
+  at the table.
+  
+  No new gate — per the 2026-08-31 scope ruling, drift mechanisms belong on the
+  platform. Naming every `src/` directory on the page instead widens the existing
+  `test/docs-src-tree-paths.test.ts` grip on this file from 15 directories to all 18,
+  so its "named implies exists" check now covers the whole tree.
+- 80ffff5: Stop `docs/ARCHITECTURE.md` printing machine facts it cannot keep true, and point
+  each one at the source that already owns it.
+  
+  Two of the file's hand-copied figures had gone false. The Stack Manifest table
+  stated `engines.protocol` as `^17.0.0-rc.1` while `objectstack.config.ts`,
+  `objectstack.manifest.json` and the installed `@objectstack/spec` all declared
+  `^17.2.0` — a release candidate of the previous minor, on the row a reader
+  consults to answer which runtime this app loads on. The Security section stated
+  `9 sharing rules` against the ten the stack registers.
+  
+  Neither is corrected by writing a fresher number, because the number is the
+  defect: the protocol row went stale across two platform bumps and the rule count
+  goes stale on the next sharing rule. So the protocol row is gone and the section
+  now names where the fact is declared — `objectstack.config.ts`, restated by the
+  template manifest and the spec dependency range, with all three already pinned to
+  each other by `test/docs-declared-versions.test.ts`. A fourth copy in prose was
+  the only copy nothing compared.
+  
+  The Security section's three counts are likewise gone, replaced by where each
+  kind of metadata lives and what registers it. That also settles the one figure
+  that was ambiguous rather than wrong: `6 permission profiles in src/profiles/`
+  counted registered profiles, which is 6 under both compositions, while pointing
+  at a directory that holds seven `*.profile.ts` files. The extra file is
+  `tenant-admin.profile.ts`, registered only under `HOTCRM_COMPOSITION=saas` and in
+  place of `system_admin`, so no build ever registers seven. The section now states
+  that composition rule instead of a number that was right for a reason a reader
+  could not see. `12 positions` was re-measured and was true; it lost its number
+  only because the list stopped printing counts.
+- a118fa0: Mark the attendee party column the chosen Attendee Type names as required, at
+  the form, so filling one in stops being something the save discovers.
+  
+  `crm_event_attendee` already declares one correspondence between
+  `attendee_type` and the column that type names, and two validation rules
+  enforce it: `attendee_resolves` (the named column must be filled) and
+  `attendee_type_exclusive` (no other party column may be). Both stay exactly as
+  they are — they are the contract every writer meets, REST included. What is new
+  is a `requiredWhen` on each of the four party columns, generated from the same
+  `ATTENDEE_RESOLUTIONS` table the rules are, so the Console marks `Contact*`
+  when the type is Contact and moves the star to `Lead*` the moment the type
+  changes. A Contact row with no contact on it is now answered while someone is
+  looking at the form, not after a round trip.
+  
+  The duplication with `attendee_resolves` is deliberate and it is visible: a
+  write that omits the named column now answers twice, once per layer. Measured
+  on 17.1.0 against the running app, `POST {crm_event, attendee_type: "lead"}`
+  returned one `_record` rule violation before and two entries after — the field
+  one, `crm_lead: Lead is required`, plus the unchanged rule. **The accepted set
+  is unchanged**: every correct shape still lands, every wrong one is still
+  refused, and a partial update that touches neither column still returns 200.
+  Naming the field is what buys the star.
+  
+  ### What was measured and deliberately not shipped
+  
+  The other half of the proposal — `visibleWhen` on the four columns, so the form
+  shows only the column the type names — was built and driven in a browser, and
+  it is **not** in this change. The Console hides a populated field without
+  clearing it and submits the stale value anyway. Fill Contact, switch the type
+  to Lead, save, and the write carries both columns; the row is refused,
+  correctly, by a message naming a column that is no longer on screen to clear.
+  On the edit path it is worse than a puzzle: a stored `contact` row re-sends its
+  `crm_contact` on every attempt, so it can never be retyped through the Console
+  at all. Nothing in `@objectstack/spec` 17.1.0 or the shipped Console clears a
+  value when its field goes invisible, so the hint cannot be paired into safety
+  from this app. Today's form shows the offending column, which is what makes
+  the refusal actionable.
+  
+  `test/attendee-type-resolution.test.ts` pins both halves: every party column
+  carries a total `requiredWhen` naming its own type and none of them carries a
+  `visibleWhen`, with the measurement written where the next author will find it.
+- aad2901: Declare the three audit stamps `readonly`: `crm_opportunity.approval_status`,
+  `crm_opportunity.approved_date` and `crm_campaign_member.added_date` leave the
+  editable surface for every non-system caller.
+  
+  **What changes for a user.** These three columns can no longer be typed over on
+  a record form or through an ordinary API `PATCH`. Nothing else about them
+  changes: they are written, read and reported exactly as before, and every
+  existing writer still lands its write. A hand edit is not rejected with an
+  error — the platform drops the key and commits the rest of the update — so the
+  visible effect is that the value simply does not move.
+  
+  **Why they can be declared, per column.** The #1435 writer-privilege audit
+  enumerated every writer, and #1666 / #1667 ruled on the result (director seat,
+  decision batch #74, 2026-09-07).
+  
+  `approval_status` / `approved_date` are written only by the approval flow.
+  `opportunity_approval` declares `runAs: 'system'`, and
+  `opportunity_approval_on_create` inherits it by spreading that flow, so
+  `resolveRunDataContext` hands the engine `isSystem: true` and the readonly strip
+  branch is skipped outright. The `approval` node's own `approvalStatusField`
+  write runs inside those same system runs; seeds write on INSERT, which the strip
+  never touches.
+  
+  `added_date` is written only by INSERTs — `campaign_enrollment`'s
+  `create_campaign_member` and `create_contact_member` nodes and the marketing
+  seed. The strip is an UPDATE-path rule, so an INSERT is exempt from it and the
+  enrollment flow does not need elevating to keep stamping the column.
+  
+  **What is deliberately given up.** An administrator could previously unstick a
+  wedged approval by typing over `approval_status`. That escape hatch is gone on
+  purpose: a stuck approval is a platform or flow defect to be fixed as one, not a
+  reason to keep an audit stamp hand-editable. There is no bypass and no
+  admin-only branch. `added_date` had no comparable hatch to give up — the two
+  cards were the same principle but never the same decision.
+  
+  **How it is held.** `test/audit-stamp-readonly.test.ts` runs the shipped flow
+  nodes at their own declared `runAs` over a real ObjectQL on the real schemas and
+  pins both halves of the conjunction: the legitimate writers still land their
+  stamps, and a plain user-context UPDATE of each column is stripped while a
+  control column lands. Ablating either declaration turns the file red.
+  
+  Two comments elsewhere cited `added_date` as the reason a neighbouring column
+  must stay editable and are corrected with it —
+  `crm_event_attendee.invited_date` (which is open because nobody has ruled on it,
+  not because of a strip that never reaches an insert) and
+  `crm_account.last_activity_date` (which is the opposite shape: an UPDATE through
+  a hook's `ctx.api`, the one shape that genuinely cannot be readonly).
+- 8da60d0: Enroll Members: the "Enroll" choice now honours what the caller asked for
+  
+  The Campaign Enrollment flow seeded its `memberSource` default with an
+  assignment node that ran unconditionally ahead of the screen. That node
+  overwrote a value supplied by whoever launched the flow, so a caller who
+  started the enrollment on the Contacts side got a dialog pre-set to Leads and,
+  if the run was resumed without an answer, the Leads branch. The default is now
+  declared on the flow variable itself, which the engine seeds before the run
+  starts and which defers to a supplied value — so the dialog opens on the side
+  the caller chose.
+  
+  The default is also written once now instead of twice. The screen field derives
+  its prefill from the variable rather than restating the literal, so the two can
+  no longer drift apart.
+- 2231583: Say who runs Campaign Enrollment on the two marketing pages that describe it.
+  Both told the reader it runs itself, in two different and equally false ways:
+  **Campaign Members** item 1 had it firing "when a campaign moves to *In
+  Progress*", and **Campaigns** had it "on a schedule (default Monday 9 AM)" in
+  three separate places — the *What happens automatically* list, the *Campaign
+  enrollment flow* section, and a tip for admins offering to configure the cron.
+  
+  `campaign_enrollment` is `type: 'screen'` (`src/flows/campaign-enrollment.flow.ts`).
+  It has no trigger of its own: nothing fires it on a status change, no start node
+  carries a schedule, and its only entry point is `enroll_leads` — label **Enroll
+  Members**, `type: 'flow'` on `crm_campaign`, in the record header while the
+  campaign is *Planning* or *In Progress*. So a reader who launched a campaign and
+  waited was waiting for members that were never coming, and the one button that
+  produces them was named on neither page.
+  
+  The pages now describe the real gesture: open the campaign, click **Enroll
+  Members**, and answer the *Enrollment Criteria* screen — which side (leads or
+  contacts, one per run) and the segment on that side (leads by status, contacts
+  by department). The true half is kept: the flow creates a member per matching
+  person with status *Sent*, and skips the already-enrolled and the opted-out.
+  
+  The design reason travels with it, because it is what stops the cron coming
+  back. The criteria are answered on the screen, and a scheduled run has nobody to
+  answer them — the flow's own record of its history says a cron firing seeds no
+  inputs at all, which left every run either matching no campaign or mass-enrolling
+  into a null one. "This is manual" is a design decision here, not a gap.
+  
+  The admin tip keeps the auto-complete cron, which is real (2 AM daily,
+  `campaign_completion`), and stops offering an enrollment cron to configure —
+  **Administration › Automation**, the page it sends readers to, has always listed
+  this flow correctly as a *Screen* flow.
+  
+  zh-Hans names the action as the zh-CN pack does — **批量加入成员**, the shipped
+  label for `enroll_leads` — glossed after the English label in the pattern these
+  pages already use. zh-Hant mirrors it in each page's own Traditional conventions
+  (**批次加入成員**, the 批次 spelling those pages already use), never a mechanical
+  conversion.
+  
+  No metadata changes: this is the doc surface catching up with the trigger change
+  that shipped in #597.
+- 7c09fb8: Name both **Add to Campaign** paths on the campaign members page. Item 2 of
+  "How members get enrolled" called the lead-side action "the only picker-driven
+  path that ships", and told the reader to open a lead and run it. Neither half
+  was true, and neither had gone stale — both were false the day the sentence was
+  written.
+  
+  `add_contact_to_campaign` (`src/actions/contact.actions.ts`) is the contact-side
+  mirror of `create_campaign` on the lead: the same **Add to Campaign** label, the
+  same `locations: ['list_toolbar', 'list_item']`, and the same field-backed
+  campaign param, which is what makes the console resolve a real record picker
+  instead of a paste-the-ID box. It has shipped since #597, the card that also
+  wired `bulkActions: ['add_contact_to_campaign']` into the contact grid — so
+  there have always been two picker-driven paths, not one.
+  
+  Both are list actions. Neither is reachable by opening a record: nothing under
+  `src/pages/` names either action, so "open a lead … and run **Add to Campaign**"
+  described a gesture the console does not offer. The page now says what the
+  console does offer — tick rows in a lead list or a contact list and run the
+  action from the selection toolbar, or run it on a single row from that row's ⋮
+  menu, and choose the campaign from the picker.
+  
+  The dedupe difference is worth a clause, so it gets one. Each action scopes its
+  skip-check on its own relationship — the lead path compares `crm_lead` values,
+  the contact path `crm_contact` — so re-running either never double-counts a
+  touch, while a person enrolled once as a lead and once as a contact is
+  deliberately two memberships rather than a duplicate. The contact action's
+  header states that as a deliberate difference, not an oversight.
+  
+  The true half is kept: there is still no *Add Members* picker on the campaign
+  that reaches lead and contact list views. `marketing/campaigns` already carried
+  the truthful version — "the **Add to Campaign** action on any lead/contact" —
+  and after this change the two marketing pages agree.
+  
+  zh-Hans names the action as the zh-CN pack does (加入营销活动 — one label for
+  both actions); zh-Hant mirrors it in that page's own Traditional conventions
+  (加入行銷活動), never a mechanical conversion.
+- 90ae658: Rewrite the **Campaign Members** page — all three locales — against the record the
+  app actually ships. The page had been describing the pre-#597 member: seven
+  statuses and two tracker stamps, none of which exist.
+  
+  ### What the page claimed
+  
+  `crm_campaign_member` declares **eight** fields and **four** statuses — `sent`
+  (the default), `responded`, `converted`, `unsubscribed`. #597 removed
+  `first_opened_date` / `first_clicked_date` and the `opened` / `clicked` /
+  `bounced` statuses because nothing in this app or on the platform could ever
+  write them: the platform email service is outbound delivery with a
+  `queued | sent | failed` message state, and it ships no tracking pixel, no click
+  webhook and no bounce feed. The docs surface was never cleaned in that move, so
+  for every release since, the page has offered a reader:
+  
+  - a heading counting **7 member statuses**, over a table with *Opened*,
+    *Clicked* and *Bounced* rows and a "the status is monotonic" line built
+    entirely on *Clicked* outranking *Opened*;
+  - *First Opened* and *First Clicked* in "What the member record stores" — while
+    omitting *Member Number*, a field that does exist;
+  - an "Engagement tracking" section promising an email integration that "writes
+    back to the member record automatically";
+  - **Open rate** and **Click rate** formulas — `members where status >= Opened ÷
+    Sent` — that no shipped picklist value can satisfy;
+  - tips telling marketers to clean *bounces* and dismissing *Opened* / *Clicked*
+    as vanity metrics, and telling admins to install connectors for tracking that
+    is not in the product.
+  
+  ### What it says now
+  
+  Every status row names what really writes it: enrollment for *Sent*, the **Mark
+  Responded** button for *Responded*, a lead converting for *Converted*, and a rep
+  or an opt-out request for *Unsubscribed* — which also ticks that person's
+  **Email Opt Out**, and so keeps them out of future enrollments. The lifecycle is
+  described as it behaves rather than as a ladder: moving a member back clears the
+  response stamp, and an unsubscribed member is never promoted by the conversion
+  sweep.
+  
+  The metrics section is rewritten rather than deleted, on rates the four statuses
+  can express — *Sent* is every member, *Responses* are the members at *Responded*
+  or *Converted*, and the response rate is one over the other. Conversions reach
+  the campaign through its converted-lead count and its ROI figures; unsubscribes
+  are not a campaign counter, and the page now says so instead of implying a rate.
+  A callout states plainly that this app tracks no opens, clicks or bounces, so a
+  reader stops looking for the switch that turns them on.
+  
+  The Simplified page takes its four status nouns from the zh-CN language pack —
+  已发送 · 已响应 · 已转化 · 已退订 — rather than leaving English tokens in a
+  Chinese table; the Traditional page mirrors it in that page's own conventions.
+  
+  Nothing about the metadata changes: this is the doc surface catching up with a
+  trim that shipped in #597.
+- cb9749c: Stop telling readers a campaign's metrics snapshot when it completes. They have
+  been live since #597, and the docs were describing the behaviour that card
+  removed.
+  
+  `campaign_snapshot_metrics` fired on `→ completed` and nothing else, so a
+  campaign reported zeros for its entire useful life and became accurate on the
+  day everybody stopped looking at it. Four refresh hooks replaced it —
+  `campaign_metrics_refresh`, `campaign_attribution_refresh` and
+  `campaign_lead_conversion_refresh` (`campaign.hook.ts`), plus
+  `campaign_member_metrics_refresh` (`campaign_member.hook.ts`). Every input a
+  campaign metric derives from now has a trigger that refreshes the metric when it
+  changes: the numbers move as members are enrolled, as members respond, as their
+  leads convert and as opportunities are attributed. Completion is simply one more
+  `status` transition over numbers that were already current, which is what
+  `campaign-completion.flow.ts`'s header has said since #1668.
+  
+  The harm was directional, not just factual. A reader following these pages would
+  expect an in-progress campaign to report zeros, and would therefore **distrust
+  the live dashboard numbers** — the docs talked them out of a feature that works.
+  So each page now states the live behaviour positively, in its own bullet, rather
+  than only dropping the false claim: an in-flight campaign reports real numbers
+  you can act on today.
+  
+  Three lines were wrong per locale face, not the two the finding listed:
+  
+  - `marketing/campaigns.mdx` status table — *"Completed | Finished — metrics are
+    final, ROI is calculated"*. Both halves were stale. Metrics are not final (a
+    completed campaign's numbers still move — enrolling a member into one is
+    exactly the case `flow-campaign-enrollment` guards against), and `roi` is a
+    **formula** over `actual_cost` / `actual_revenue`, evaluated on read. It is
+    never "calculated" at a moment; it has always had a value.
+  - `marketing/campaigns.mdx` auto-complete bullet — the 2 AM sweep flips the
+    status and only the status.
+  - `marketing/index.mdx` lifecycle step 4 — *"metrics are snapshotted"*.
+  
+  ⚠️ The status-table row is the one worth remembering. It carries the retired
+  model **without containing the word `snapshot`**, which is why #1668's audit
+  could not see it and why the finding that produced this change listed only two
+  lines. A keyword search for `snapshot` finds the other two and stops one row
+  short of the same claim on the same page. Searching by *behaviour description*
+  — "metrics are final", 「指标最终确定」 — is what surfaced it.
+  
+  `marketing/campaign-members.mdx` was checked and needed nothing: it already said
+  the campaign-level metrics are "always live", so the two corrected pages had
+  been contradicting their own sibling. Its wording is the vocabulary the fixes
+  adopt, in all three faces.
+  
+  All three locale faces are corrected together, each written rather than
+  translated, reusing the vocabulary already on these pages (发送/响应/转化,
+  傳送/回應/轉化) and the 实时 / 即時 register `campaign-members` established.
+- 2131504: Sweep the pre-#597 campaign engagement vocabulary off the **Campaigns** page, the
+  **Email & Calendar** guide and the **Marketing Cloud** overview — all three
+  locales of each. These pages were the surfaces #1829 could not reach when it
+  rewrote **Campaign Members**, and between them they offered a reader an open
+  rate, a click rate, two tracker date fields to fill in by hand, and a five-step
+  member ladder, none of which exist.
+  
+  ### Campaigns
+  
+  The record's section table listed an **Engagement** *(rollup)* section holding
+  "opens, clicks, responses, conversions". `crm_campaign` has no open or click
+  column and no section of that name: its detail screen is derived from six field
+  groups — *Campaign Information*, *Schedule*, *Budget & ROI*, *Performance*,
+  *Ownership*, *Campaign Assets* — and the table now names those, with the ROI
+  cross-reference elsewhere on the page corrected from a *Costs* section that does
+  not exist to *Budget & ROI*.
+  
+  "Measuring a campaign" claimed a right-hand panel showing an **Open rate**
+  (`% of members with status ≥ Opened`), a **Click rate** (`≥ Clicked`), a
+  **Conversion rate** and a **Pipeline value**. None of the four is a field, and
+  `≥` imports an ordering the member picklist does not have — *Sent*, *Responded*,
+  *Converted* and *Unsubscribed* are four values with no ranking between them. The
+  section now walks the counters the campaign really rolls up — number sent,
+  responses (members at *Responded* **or** *Converted*), number of leads, converted
+  leads, opportunities created, won opportunities, actual revenue — plus the two
+  formula fields, *Response Rate %* over sent and *ROI %* over actual cost. It also
+  states that open pipeline is summed nowhere on the campaign; closed-won is the
+  only money it rolls up. A callout says plainly that a campaign has no open,
+  click or conversion rate.
+  
+  ### Email & Calendar
+  
+  Inside a section whose whole point is honesty about what is not shipped, one
+  sentence certified the phantom as the real part: "the one adjacent thing that
+  *is* real: a campaign member carries **First Opened** and **First Clicked**
+  dates — but they have no automatic writer, so a person or an import fills them".
+  Both fields were deleted in #597, so the workaround it offered could not be
+  performed. It now says what a member does record — a response, written by **Mark
+  Responded** or by that person's lead converting — and that there is no status
+  for an open, a click or a bounce.
+  
+  ### Marketing Cloud overview
+  
+  Two claims here were stronger than the ones this card was filed for. The campaign
+  life cycle had members moving through *Sent → Opened → Clicked → Responded →
+  Converted*, and "what the system does for you" promised that "opens, clicks,
+  bounces, unsubscribes update the member status as engagement happens" — an
+  automatic writer for three statuses that do not exist. The lifecycle step now
+  describes the four real values and says there is no ladder between them; the
+  automation bullet names the one status the app writes by itself (a lead
+  converting promotes its member rows) and attributes *Responded* and
+  *Unsubscribed* to the people who actually set them.
+  
+  The Simplified pages take their status nouns from the zh-CN language pack
+  (已发送 · 已响应 · 已转化 · 已退订) and the Traditional pages mirror them in each
+  page's own conventions (已發送 · 已回應 · 已轉化 · 已退訂), the wording PR #1846
+  established for this family.
+  
+  No metadata changes: this is the doc surface catching up with a trim that
+  shipped in #597.
+- 6c2558b: The case form no longer lets the person raising a case author the case's own lifecycle.
+  
+  Creating a case used to open a three-tab dialog — Case / SLA / Resolution — whose SLA
+  and Resolution tabs carried `sla_due_date`, `first_response_date`, `is_sla_violated`,
+  `is_escalated`, `escalation_reason`, `resolution`, `customer_feedback` and the rest of
+  the fields the service lifecycle maintains. None of those were read-only, and the SLA
+  hook only fills `sla_due_date` when the incoming record has none, so a case could be
+  raised with its SLA deadline already set and its violation flag already ticked. The
+  create form is now the Case section alone: subject, account, contact, status, priority,
+  origin, owner and description — the facts a person actually has at intake.
+  
+  The lifecycle fields keep every surface they belong on. The queue still shows and sorts
+  on the SLA deadline, the SLA calendar still lays cases out on it, the timeline still
+  runs from created to closed, and the record page still shows escalation and resolution.
+  
+  One consequence to know about: `internal_notes`, `customer_rating` and
+  `customer_feedback` left with the Resolution section and have no other form to be
+  edited on yet.
+- 5c71bdb: The Chinese UI stops rendering two different priority values as the same word.
+  `crm_case.priority.critical` now reads **严重**; `crm_task.priority.urgent`
+  keeps **紧急**.
+  
+  ### What was on screen
+  
+  `crm_case` and `crm_task` carry overlapping-but-unequal priority vocabularies —
+  `low/medium/high/critical` against `low/normal/high/urgent` — and three of the
+  four locales keep their top values distinct:
+  
+  ```
+  en      case.critical  Critical   task.urgent  Urgent
+  es-ES   case.critical  Crítica    task.urgent  Urgente
+  ja-JP   case.critical  重大        task.urgent  緊急
+  zh-CN   case.critical  紧急        task.urgent  紧急     ← the same word
+  ```
+  
+  ja-JP did not merely differ, it deliberately picked a word per object, which is
+  what makes zh-CN's collapse an oversight rather than a choice. A Chinese-reading
+  user — or an agent re-authoring metadata from the rendered UI and the docs — saw
+  one word on both objects with no signal that the underlying values differ. That
+  is the condition under which a case value ends up in a task predicate, and this
+  repo has already paid for that crossing twice in code and prose
+  (`src/views/task.view.ts` still carries the tombstone of the first).
+  
+  ### What moved
+  
+  - `crm_case.priority.options.critical` — 紧急 → **严重**.
+  - The **Customer Service** dashboard's Critical Cases tile — 紧急工单 →
+    **严重工单**, and its description with it (标记为紧急优先级的未关闭工单 →
+    标记为严重优先级的未关闭工单), the way ja-JP already words both halves
+    (重大ケース / 優先度「重大」のオープンケース).
+  - The Chinese documentation prose that calls a **case** 紧急/緊急 — 7 pages,
+    9 sites per script face — now says 严重/嚴重, so the docs keep naming the value
+    the console shows (AGENTS.md, Documentation discipline rule 6).
+  
+  ### What deliberately did not move
+  
+  `crm_task.priority.options.urgent` keeps **紧急**: *urgent* is the task's own
+  literal word, so leaving it there is the smallest semantic displacement. Every
+  docs sentence about a **task** keeps 紧急 too — the sweep was graded per
+  occurrence by which object the sentence is about, never by the word. The generic
+  phrase 紧急程度 ("priority level") is not the value word and is untouched.
+  
+  Both option lists now carry a comment saying why the two words must differ, so
+  the next reader does not tidy one into the other.
+- a6f469d: The Cases page stops promising an icon on the case detail header, in all three
+  locales.
+  
+  The header bullet enumerated "the case number and subject as the title, the
+  **account** as the subtitle, plus an icon, a breadcrumb and the action buttons"
+  — and then closed with *That is the whole header*. Everything in that list is
+  real except the icon: `icon` was **removed** from `page:header` in
+  `@objectstack/spec` 17.0.0 (#6946, ADR-0087 D2), deleted rather than renamed
+  because no renderer ever read it, and no `page:header` under `src/pages/`
+  authors one. `case_detail.page.ts` records the removal at the property it would
+  have sat on.
+  
+  What made it worth correcting is the sentence's own claim to be exhaustive. A
+  list that ends "that is the whole header" gives a reader no reason to doubt any
+  item on it, so the one entry the renderer cannot draw was the one entry the
+  reader would hunt for longest. The clause is deleted and nothing replaces it:
+  the breadcrumb and the three action buttons in the same sentence are both real
+  (`breadcrumb: true`; `actions` names `escalate_case`, `close_case` and
+  `log_call`), so the completeness claim is now simply true — the header holds a
+  title, a subtitle, a breadcrumb and its action buttons, and the enumeration and
+  the component's properties block now agree item for item.
+  
+  The Chinese faces lose the same item and keep their own register — 此外只有面包屑
+  和几个动作按钮 / 此外只有麵包屑和幾個動作按鈕 — rather than being re-translated
+  around the gap. One clause per face, three lines in total; no `src/` metadata
+  changed and no test or guard was added.
+  
+  The sibling detail-page docs were swept for the same claim before this landed,
+  by behaviour rather than by the word *icon* — every page describing what a
+  record header holds, every completeness assertion, and the other nouns the
+  faces could have used (图标 / 圖示 / 头像 / avatar / logo). **The difference set
+  is empty**: no account, lead or opportunity page carries this sentence in any
+  locale. The clause was never a shared template — all three faces got it in one
+  commit (#946), the change that rewrote this bullet from an older stale
+  enumeration, at a time when `icon` was still believed to be a header property.
+- 1af311e: Document the case intake round-robin in the Setup checklist, in all three doc locales.
+  
+  `case_auto_assign` assigns every ownerless new case to the holder of the
+  `service_agent` position with the fewest open cases, and no page said so. The lead
+  twin was documented twice over — once in the Setup checklist and again in the FAQ —
+  while for cases the docs carried only the escalation hand-off, which is a different
+  hook on a different trigger routing to a different pool. What the pages did state was
+  the *consequence*: the **Unassigned — triage** tab is described as where a web-to-case
+  submission lands when nobody holds the Service Agent position, which is the no-op
+  branch of a hook the reader had never been told exists.
+  
+  **Setup checklist → Case routing — nothing to configure** now states the mechanism
+  itself: the pool, the least-loaded pick (not a rotation, not territory, no queue),
+  that it fires on insert only and only on a case that arrives with no owner, that it
+  never blocks intake even when the pool cannot be read at all, and that an unstaffed
+  pool leaves the case ownerless for the triage tab — so staffing `service_agent` is a
+  behaviour change in itself. Like the lead section it carries the "there is no settings
+  screen for this" note, and it says in as many words that this is not the escalation
+  hand-off to `service_manager`.
+  
+  Documentation only — no metadata, hook or seed change.
+- 78381a6: Correct the `case_metrics` dimension inventory on the service docs — two pages
+  told readers the dataset has five dimensions when it declares six, in all three
+  locales.
+  
+  `src/datasets/case.dataset.ts` gained a sixth dimension, `resolved_article`
+  (labelled **Resolving Article**, over the `resolved_by_article` lookup), when
+  article ranking landed. Two service pages still enumerated the pre-existing
+  five and named them as the complete set:
+  
+  - **SLA & Escalation** — "declares exactly five dimensions".
+  - **Cases** — "declares Status, Priority, Origin, Type and Created as its only
+    dimensions".
+  
+  Both are now correct and name **Resolving Article**, which is the dimension the
+  Service Overview dashboard's **Top Resolving Articles** table groups on — so a
+  reader who takes the docs as the inventory no longer concludes that a grouping
+  they can actually use does not exist.
+  
+  The three conclusions the SLA page draws from that list are unaffected and are
+  left standing: `case_metrics` still declares no owner/agent dimension, still
+  reads `crm_case` alone and never crosses to `crm_account` for account tier, and
+  **Created** still buckets by day rather than by month. Each was re-verified
+  against source rather than assumed.
+  
+  Separately, the SLA page said the SLA Performance report reports "not a
+  compliance percentage either". That remains true of the report, but the page
+  gave a reader no way to learn that the on-time percentage exists at all, so it
+  now carries the same parenthetical the analytics pages already carry: the
+  percentage is declared as **SLA Compliance Rate**, and the Service Overview
+  dashboard's **SLA Compliance** gauge plots it.
+- a3955a9: Correct the `case_metrics` inventory in the analytics docs — it listed three
+  measures for a dataset that declares eight, in all three locales.
+  
+  `src/datasets/case.dataset.ts` has grown twice since these pages were written:
+  the knowledge-deflection family (`closed_count`, `kb_resolved_count`,
+  `kb_deflection_rate`) and the SLA-compliance family (`sla_met_count`,
+  `sla_compliance_rate`), plus the `resolved_article` dimension. The docs still
+  enumerated the pre-deflection three, so a reader — or an agent reading the docs
+  first, which is this repo's stated use — was taught that `kb_deflection_rate`
+  and `sla_compliance_rate` do not exist.
+  
+  Two claims were not merely incomplete but false, and both were load-bearing
+  negatives that other prose reasons from:
+  
+  - The cubes page stated there is `no "SLA met %"` and that `case_metrics`
+    declares none. `sla_compliance_rate` is exactly that, and the Service
+    dashboard's SLA gauge plots it.
+  - The same page stated there is "one count measure, not three", and that no
+    pre-filtered measure exists. There are four count measures, three of them
+    pre-filtered (`closed_count`, `kb_resolved_count`, `sla_met_count`).
+  
+  The reports page's `case_metrics` sentence exists to explain why five unshipped
+  reports "ask the semantic layer for something it does not carry", so a stale
+  inventory there made a published argument unverifiable rather than merely
+  out of date.
+  
+  The other eight rows of the same dataset table were re-checked against
+  `src/datasets/` and are accurate as written; only the Case Metrics row had
+  drifted.
+- 724808c: Correct the Cases page's account of the case **detail screen** and the case
+  **form** — both described a shape the app moved off two releases ago, in all
+  three locales.
+  
+  A reader following the page could not find what it promised. The *Details* tab
+  was said to hold **16** of the object's 25 fields; it holds **10**. The case
+  form was said to be **tabbed, with three sections** (*Case / SLA / Resolution*)
+  covering 20 fields; it is a single untabbed section of **9**. Every number here
+  was re-derived from source rather than adjusted: the Details tab from the
+  `record:details` sections of `src/pages/case_detail.page.ts`, and the form from
+  `CaseViews.form` in `src/views/case.view.ts`, cross-read against the field list
+  `test/case-create-form-narrowing.test.ts` already pins.
+  
+  Three claims about **Internal Notes** pointed in two directions at once. The
+  Details tab's *Description* row omitted it, and the paragraph listing what is
+  *not* on the tab named it — while the field has been on that tab, in that
+  section, since it was given a surface there. It is now listed once, in the row
+  it is actually in, and the page says plainly that this tab is the only place in
+  the app that shows it.
+  
+  Two further sentences said the same stale thing in other words and are
+  corrected with them: the fields-not-on-the-tab paragraph (nine, now fifteen,
+  and grouped by where each one actually is) and the claim that the **account**
+  "appears three times over ... and a field in the *Details* tab" — it appears
+  twice, in the header subtitle and the Key Information strip.
+  
+  The page also now explains *why* both lists are shorter than their section
+  names suggest, because the numbers alone read like an omission: a
+  `record:details` section lists only the fields it owns, so the six fields on
+  the Key Information strip and the Subject in the page title are not repeated
+  below it; and the form is the create form and the edit form both, so it offers
+  what somebody raising a case has in hand and leaves everything the lifecycle
+  stamps to be read on the detail screen.
+  
+  The object's own **field groups** table on the same page was re-derived too and
+  was already correct — 8 / 2 / 7 / 2 / 3 / 2, plus Priority Rank in no group —
+  so it is unchanged. No metadata changed: this is the documentation catching up
+  with the screens.
+- 208737a: Say how many names the case-views section used to list, so the English page and
+  its two Chinese faces state the same fact. Under *Standard list views* on the
+  cases page the same paragraph opened three different ways: English asserted
+  "Six names this section used to list are not views at all", while both Chinese
+  faces asserted a list of seven of which six are phantom.
+  
+  The two Chinese faces were right. Both sentences entered in one commit, and that
+  same commit removed the list they point back at — the section's previous
+  *Standard list views* body, which listed exactly **seven** names: *My Open
+  Cases*, *Critical Cases*, *Cases Due Today*, *Breached SLA*, *Recently Closed*,
+  *By Account* and *Service Board*. Six of those seven are the six the bullets
+  still name as phantom. The seventh, **My Open Cases**, is a real view
+  (`src/views/case.view.ts`) and survives in the views table directly above the
+  paragraph. So the Chinese sentence was complete and the English one was terser,
+  stating the six and dropping the denominator; neither stated anything false.
+  
+  Parity is reached by raising the English rather than trimming the Chinese, so
+  only the English line changed. Deleting the "seven" would have removed a
+  verified fact to tidy an arithmetic — the mirror image of the other tempting
+  non-fix, adding a seventh phantom bullet to reach seven, which would have
+  invented a false claim on a page whose whole purpose is naming what does not
+  exist.
+  
+  The number is durable in a way roster counts are not: it describes what an
+  earlier revision of this page listed, not what the app ships, so it cannot go
+  stale as views are added or removed.
+- e735d00: Releasing HotCRM no longer re-formats release notes that have already shipped, and
+  one mangled field name in the published 3.0.0 notes is repaired.
+  
+  `changeset version` re-printed the whole of `CHANGELOG.md` through Prettier on every
+  run, because Prettier is on unless a project turns it off and this repo never set the
+  key. Prettier re-pairs emphasis delimiters across a paragraph, so an underscore inside
+  a field name gets paired with the underscore of a nearby italic span and both are
+  re-emitted with the wrong delimiters. Names that identify a real column turn into text
+  that identifies nothing, the command exits 0, and the churn sits inside a
+  several-thousand-line addition where nobody would see it.
+  
+  It had already happened once, in text that shipped: the 3.0.0 notes say the renewal
+  task writes `due*date` and `related_to*\*` where the changeset that produced them said
+  `due_date` and `related_to_*`. That line is repaired back to what the release actually
+  said — the one hand-edit of the generated region that is justified, because the
+  generator is what broke it.
+  
+  `.changeset/config.json` now sets `prettier: false`, so a release section is written
+  once and never re-formatted afterwards. Measured, not read out of the docs: on a
+  throwaway copy of the tree, `changeset version` with Prettier on rewrites four further
+  lines of the shipped 3.0.0 notes (`forecast_category` → `forecast*category`,
+  `is_active` → `is*active`, and the two italic spans either side of them); with
+  `prettier: false` the entire pre-existing file comes back byte-identical and the run
+  only prepends the new section.
+- 6d9fd0a: Upgrade `@changesets/cli` to 3.x, and keep HotCRM versioning itself while doing it.
+  
+  `@changesets/cli` 3.0.0 ships 18 breaking changes. Three of them land on this repo,
+  and two would have landed **silently** — which is why this is the upgrade rather
+  than the bare dependency bump dependabot proposed.
+  
+  **Private packages are no longer versioned by default.** `hotcrm` is `private: true`
+  and versions *itself* through changesets; `CHANGELOG.md`, the release notes this app
+  publishes, is written by `changeset version` and by nothing else. Measured on a
+  private single-package fixture with a pending changeset and no `privatePackages`
+  option: the command exits **0**, prints "All files have been updated. Review them and
+  commit at your leisure", and then leaves the version untouched, writes no
+  `CHANGELOG.md`, and does not even consume the changeset. `.changeset/config.json` now
+  sets `privatePackages: { version: true, tag: false }` — the 2.x default, restored
+  explicitly — and `test/changeset-version-wrapper.test.ts` runs the real CLI against a
+  fixture carrying this repo's own config, so a future default cannot quietly move it
+  back.
+  
+  **The formatter option was renamed, so turning it off had to be re-stated.** 3.x
+  replaces `prettier` with `format`. A leftover `prettier` key is accepted in silence —
+  no error, no warning — and formatting returns at its `auto` default, which is exactly
+  what re-mangles field names inside already-published release notes. `format: false`
+  now carries what `prettier: false` used to.
+  
+  **`changeset version` exits 1 when there is nothing to release** (2.x exited 0).
+  Running it with nothing pending is an ordinary answer at release time, not a broken
+  release, so `pnpm changeset:version` goes through `scripts/changeset-version.mjs`,
+  which reports that one outcome as "nothing to release" and exits 0. It is identified
+  by the sentinel line the CLI prints on exactly that path, never by the exit code
+  alone, so every other failure — a misspelled `--ignore` package, a malformed config,
+  an unwritable tree — still exits non-zero.
+  
+  **Node floor, FROM `>=22` TO `^22.11 || ^24 || >=26`.** 3.x requires the latter, and
+  `>=22` admitted 22.0–22.10, which it rejects. This corrects a declaration that was
+  already false with `engine-strict=true` in `.npmrc` rather than narrowing real
+  support: CI runs `22.x`, `.nvmrc` pins 22, and both resolve above 22.11.
+- a4e5ea3: Keep a Chinese reader on the Chinese page. Twelve site-absolute links inside the
+  translated documentation dropped the locale segment, so clicking one silently
+  landed the reader on the English page — the target existed, nothing 404-ed, and
+  nothing said the language had changed. The docs site hides the prefix for the
+  default locale only (`hideLocale: 'default-locale'`, English at `/docs/...`),
+  so `/zh-Hans/docs/...` and `/zh-Hant/docs/...` are the only spellings that open
+  a translated page.
+  
+  The twelve sat on five page families, each in both faces: the sandbox and
+  release checklist linking Email & Calendar, the FAQ's Stripe answer linking
+  Integrations, the Opportunities page linking Quotes and Dashboards, the Cases
+  page linking Sharing & Security, and the Service index linking Cases. Half of
+  them contradicted their own page: at six of the twelve sites the very same
+  target was already linked with the prefix elsewhere in the same file — the FAQ
+  links Integrations with the prefix on one line and without it eight lines
+  later — and eight of the ten files carry prefixed links throughout. That is
+  what made these read as authored rather than wrong.
+  
+  Every one of the six targets ships both `.zh-Hans.mdx` and `.zh-Hant.mdx`,
+  verified per link before rewriting, so all twelve now resolve to a translated
+  page rather than turning a wrong-language landing into a missing one. The
+  English pages were already correct and are untouched. Nothing else changed:
+  each edited line differs from its previous form by the inserted locale segment
+  and by nothing else.
+- 392405f: Chinese docs pages name list views the way the Chinese console labels them.
+  
+  `content/docs` ships three locales, and the roster tables on the Chinese faces
+  named views two different ways. `revenue/contracts` and `sales/activities`
+  used the `zh-CN` locale-pack wording; `service/cases`, `marketing/campaigns`
+  and `revenue/products` spelled the same column in English. Both spellings were
+  shipping, on adjacent pages, in the same locale.
+  
+  What the reader sees on screen is the locale-pack label — the console resolves
+  a view's `label` through `src/translations/zh-CN.ts`. So the English-spelling
+  pages named things the Chinese UI does not call them: a reader could not search
+  the interface with the string the page gave them. This rewrites those three
+  pages, on both Chinese faces, to the pack wording:
+  
+  | view (`src/views/*.view.ts`) | was | now (`zh-CN` pack) |
+  | --- | --- | --- |
+  | `all_cases` | All Cases | 全部工单 |
+  | `case_workflow` | Service Workflow | 服务流转 |
+  | `sla_calendar` | SLA Calendar | SLA 日历 |
+  | `case_timeline` | Case Timeline | 工单时间线 |
+  | `escalated_cases` | Escalated Cases | 已升级工单 |
+  | `unassigned_triage` | Unassigned — triage | 未分派 — 待分诊 |
+  | `sla_at_risk` | ⏰ SLA at Risk | ⏰ SLA 风险预警 |
+  | `my_open_cases` | My Open Cases | 我的待处理工单 |
+  | `all_campaigns` | All Campaigns | 全部营销活动 |
+  | `campaign_gantt` | Campaign Schedule | 活动排期 |
+  | `campaign_calendar` | Launch Calendar | 活动日历 |
+  | `campaign_timeline` | Marketing Timeline | 营销时间线 |
+  | `all_products` | All Products | 全部产品 |
+  | `product_catalog` | Product Catalog | 产品目录 |
+  
+  Prose references to those same views are rewritten with the table, because the
+  table and the sentence beside it have to agree: one page said the kanban "is
+  called Service Workflow, and that is what the tab reads", which the tab does
+  not. Names that are **not** views keep their spelling — the `Critical Cases`
+  and `SLA Violations` metric tiles, the `Escalated Cases Sharing` sharing rule,
+  and the phantom names the pages exist to debunk.
+  
+  The `zh-Hant` face has no locale pack of its own and its names are a
+  hand-maintained chain: nothing produces them and nothing checks them. They are
+  written here by the convention the shipped `zh-Hant` pages already follow.
+- 44ac172: Customer Churn Signals now opens with the accounts a CSM flagged by hand.
+  
+  `crm_account.health_score` is a hand-maintained column — a CSM who has been in
+  the room sets it to *At Risk* or *Churning* — and the churn report read it in no
+  panel. Every panel on that report was a derived signal: the activity clock
+  stopped, a high tier went quiet, a deal was lost. So the one churn signal a
+  person actually asserts was the one the churn report did not show, and an
+  account being talked to every week while its CSM believes it is churning
+  appeared on no panel at all.
+  
+  **CSM-Flagged Accounts** is now the first panel: active accounts whose Health
+  Score is *At Risk* or *Churning*, counted by account type. It carries no time
+  window on purpose — that is what lets it surface the account the other three
+  panels cannot see. The existing three panels are unchanged.
+- b66c5a7: Give a cloned opportunity its 90-day close date on one calendar. **Clone
+  Opportunity** sets the new deal's `close_date` to today + 90 days; it stepped
+  those 90 days on the server's **local** calendar and then rendered the result on
+  the **UTC** one. The two agree only while a local day is exactly 24 hours long,
+  so on any deployment running in a zone that observes daylight saving the stored
+  date can land **one day off** — earlier when the 90-day window contains a
+  spring-forward, later when it contains a fall-back. A UTC deployment was never
+  affected, which is why this was never seen in CI.
+  
+  The exposure, measured across a full year of clone instants in
+  `America/New_York`, `Europe/Berlin`, `America/Santiago`, `Australia/Sydney` and
+  `Pacific/Auckland`: roughly half the days of the year start a 90-day window that
+  crosses a transition, and on such a day the wrong answer comes out for clones
+  made within one hour of a UTC day boundary — about 1 in 50 clones overall in a
+  DST-observing zone, and none at all in `UTC` or `Asia/Tokyo`.
+  
+  A day matters here because `close_date` is persisted, tracked in field history,
+  and read by everything downstream: it is the date-range filter field on the
+  Sales, Pipeline and Executive dashboards, the month and quarter dimension of the
+  opportunity dataset (so an off-by-one at a month or quarter edge files the deal
+  in the neighbouring bucket), the window the nightly forecast snapshot uses to
+  decide which period a deal belongs to, and the field behind the "Close date
+  should not be in the past" warning that the 90-day horizon exists to keep clear
+  of. Nothing downstream could tell the date had been computed wrongly.
+  
+  The horizon itself is unchanged — still 90 days, still counted from the moment
+  the clone is made. Only the calendar the step is counted on moved, so it now
+  matches the calendar the value is written on.
+- ac7b9b9: Chinese docs pages name `close_date` the way the Chinese console labels it.
+  
+  `crm_opportunity.close_date` is declared `label: 'Close Date'`
+  (`src/objects/opportunity.object.ts`) and the `zh-CN` pack resolves it to
+  预计成交日期 (`src/translations/zh-CN/objects.pipeline.ts`). The Chinese doc
+  faces spelled it two ways at once: 56 sites across 16 pages used a coined short
+  form 成交日期/成交日期, against 18 that already used the pack wording. Both
+  spellings were shipping on adjacent lines of the same page —
+  `analytics/dashboards` wrote 商机预计成交日期 in three places and a bare
+  成交日期 in two, so a reader could not tell whether they were one field or two.
+  
+  `src/` is the source of truth for a label, not the docs (#1329, AGENTS.md
+  §Documentation discipline rule 6), so the docs move: every coined site is now
+  预计成交日期 on the zh-Hans face and 預計成交日期 on the zh-Hant face, across
+  `analytics/cubes`, `analytics/dashboards`, `getting-started/quick-tour`,
+  `revenue/approvals`, `sales/leads`, `sales/opportunities`,
+  `sales/pipeline-management` and `sales/quotes`. That includes
+  `sales/opportunities`, which had deliberately kept the coined form because #1719
+  preferred the page's own established term to introducing a second spelling into
+  one table — the decision that closes the split reaches it too, or the split just
+  moves to a different page.
+  
+  One sentence needed more than a substitution. `revenue/approvals` read
+  承诺成交日期前请预留审核窗口, where 承诺 modifies the field name; stacking the
+  four-character label straight in gives 承诺预计成交日期, two modifiers deep and
+  unreadable, so it is written 承诺的预计成交日期 with the label intact.
+  
+  The English pages are untouched: `Close Date` is the declared label and the
+  English surface was never split.
+  
+  The acceptance evidence is a pair of counts, and both of them need care. A naive
+  replacement is wrong because the coined form is a **substring** of the correct
+  one — it yields 预计预计成交日期 — so the rewrite is guarded by a lookbehind.
+  The lookbehind has to name both scripts: `(?<![预預])(?<!计)成交日期` reads 65
+  rather than 56, because it excludes only the Simplified 计 while the Traditional
+  pack form 預計成交日期 carries 計, so all nine zh-Hant pack sites are counted as
+  coined and the count can never reach zero however complete the fix is. It also
+  has to run in a UTF-8 locale: under `LC_ALL=POSIX`, `grep -P` matches bytes,
+  `[计計]` becomes a set of six raw bytes, and any multibyte neighbour ending in
+  one of them suppresses a real match (成交日期 preceded by 动 is the site in
+  `sales/pipeline-management` that goes missing). Measured as
+  `LC_ALL=C.UTF-8 grep -rhoP "(?<![计計])成交日期" content/docs/`, the corpus reads
+  56 before and 0 after, against `预计成交日期|預計成交日期` at 18 before and 74
+  after. 74 is the invariant total — every occurrence was rewritten in place, none
+  added and none lost, and the two faces stay at 37 each.
+- d130414: Ask for the opportunity's **Close Date** on the lead-conversion screen instead
+  of stamping it 90 days out where nobody could see it.
+  
+  Converting a qualified lead created the opportunity with
+  `close_date` = `TODAY() + 90`, written inside the flow's *Create Opportunity*
+  node. `close_date` is what files an opportunity into a forecast **period**, so
+  every conversion silently pushed a deal a quarter out and moved the forecast
+  with it — and a number nobody was shown is a number nobody can correct. The
+  conversion screen now carries a **Close Date** field, prefilled to the same 90
+  days out and editable before the rep submits, so the date the forecast believes
+  is the date somebody approved.
+  
+  The default is authored **once**. The +90 lives on the screen field's
+  `defaultValue` as `{TODAY() + 90}`, which the server interpolates before the
+  descriptor goes on the wire, and *Create Opportunity* reads the collected value
+  back. Writing it a second time on the flow variable would not work even as
+  duplication: a variable's declared default is bound raw, never interpolated, so
+  the braces would land in the date column. This is the same single-authority
+  rule the **Create Opportunity?** checkbox already follows.
+  
+  The field is **required**, matching the column it fills
+  (`crm_opportunity.close_date` is `required` + `notNull`). That keeps an
+  incomplete conversion refused at the screen, before anything is written: a rep
+  who clears the prefilled date, or a caller that resumes the screen by hand
+  without the key, gets `Screen field "closeDate" is required` and an unchanged
+  database. Without it the same submission is refused three nodes later, by which
+  point the account and the contact already exist and the lead is left
+  half-converted. The field is hidden — and its `required` correspondingly
+  inert — when *Create Opportunity?* is unticked, so converting a lead without an
+  opportunity is unchanged.
+  
+  **A loud failure replaces a silent one.** Nothing that used to succeed now
+  fails through the console: the runner seeds its value state from every field
+  carrying a default and submits that bag whole. What changes is that a
+  conversion which cannot say when the deal closes now stops and says so, instead
+  of quietly answering "a quarter from today" on the rep's behalf.
+- 262c78e: Completing a `crm_task` no longer fails *because* the caller supplied
+  `completed_date`. `Completed date is required when status is Completed` used to
+  reject exactly the call that sent the field, and accept the one that omitted it.
+  
+  The two halves that produced the inversion each read correctly on their own.
+  `completed_date` is `readonly: true`, and since `@objectstack/objectql@17.4.0`
+  the engine strips a static readonly field from a non-system caller's INSERT as
+  well as their UPDATE. The completion hook stamped the field only
+  `if (!input.completed_date)` — that is, only when the caller had left it empty.
+  Measured against a running server on the pinned 17.4.0: the hook still sees the
+  caller's value (the strip runs after `beforeInsert` returns), so a supplied
+  value suppressed the stamp; the engine then deleted the supplied value, because
+  a hook-written key is not caller-supplied but a caller-written one is; and the
+  validation, reading the field as absent, refused the write. Supplying the field
+  suppressed the one thing that would have rescued it.
+  
+  The cost of that was paid by automated callers, not by people. The error names
+  the field whose *presence* caused the rejection, so an agent reads it as a repair
+  instruction and re-sends the field — 39 `create_record` calls in the session that
+  reported this, none of which could ever have converged.
+  
+  The hook now stamps the completion timestamp on the completing transition
+  regardless of what a non-system caller supplied, which is what `readonly: true`
+  already promised. A **system** write still keeps its own value: nothing strips a
+  system write, and `src/data/service.seed.ts` back-dates seeded completions with
+  `daysAgo(3)` / `daysAgo(2)` — stamping over those would replay the demo book with
+  every completion dated today.
+  
+  Measured before and after through `x-api-key` on a running dev server, as the
+  non-admin demo user the report used: cases 1 and 5 keep their existing behaviour,
+  cases 2, 3 and 4 turn from `400` into `201`, and the stored `completed_date` is
+  the server's stamp in every one. No metadata declaration changes — the field
+  stays `readonly: true` and the validation stays exactly as it was.
+- f9a9d1b: **The app now refuses to convert a lead whose duplicate status is Confirmed.**
+  This is a behaviour change: a conversion that used to go through is now stopped.
+  
+  `crm_lead.duplicate_status` carries two different kinds of fact on one field.
+  `suspected` is a machine's guess — `lead_duplicate_check` writes it at intake
+  when a re-captured email matches an existing record. `confirmed` is a person's
+  verdict — a reviewer opened both records, compared them, and said yes. Until now
+  the app treated the two the same at the moment of conversion: #1207 warned on
+  `suspected` and let the rep decide, and `confirmed` was not consulted at all, so
+  the lead a reviewer had already ruled a duplicate converted into a second
+  account, a second contact and a second opportunity for the same buyer.
+  
+  **What happens now.** Clicking **Convert Lead** on a `confirmed` lead opens a
+  refusal instead of the conversion screen. It names the verdict that stopped it —
+  the lead's Duplicate Status is Confirmed, recorded by a reviewer — and sends the
+  rep to the **Duplicate Management** section on the lead, where the surviving
+  record is linked and clickable. Nothing is created: every write in the
+  conversion sits behind the screen this path never reaches. The right next step
+  for a confirmed duplicate is disqualifying it as one, which `crm_lead` already
+  requires a named survivor for.
+  
+  **What deliberately did not change.** A `suspected` lead still gets #1207's
+  warning and still converts. The matching behind that flag is email equality, so
+  shared inboxes (`info@`, a switchboard address) and a second real enquiry from
+  the same company make false positives certain; blocking on a guess would leave
+  the seller in a dead end with no way out but a review queue, and the only
+  comfortable way out of that dead end would be an override flag — the kind of
+  escape hatch that gets set by default. Interception stands on a person's
+  judgement, and only on that.
+  
+  **Clearing the verdict restores conversion.** A reviewer who decides the lead is
+  not a duplicate clears `duplicate_status`, and the lead converts as before —
+  including when the link to the other record is left in place, because the
+  refusal reads the verdict and not the link. Note the one asymmetry, which
+  predates this change: clearing the *link* alone on a `confirmed` lead tombstones
+  it (`duplicate_of_type` becomes Erased) and the verdict deliberately survives,
+  so that lead stays refused until the verdict itself is revised.
+- da0cf29: Measure a contract's term on the calendar its dates were written on. The
+  `contract_validation` hook's `monthsBetween` parsed two stored `YYYY-MM-DD`
+  values — which the date-only parse anchors at **UTC midnight** — and then read
+  them back with `getFullYear` / `getMonth` / `getDate`, on the **local**
+  calendar. West of Greenwich that anchor is the previous evening, so both
+  operands slid back a day before the subtraction: measured,
+  `new Date('2026-01-01').getDate()` answers **31** in `America/New_York` and
+  **1** in `Europe/Berlin`. The three accessors are now `getUTCFullYear` /
+  `getUTCMonth` / `getUTCDate`.
+  
+  **This changes which contracts can be saved, in a non-UTC deployment, back to
+  correct.** The count feeds a hard refusal, and the ±1-month tolerance that
+  absorbs a rounding difference in the middle of a range does not absorb an error
+  at its edge:
+  
+  | contract | true span | measured before, west of Greenwich | outcome before |
+  | --- | --- | --- | --- |
+  | `2026-03-01` → `2027-04-30`, 12-month term | 13 months — legal, at the tolerance edge | 14 months | **refused**, quoting "14 months" for a range that has 13 |
+  | `2026-01-01` → `2026-05-01`, 2-month term | 4 months — a genuine mismatch | 3 months | **accepted** |
+  
+  Both directions are real and both are now correct. The refusal message also
+  stops quoting a month count the contract's own dates do not have.
+  
+  This is a **negative-offset-only** defect, unlike the mixed-calendar hook
+  arithmetic corrected alongside it: a UTC-midnight anchor read locally is the
+  same date at every non-negative offset, so `Europe/Berlin`, `UTC`,
+  `Pacific/Auckland` and `Asia/Tokyo` never disagreed, and neither did CI. Driving
+  the real hook over 7,200 (start, end) pairs — 400 consecutive start dates from
+  `2026-01-01`, each against ends at +1…+13 calendar months and +29/30/31/59/90
+  days — the fixed function now returns byte-identical counts in
+  `America/New_York`, `America/Santiago`, `Europe/Berlin`, `Pacific/Auckland` and
+  `UTC`. Before the change, `America/New_York` disagreed with `UTC` on 69 of the
+  80,200 ordered pairs drawn from that same 400-day window.
+  
+  The refusal's own policy is untouched: `Math.abs(calc - term) > 1` is the same
+  comparison against the same tolerance. Only the measurement it consumes changed.
+  The third term of the expression is also unchanged in intent — it still asks
+  whether the end day-of-month has reached the start's, and subtracts the
+  incomplete final month when it has not; only the accessor it asks with moved to
+  UTC.
+  
+  Contracts saved before this change are not re-measured or migrated: the hook
+  runs on insert and update, so an already-persisted row is re-validated the next
+  time it is written.
+- ccfe8e2: Declare `ai.requiresConfirmation: true` on the `convert_lead` action, so the
+  approval its own description promises is the one AI callers actually see.
+  
+  `convert_lead` ships an AI description reading *"Irreversible — requires human
+  approval before it runs"*, but `list_actions` over MCP reported
+  `requiresConfirmation: false`. The action declared no such key: a code comment
+  attributed the AI gate to `confirmText`, and nothing else set it. An agent
+  listing this tool was told, by the same payload, both that conversion needs a
+  human and that it needs nobody.
+  
+  `confirmText` is not that key. Measured against the pinned
+  `@objectstack/runtime` 17.3.0, the runtime decides the flag in
+  `actionLooksDestructive`, which reads `action.ai.requiresConfirmation` and
+  otherwise falls back to `mode === 'delete' || variant === 'danger'` —
+  `convert_lead` is neither. `confirmText` occurs **zero** times in the whole
+  shipped runtime bundle; it is the console's confirm-dialog string for a human
+  click, on a path no AI caller reaches. `@objectstack/spec` says the same in its
+  authoring guidance: *"the AI human-in-the-loop override lives under `ai` —
+  write `ai: { requiresConfirmation: true }`. `confirmText` is the separate UI
+  confirm prompt."* The two keys had simply been read as one.
+  
+  `list_actions` now reports `requiresConfirmation: true` for `convert_lead`, and
+  the misleading comment is rewritten to say which key the AI path reads and
+  which one belongs to the console.
+  
+  **What the flag does, stated exactly, because the old comment overpromised.**
+  It is *surfaced*, not enforced. The runtime reads it in one place — projecting
+  the action into the MCP summary — and `run_action` dispatches the flow with no
+  server-side pause. So the flag tells a calling client that this operation is
+  irreversible and lets that client gate the call; it is not a server-side lock,
+  and there is no approval queue holding the request. The retired claim that an
+  agent invocation "lands in the HITL queue" is not restated anywhere.
+  
+  This is a metadata correctness fix in the app the platform's users copy from:
+  an exemplar whose declared contract and enforced behaviour disagree teaches the
+  disagreement. No user-visible console behaviour changes — the confirm dialog a
+  human sees was, and still is, driven by `confirmText`.
+- bc35232: `ctx.api`'s `count` now has its own query type, `HookCountQuery`, carrying only
+  `where` — because the engine's legal set for `count` is only `where`, and the
+  single shared type was blessing two calls that throw on every invocation.
+  
+  `src/objects/_hook-api.ts` declared all three read methods as one `HookQuery`:
+  
+  ```ts
+  export interface HookQuery { where?: Doc; fields?: string[]; top?: number }
+  
+  count:   (q: HookQuery) => Promise<number>;
+  find:    (q: HookQuery) => Promise<Array<Doc>>;
+  findOne: (q: HookQuery) => Promise<Doc | null>;
+  ```
+  
+  The engine does not accept that key set on all three. **Measured against the
+  pinned `@objectstack` packages (17.3.0)**, on the object the kernel injects as
+  `ctx.api` — a real `ScopedContext` over a real ObjectQL engine, not the test
+  harness — by handing each key to the engine and reading the unknown-option
+  guard, which prints the legal set verbatim:
+  
+  ```
+  count('crm_account') does not recognise option 'top'. The engine executes none
+  of it, so the call would succeed with the option silently ignored (#4371).
+  Legal keys for count: context, where.
+  ```
+  
+  `fields` produces the same message word for word; the two were measured
+  separately rather than one inferred from the other. `find` and `findOne` accept
+  both, and their legal set is far wider — `bypassTenantAudit, context, expand,
+  fields, limit, offset, orderBy, preserveAudit, search, searchFields, tenantId,
+  tenantIds, timezone, transaction, where` — with `top` arriving as a declared
+  alias of `limit`, the same fold that makes `filter` an alias of `where`.
+  
+  So `count({ where, fields })` and `count({ where, top })` compiled and threw.
+  That is this file being **wider** than the surface it describes, which is the
+  one failure it exists to prevent: it is a hand-written description of a surface
+  the compiler cannot check, and its header already records what that costs —
+  `update` was declared `(id, doc)` for months while eight hook-side derived
+  writes were dead in production and the suite stayed green.
+  
+  **Nothing users see changes, and no call site moved.** All 23 `count()` call
+  sites under `src/` pass only `where`; the four that pair `fields: ['amount']`
+  with `top: 5000` are `find()`, in `campaign.hook.ts` and
+  `campaign_member.hook.ts`, and they keep the unchanged `HookQuery`. The defect
+  was latent — a wrong call that the types blessed, not a wrong call anyone had
+  made. `HookQuery` was deliberately **not** narrowed to the three-method
+  intersection, which would have traded one latent defect for four live ones.
+  
+  The narrowing is enforced by the compiler, not by a new assertion: reaching for
+  a projection or a row cap on a call that returns a number is a `tsc` error
+  again, which is the entire job of this file. `HookCountQuery` reads as the
+  continuation of the reasoning `HookUpdateOptions` and `HookDeleteOptions`
+  already carry — deliberately narrow, with excess-property checking rejecting
+  the rest at the call site — and it records the verbatim engine reading it was
+  derived from, so the next author does not have to rediscover how to take that
+  measurement.
+- e5de697: Replace the three hand-copied machine facts left in `docs/MAINTENANCE.md` and
+  `docs/feature-inventory.md` with pointers at their source of truth — round two of the
+  sweep PR #1438 and PR #1476 started, and the same wording.
+  
+  `docs/MAINTENANCE.md` stated `pnpm verify` as a four-step chain when `package.json`
+  chains more stages than that line named, omitting a shrink-only ratchet and the i18n
+  gate among them — so anyone troubleshooting from that page believed a green local run
+  had covered checks it had in fact never run. That is the **third** copy of one
+  transcription, after `AGENTS.md` (PR #1438) and `docs/DEPLOYMENT.md` (PR #1476); being
+  copied twice inside one directory is itself the argument for the pointer route. The
+  same file's step 2 hand-copied the locale roster, count and enumeration both. That one
+  was still accurate against disk — which is exactly the state each measured drift was in
+  the release before it drifted, and this repo has open i18n cards that would land the
+  next locale.
+  
+  `docs/feature-inventory.md`'s PRM-010 row stated a demo-account headcount that
+  `src/sharing/demo-staffing.ts` had already moved past. It drifted inside the session
+  that filed it: PR #1463 added the two case-routing staffing rows so the intake
+  round-robin and escalation hand-off would be demonstrable on a demo box, and no doc
+  transcribing the headcount was checked. Rule 5 is not a historical observation about
+  old docs — it produces fresh instances under current review.
+  
+  None of the three is completed, and **none restates a count**. A completed
+  transcription drifts again next quarter (2026-08-31 ruling item 5, and the case law
+  behind it: #610, #965, #977, #1228), and the number is itself the thing that drifts —
+  the verify line proves it by having drifted from four. PRM-010 leans on the inventory's
+  own 「锚点即真相」 rule instead: the row's last column already names the anchor, so the
+  description now points at it rather than counting for it.
+  
+  No guard is added or widened: 2026-08-31 ruling item 3 keeps gate-type mechanisms on
+  the platform, and deletion needs no coverage. `test/docs-src-tree-paths.test.ts` reads
+  `docs/MAINTENANCE.md`, and it is untouched and green either side of this change.
+- f0b2701: The Chinese service docs stop naming a notification after a word the console no
+  longer shows for its trigger.
+  
+  PR #1801 moved `crm_case.priority.critical` from 紧急 to **严重** and swept the
+  documentation prose that *describes* a case as 紧急. It deliberately did not
+  touch the **name of a named thing**: the automation row the English pages call
+  **Notify on Critical** was still spelled 紧急时通知 / 緊急時通知 on the Chinese
+  faces. Its trigger is `crm_case.priority = critical`, so the row named a
+  notification after 紧急 — the word the packs now reserve for
+  `crm_task.priority.urgent` — while the cell beside it wrote the trigger in
+  English as `Critical`.
+  
+  The row name is now **严重时通知** / **嚴重時通知**, which is the same rule its
+  own sibling already follows: **升级时通知** / **升級時通知** embeds 升级, the
+  rendered name of the `escalated` status it fires on. The Chinese row names are
+  `<rendered trigger>时通知`, so aligning the trigger word is what keeps the pattern
+  true rather than a fresh coinage.
+  
+  ### What moved — 8 sites, 3 pages × 2 script faces
+  
+  | page | zh-Hans | zh-Hant |
+  | --- | --- | --- |
+  | `content/docs/service/cases` | 1 | 1 |
+  | `content/docs/service/index` | 1 | 1 |
+  | `content/docs/service/sla-and-escalation` | 2 | 2 |
+  
+  ### What deliberately did not move
+  
+  - **The English pages.** "Notify on Critical" is correct and is the baseline.
+  - **`升级时通知` / `升級時通知`**, the sibling row — its trigger is the
+    `escalated` status, which did not move.
+  - **Every 紧急 that is about a task.** The follow-up task the escalation opens is
+    `crm_task.priority.urgent`, which keeps 紧急 by the #1342 ruling; the sentences
+    describing it are untouched on all four pages that carry them.
+  - **The generic 紧急程度 / 緊急程度** ("priority level") — not the value word.
+  - **`CHANGELOG.md`**, which records what was true when each release shipped.
+  
+  `严重` is the `zh-CN` pack value; `嚴重` is that wording in Traditional
+  characters, the sourcing rule the `zh-Hant` pages already state and the spelling
+  PR #1801 established on these same two pages. No Traditional translation is
+  coined here.
+- 9f59f6a: Call `crm_case` 工单, everywhere Chinese is spoken. Maintainer ruling,
+  2026-08-31: 「crm_case  统一叫工单。」
+  
+  **What a user sees change:** the object's Chinese label. The console showed
+  「服务案例」 — on the object header, the record rail, the sidebar entry, and the
+  case-number field — while the docs a reader searched with mostly said 「工单」.
+  The pack now says 工单 in all six places it named the object: `label`,
+  `pluralLabel`, `description`, `case_number`, the `nav_case` sidebar entry, and
+  `crm_knowledge_article.related_to_case` (来源工单, matching the 关联工单 its two
+  sibling objects already used). `en`, `es-ES` and `ja-JP` are untouched — they
+  carry `Case` / `Caso` / `ケース`, not a Chinese term, and the ruling is about
+  the Chinese word.
+  
+  **How bad it actually was.** One object answered to five Chinese names at once,
+  each inside something already green: 服务案例 in the pack, 工单/工單 on 29
+  zh-Hans and 27 zh-Hant pages, 案例 on 14 and 15 more, 案件 in
+  `sharing-coverage.test.ts`'s zh-Hant ledger and the three zh-Hant pages it
+  covers, and 个案 on `whats-new.zh-Hans.mdx`. Five zh-Hans pages and five
+  zh-Hant pages used two of them on one page. 33 Chinese pages move to
+  工单/工單; every one of the 92 Chinese occurrences was read before it was
+  changed, and all 92 were this object. (`ja-JP.ts` uses 案件 in
+  `crm_opportunity`'s description — 「商談・案件」, a Japanese word about a
+  different object. It is why this is not a tree-wide replace.)
+  
+  **Why it could drift that far.** Three test ledgers pinned this object's row
+  label — the sharing tables, the automation flow table, the state-machine roster
+  — and each compared its own page to its own ledger and nothing else. Three
+  guarded tables, three spellings, all passing. Nothing in the repo compared a
+  ledger to the language pack, and nothing compares one ledger to another.
+  
+  So the ruling's third part lands with the rename rather than after it:
+  `test/docs-object-term-consistency.test.ts` derives the Simplified term from
+  `objects.<name>.label` in the zh-CN pack — the same string the app resolves —
+  and fails on any retired spelling reaching a zh-Hans page, a zh-Hant page, the
+  pack itself, or a string literal in any ledger under `test/`. Delete the word
+  instead of unifying it and it fails too: the surviving term has to be on the
+  pages, and the three ledgers have to still carry a row. Traditional is authored
+  rather than derived, because the app ships no Traditional locale (the console
+  falls back to Simplified) — so there is no field to read it from, and the guard
+  checks it is a genuinely different string that genuinely appears.
+  
+  Adding a second object to that guard is one ledger entry.
+- 30f2500: Name this app's own sidebar in English on the four zh-Hant pages that still
+  named it in Traditional Chinese, and empty the quarantine ledger that was
+  holding those five pairs — in one commit, because the two halves fail in
+  opposite directions.
+  
+  `KNOWN_UNRESOLVED_CRM` in `test/docs-setup-navigation-names.test.ts` quarantined
+  five `group → child` citations rather than rewriting them, on purpose: which
+  locale a zh-Hant reader should be sent to was the open question on #1368, and
+  rewriting the pages first would have pre-empted the ruling. That block wrote its
+  own unblock condition into a comment — *"when #1368 is decided, these five lines
+  are the worklist"* — because it could not write one into code. #1368 decided on
+  2026-08-31, and this is that worklist executed.
+  
+  The convention holds on its measured reason: this app ships `en` / `zh-CN` /
+  `ja-JP` / `es-ES` and no Traditional-Chinese bundle, so a zh-Hant reader's
+  console falls back to **Simplified**, and a Traditional page names navigation in
+  English rather than mix Simplified glyphs into Traditional prose. It is *not*
+  that the reader sees an English console — that reason was measured false and is
+  retired.
+  
+  Six citation sites, four pages, each replacement taken from the page's English
+  twin rather than translated back:
+  
+  - `guides/email-and-calendar.zh-Hant.mdx` — **My Work → My Calendar**
+  - `sales/activities.zh-Hant.mdx` (twice) — **My Work › My Tasks**
+  - `sales/leads.zh-Hant.mdx` — **My Work › My Leads**
+  - `sales/meetings-and-calls.zh-Hant.mdx` — **Activity › Events** and
+    **My Work › My Calendar**
+  
+  The last group is the one worth reading twice. The Traditional citation was
+  `活動 › 活動` — group and child spelled the same word — and it does *not* mean
+  *Activity → Activities*, which this app ships nowhere. It resolves against
+  `src/apps/crm.app.ts` to `group_activity → nav_event`: **Activity › Events**.
+  The pair looked self-referential only because zh-CN labels the group and the
+  Events entry with the same string, `活动`.
+  
+  The prose and the ledger had to land together. Fixing the pages alone turns
+  *"holds no quarantined pair the docs no longer cite"* red, naming all five
+  entries; deleting the five lines alone turns *"name a group and a child this app
+  really ships, in one locale"* red, naming all six sites. Both reds were measured
+  by ablation before the fix, so the pairing is a demonstration rather than a
+  claim, and the next reader has the failure text rather than the advice.
+  
+  The block's comment is corrected in the same change. It said #1368 *"carries
+  `needs-user-decision`"*, which stopped being true when the card was decided — a
+  quarantine note that misstates its own unblock condition is how the next reader
+  concludes the block is still live. The set itself stays, empty and still checked
+  in both directions, exactly as `KNOWN_UNRESOLVED` does: an asserted zero, not an
+  absent one.
+  
+  Prose and ledger contents only — no rule change. `CITATION`, `CRM_CITATION`,
+  `APP_WORDS`, `RETIRED_UI_NAMES` and the platform ledger `KNOWN_UNRESOLVED` are
+  untouched.
+- 01c659e: Retire `crm_case.customer_rating` and `customer_feedback`, and the
+  `case_csat_followup` flow that existed to collect them (#1428).
+  
+  **What this closes is a declared-but-unenforced hole, not two spare columns.**
+  Both fields were writable, translated in four locales, and reachable from no
+  screen in the product — no form, no detail section, no list column, no filter.
+  Nothing in the app wrote them either, outside seed data. And neither field was
+  named in any profile's `fields` map: on this platform field permissions are
+  built only from the fields a permission set names, so an unnamed field is
+  **default-open**. The one thing a CRM must be able to say about a satisfaction
+  score — who gave it — was the one thing this shape could not say. A score typed
+  by the person being scored is not the same fact as one the customer gave, and a
+  system that cannot tell them apart reports a number it cannot defend.
+  
+  The maintainer ruled ADR-0049 **enforce-or-remove**: no staff hand-entry
+  surface, and no survey feature for now. A customer-answered survey remains the
+  sound long-term shape and is not precluded — it is a feature, with its own
+  intake, identity and anonymous write path, and it would arrive as its own card.
+  
+  `case_csat_followup` goes with the fields rather than being rewritten. Its whole
+  purpose was to notify the case owner, a day after close, to "log their
+  satisfaction rating" against a record page that had nowhere to put one — a
+  shipped feedback loop with no landing point. With the fields gone it feeds
+  nothing, and nothing else was measured to want it, so retirement is the honest
+  answer; a rewrite would have had to invent a new purpose to justify keeping the
+  name.
+  
+  Also gone with them: the four-locale label and help entries, the flow's row in
+  the built-in automation table on all three doc locales, the CSAT knob in the
+  packaged admin handbook, and the satisfaction section of the packaged service
+  guide. The analytics pages that explained why "CSAT by Agent" could not be built
+  now say so for the stronger reason — there is no satisfaction data at all,
+  rather than a field no measure aggregates.
+  
+  **Upgrade note.** Any stored `customer_rating` / `customer_feedback` values stop
+  being read or written by the app. Nothing in this repo migrates them; export
+  them before upgrading if an org has data worth keeping.
+- c423673: Dashboard filter chrome now speaks the viewer's language — the filter names and their
+  option values on all five dashboards are translated into every locale HotCRM ships.
+  
+  Under a Chinese, Spanish or Japanese UI the analytics dashboards used to render a
+  half-translated filter bar: the tiles, the charts and the option placeholder localized,
+  while the filter's own name stayed English. `Sales Rep: 全部` next to `商机类型: 全部` was
+  the tell — the value went through translation and the label beside it did not. The
+  hardcoded English **option** labels went untranslated with it, so opening *Deal Type*
+  offered `New Business` / `Existing Customer - Upgrade` on an otherwise Chinese page.
+  
+  Every `globalFilters[]` entry across Sales Performance, Customer Service, Executive
+  Overview, CRM Overview and Sales Activity now carries its name and its static options as
+  an inline per-locale map covering **en · zh-CN · es-ES · ja-JP**. The wording is the
+  language pack's own — `销售代表`, `商机类型`, `优先级`, `线索来源` and their option values
+  are the same strings the record pages and widget titles already use, so the filter bar
+  does not coin a second vocabulary for a noun the app already labels. Case priority
+  `critical` renders `严重` in Chinese, never `紧急`, keeping the case and task priority
+  vocabularies distinct.
+  
+  Chart **axis** titles are deliberately unchanged and stay English. `ChartAxisSchema.title`
+  accepts the same inline locale map the filters use, but the Console does not resolve it
+  against the viewer's locale — it flattens the map to whichever value happens to come
+  first, so writing one there would translate nothing while making the single hardcoded
+  string harder to read. Measured in a real browser both ways round and written down in
+  `src/dashboards/index.ts`, so the next author does not have to measure it again.
+- e14e2b6: Write down what a dashboard filter actually filters — the rule the docs left a
+  careful reader to guess wrong.
+  
+  `content/docs/analytics/dashboards.mdx` (and its two locale twins) now say, in
+  one paragraph under **What you can change**, that a dashboard filter is matched
+  against the **object** behind each widget's dataset rather than against that
+  dataset's declared dimensions, and is ANDed into the query of every widget bound
+  to it. Four consequences follow, and all four were previously recorded nowhere a
+  reader could reach — only as inline comments in `src/dashboards/executive.dashboard.ts`
+  and `src/dashboards/crm.dashboard.ts`:
+  
+  - the filter needs no dataset dimension: Customer Service offers an **Agent**
+    filter on `case_metrics`, which declares no owner dimension, because `owner_id`
+    is a field on the case;
+  - naming a field there confers no ability to **group by** it, which is why
+    *SLA & Escalation* is right that no report and no dashboard widget breaks cases
+    down by agent — the two sentences describe different paths, not a contradiction;
+  - a filter naming a field a widget's own object lacks would ask that widget's
+    query for a column that does not exist;
+  - so a widget that cannot answer a filter opts out of it by name, via
+    `filterBindings`, rather than quietly ignoring it.
+  
+  The behaviour was established by browser measurement on ObjectStack 17.1.0 and
+  re-confirmed on the installed 17.3.0 line before being published as a current
+  fact: `@objectstack/service-analytics` merges the dashboard's filters into each
+  widget's query as `runtimeFilter`, and a filter member the dataset does not
+  declare falls through to the raw object column, while a widget dimension that is
+  not a declared dataset dimension is a hard authoring error.
+  
+  The same section also now states what a date-range window means, which was
+  asserted in `test/dashboard-date-range-window.test.ts` and written on no page:
+  windows resolve server-side on UTC calendar days, so "last 7 days" is the seven
+  UTC calendar days ending with today's UTC date, both ends inclusive, and the
+  reader's own clock does not enter into it.
+  
+  No metadata changed. No dashboard, dataset or object was touched.
+- 28bf0d9: Stop denying a shipped control. The Dashboards page said twice that Customer
+  Service has **no** date-range picker; the dashboard has carried one since #1157
+  restored it — over the date a case was created, defaulting to the last 90 days.
+  A reader who believed the page read every number on that dashboard as
+  unwindowed, when all of them were bounded by a window they had been told did not
+  exist.
+  
+  The two claims are now written from the declarations rather than from memory.
+  Every `src/dashboards/*.ts` `dateRange` was read for this, and the blanket
+  sentence under **What you can change** turned out to be wrong in a second way as
+  well: it described *every* picker as windowing the opportunity close date and
+  defaulting to this quarter, which is true of CRM Overview, Sales Performance and
+  Executive Overview but not of Customer Service. Four of the five dashboards
+  carry a picker and all four accept a custom range; Sales Activity, which
+  declares none, is now named as the single exception instead of one of two.
+  
+  The **reason** the page gave is corrected too, not just the conclusion. Both
+  sections invoked a platform defect — a datetime filter coercion that zeroed
+  every widget when a range was applied — as a live cause. That defect is fixed
+  and released: `@objectstack/driver-sql` and `@objectstack/service-analytics`
+  17.0.0 carry objectstack#3912 (one UTC storage form per dialect) and
+  objectstack#3777 (a bare-day upper bound covering the whole day), and this repo
+  is pinned to 17.3.0. Repeating a closed defect as a current reason is what let
+  the contradiction survive #1157 in the first place, so the Sales Activity
+  section now states what is actually true of it: it carries time on an axis
+  instead — Activity Volume by Week buckets by week, and the quiet-account tiles
+  window their own 30 / 60 / 90-day thresholds.
+  
+  Two facts the page had right are kept and made reachable rather than rewritten.
+  Daily Case Volume really does opt out of the picker (`filterBindings:
+  { dateRange: false }`) and keeps the 30-day window its title names — now stated
+  as an opt-out from a picker that exists, which is what a reader needs in order to
+  read that chart beside a 90-day case load. And the UTC calendar-day rule added by
+  #1640 is untouched: it still explains what any of these windows means.
+  
+  No metadata changed. No dashboard, dataset or object was touched — the product
+  is right and the prose was wrong, in all three locales (`en`, `zh-Hans`,
+  `zh-Hant`).
+- fa637d9: Decorrelate the 30-case demo volume generator, so the demo backlog shows a real
+  mix instead of one status per account (#1659).
+  
+  The generator behind the hand-authored service cases read **one** counter for
+  every axis it varies. `crm_account` and `status` both took `i % 5`, and
+  `priority`, `type` and `origin` all took `i % 4` — equal-length lists walked by
+  the same index, so each group advanced in lockstep and came out perfectly
+  correlated. Measured on the shipped seed: the account × status cross-tab held
+  **5 of its 25 cells** (every Acme case `new`, every Globex `in_progress`, every
+  Wayne `resolved`, every Initech `closed`, every Stark `escalated`), and
+  priority × type, priority × origin and type × origin held **4 of 16 each** —
+  every `low` case was a `question` raised by `email`, every `critical` a
+  `feature_request` from `chat`. Thirty rows of volume with no variety, which is
+  the opposite of what a volume generator is for.
+  
+  What a demo user saw: filtering the case list by account returned a single
+  status every time, a per-account status breakdown drew one bar, and Acme's
+  related list showed **8 open cases** — six of them generator rows, all `new`,
+  all on Acme by construction — against a hand-written description that speaks of
+  one worked ticket plus one billing dispute.
+  
+  Each list now advances one step per row **plus a rotation**, so no two axes stay
+  in step. `crm_account` is the anchor; `status` rotates one step per pass through
+  the accounts, which makes account × status complete by construction rather than
+  by luck — account `a` takes rows `a, a+5 … a+25`, so its six statuses are
+  `(a + b) % 5` over `b = 0…5`, all five of them. `priority`, `type` and `origin`
+  carry rotations picked by computing all ten pairwise cross-tabs and keeping the
+  assignment that left the fewest empty cells.
+  
+  Measured after: **188 of the 193 pairwise cells are occupied** (from 137), no
+  cell holds more than 3 of the 30 rows, every account now shows all five
+  statuses, and the marginals are as flat as thirty rows allow — 6/6/6/6/6 by
+  account and by status, 8/7/7/8 by priority, type and origin. Acme's related
+  list reads 7 open cases across five different statuses.
+  
+  Nothing outside the generated rows moved: the eight hand-authored cases are
+  untouched, and so are the seeded accounts, events and tasks. Demo case
+  **subjects change** (they name the row's priority and type, which now vary
+  independently — `Demo case 06 — high feature_request` where it used to read
+  `medium bug`), and subject is the upsert identity for these rows, so a demo
+  database seeded before this change keeps the old rows alongside the new ones
+  until it is reset with `pnpm demo:reset`.
+  
+  The rotation constants are **tuned, not derived** — they were chosen against
+  these list lengths. Changing the length of any of the five lists voids that
+  tuning, and the cross-tabs have to be re-measured rather than assumed; the
+  generator's block comment says so beside the code.
+- 235bdaf: Give every default list that offers the calendar switch a `calendar` block, so
+  the calendar it opens shows real dates instead of guessed ones.
+  
+  Seven default lists — Campaigns, Cases, Contracts, Events, Opportunities,
+  Quotes, Tasks — declared `calendar` in `appearance.allowedVisualizations`, which
+  puts a calendar toggle on the list, while their `calendar:` configuration sat
+  only on a sibling NAMED view (`campaign_calendar`, `sla_calendar`,
+  `renewal_calendar`, `event_calendar`, `close_date_calendar`, `quote_calendar`,
+  `task_calendar`). The toggle does not read the sibling. With no field named as
+  the event date, the renderer invented one and every record that lacked it piled
+  onto "today" — a screen that looks right and is entirely wrong.
+  
+  Each of the seven now dates its own calendar with the field that object's
+  dedicated calendar view already uses, so switching a list to calendar and
+  opening the named calendar view show the same thing:
+  
+  | List | Event date | Also |
+  | --- | --- | --- |
+  | All Campaigns | `start_date` | ends at `end_date` |
+  | All Cases | `sla_due_date` | the deadline the queue already sorts by |
+  | All Contracts | `end_date` | renewal dates; the term span stays on the gantt |
+  | All Events | `start_datetime` | ends at `end_datetime` |
+  | Open Deals | `close_date` | the forecast date the list sorts by |
+  | All Quotes | `quote_date` | ends at `expiration_date` |
+  | All Tasks | `due_date` | the due date the list sorts by |
+  
+  Records with no value in that field stay off the calendar, which is the truthful
+  answer; nothing is placed on a date it does not have.
+  
+  A guard in `test/view-references.test.ts` now holds every list that offers a
+  calendar — default or named, today's and tomorrow's — to declaring a
+  `startDateField`, and to dating it with a field that exists and is a
+  date/datetime.
+- c78dc55: Hand the seeded demo book to the demo roster, so a salesperson whose agent connects
+  over OAuth sees a **subset** of the pipeline instead of nothing at all.
+  
+  ### What was measured
+  
+  `demo_bootstrap` claims every ownerless seeded row for the FIRST user — the dev admin
+  — and it has to: a seed cannot name a user, and that flow ships in the artifact, so it
+  must not know the demo people. The result is that the entire demo book sits on one
+  identity.
+  
+  Over an API key that is invisible: the request runs as the human, so `viewAllRecords`
+  applies. An agent session does not get that. The agent ceiling
+  (objectstack-ai/objectstack#16549) admits only the rows the caller **owns** or holds a
+  **share** on, and `viewAllRecords` deliberately does not lift it. So the reporter,
+  signed in as `sales.manager@objectos.ai`, measured `crm_opportunity` **0** and
+  `crm_task` **0** where the same objects answer 23 and 59 over an API key. Only the
+  accounts survived — 5 of 9 — because the territory rules materialise real
+  `sys_record_share` rows.
+  
+  Re-derived on a fresh box at `de6ed9e`, before any change: `crm_account` 9 / admin,
+  `crm_opportunity` 23 / admin, `crm_lead` 21 / admin, `crm_task` 7 / admin, `crm_event`
+  27 owned by **nobody**, and `sys_record_share` empty. Every persona's agent reads zero.
+  
+  ### What changed
+  
+  `pnpm demo:staff` gained a step. After it creates the demo people and before it
+  re-evaluates the sharing rules, it re-stamps `owner_id` on the objects declared in
+  `src/sharing/demo-staffing.ts`, routed by the **territory** of the account each row
+  hangs off — NA rows to the NA rep, EMEA to the EU rep, anything with no resolvable
+  territory to the manager. After it:
+  
+  ```
+  object             routed   na.rep   eu.rep   sales.manager   dev admin   nobody
+  crm_opportunity        23       16        5               2           0        0
+  crm_lead               21        0        0              21           0        0
+  crm_task                7        6        0               1           0        0
+  crm_event              27       21        2               4           0        0
+  ```
+  
+  Each identity holds a subset, which is the point: handing the whole book to one demo
+  user would have replaced "sees 0" with "sees all" and lost the demonstration that
+  row-level security is on at all. Read as each persona, the split is visible without any
+  agent: the NA rep reads 16 opportunities and 21 events and **no** leads or cases; the EU
+  rep reads 5 and 2.
+  
+  ⛔ **No profile, permission set or sharing rule is touched.** The ceiling that produced
+  the zeros is the platform working correctly, and widening a grant to raise the numbers
+  would have converted a demo-fidelity defect into a security-shaped one.
+  
+  ⛔ **`crm_account` is deliberately NOT routed.** It is `sharingModel: 'private'`, so the
+  OWD baseline already admits a record's owner — a share to the owner proves nothing, and
+  the two territory reps exist precisely to read accounts they do not own. It is also the
+  one object that already answered non-zero over OAuth, and it did so through a share
+  rather than through ownership.
+  
+  The step claims only rows sitting on the dev admin or on nobody. A row a live workflow
+  already assigned — the SLA sweep escalates cases and the escalation hook hands the
+  resulting tasks to the service manager — is left where it is. So the run is idempotent
+  (a second pass writes 0) and order-independent (correct whether or not `demo_bootstrap`
+  has swept yet), and the sweep never takes the rows back: it selects `owner_id: null`.
+  
+  The script also re-reads the census from the server afterwards and fails on anything
+  that does not land where it was sent, so a PATCH that reported success and changed
+  nothing cannot pass as a fix.
+  
+  ### What an installed org receives: nothing
+  
+  Measured, not assumed. `dist/objectstack.json` is **byte-identical** before and after
+  this change (sha256 `5da76e49…` at both `de6ed9e` and this branch), and
+  `scripts/publish-marketplace.mjs` publishes that file and nothing else. Both edited
+  source files are outside the artifact by construction — `src/sharing/demo-staffing.ts`
+  is not exported from the sharing barrel and `scripts/` is not built at all, which
+  `test/demo-staffing.test.ts` pins from the other side. What changes is the outcome of
+  the documented demo boot procedure, which is the product's showcase and the reason this
+  was filed at p1; a maintainer who reads "releases nothing to HotCRM users" as "installed
+  orgs receive nothing" can downgrade this to the empty-frontmatter form in one line.
+- 08baa81: Staff the demo org's two case-routing pools, so the case features that decide
+  **who ends up holding the case** finally do something on a demo box.
+  
+  `pnpm demo:staff` created three people — two territory reps and a sales manager
+  — and nobody in the service line. Two shipped hooks pick an owner out of a
+  position pool: `case_auto_assign` round-robins an ownerless case (a web-to-case
+  submission, an email import) to the least-loaded `service_agent`, and
+  `case_escalation_reassign` hands an escalating case to the least-loaded
+  `service_manager`. With both pools empty, both took their no-op path every
+  single time: intake landed ownerless in the triage tab and an escalation was
+  only a flag, a status and a message. Nothing in the demo showed either feature
+  working.
+  
+  Two rows are added — one service agent, one service manager — and they light
+  four things that were dark:
+  
+  - `case_auto_assign` (intake round-robin) now places a case;
+  - `case_escalation_reassign` now moves an escalating case to a manager;
+  - `case_escalation_sharing` gets its first holder, so a manager reads and edits
+    the open critical cases they do not own;
+  - `case_unassigned_triage_sharing` gets its first holder, so an agent can see
+    the unowned backlog they are meant to pull from.
+  
+  **`case_director_sharing` is not among them, and that is not an oversight.**
+  That rule shares with `service_director`, which stays unstaffed: measured, its
+  holder count is still zero, and the test now pins that zero so nobody staffs the
+  director "to finish the set".
+  
+  This is a *decision* about the demo org, not a tidy-up, and the fence that says
+  so is strengthened in the same change rather than merely opened. Staffing a
+  position needs a maintainer ruling — #640 established that and the 2026-08-31
+  ruling is what crossing it looks like. `test/demo-staffing.test.ts` still refuses
+  the other six leadership positions, and its failure message now has to explain
+  the *distinction* instead of stating a blanket: a position is staffed only when
+  a shipped hook picks an owner out of it, so an empty pool means a code path that
+  never runs at all — not merely a bench nobody sits on. Each pool is pinned at
+  exactly one holder, the two pools must be different people, and the file header
+  of `src/sharing/demo-staffing.ts` now states in its opening lines that a row
+  exists to make a mechanism visible and that this table is not an org chart.
+  
+  Nothing ships to a customer install: the staffing table is deliberately outside
+  the published artifact, and the guard that keeps it there is unchanged.
+- 51a7ef8: Derive the `PLATFORM_OBJECTS` allowlist from the installed packages' own
+  rosters instead of hand-listing it, and drop the one name nothing registers.
+  
+  `test/helpers/metadata-fixtures.ts` exported sixteen platform object names
+  typed out by hand, under the citation "verified against the 16.1.0 bundles in
+  node_modules" — against a 17.2.0 pin. Both dangling-reference guards
+  (`test/action-references.test.ts`, `test/metadata-references.test.ts`) spell a
+  resolvable object as `objectNames.has(n) || PLATFORM_OBJECTS.has(n)`, so a
+  machine roster kept by hand fails them in both directions once it drifts, and
+  it had drifted: a registered object missing from the set makes a valid
+  reference look dangling, and a listed name that nothing registers lets a
+  genuinely dangling reference pass — a false green in the guard whose whole job
+  is to catch that.
+  
+  It had already happened. **Nothing registers `sys_approval`.**
+  `@objectstack/plugin-approvals` 17.2.0 exports `SysApprovalRequest`,
+  `SysApprovalAction`, `SysApprovalApprover` and `SysApprovalDelegation`, and no
+  `SysApproval`; the only occurrence of the bare token in any installed bundle is
+  a `startsWith('sys_approval')` prefix guard. The allowlist admitted a name
+  matching nothing at runtime — precisely the class it exists to reject.
+  `src/apps/crm.app.ts` carried the same stale claim in a comment and now names
+  the four objects that exist.
+  
+  The set is now read from six packages, each loaded by something this stack
+  declares, filtered to values carrying both a `name` and a `fields` map — the
+  shape of an `ObjectSchema.create(...)` descriptor. The near miss is the
+  control: seven exported values carry a `name` but no `fields`, and they are
+  exactly the non-objects (the `account` / `setup` / `studio` apps, three
+  `sys_*_detail` pages, and the `system_overview` dashboard), all correctly
+  excluded. The version citation goes away with the copy.
+  
+  **This widens the set, deliberately: 16 names become 65 — 50 enter and exactly
+  one leaves.** The old docblock called the set a deliberate subset, but its
+  stated contract is "a reference to a `sys_*` name outside this set matches
+  nothing at runtime", and a name the platform really registers *does* resolve —
+  so withholding it makes the guard wrong in the false-red direction, which is
+  the more expensive failure. Every arrival is backed by a roster entry read from
+  an installed package, and no `sys_*` reference in today's app metadata changes
+  verdict: both guards were green before and after, 46 tests either way.
+  
+  `sys_audit_log`, `sys_activity` and `sys_comment` stay hand-listed, with the
+  reason beside them. `@objectstack/plugin-audit` provisions all three from
+  `provisionSystemTables()` at plugin init and exports no descriptor for any of
+  them, so they are not derivable from any public surface. That residue is the
+  small remainder rather than the whole set, and `sys_activity` is live app
+  metadata, so dropping it would have been a false red rather than a tidy-up.
+  
+  No new gate: this derives an existing list, and a check that the list matches
+  the registry belongs to the platform, not here.
+- 4bbc5f1: The opportunity and case Details tabs now declare only the fields they actually
+  render. Both pages listed fields their own highlights strip already shows — the
+  opportunity's Details tab authored fourteen fields across three sections and put
+  two on the screen — so the source promised a page nobody ever saw.
+  
+  `record:details` composes three rules the author never sees. Measured against
+  the console this app ships with (`@objectstack/console` 17.1.0, objectui's
+  `RecordDetailsRenderer` / `DetailSection`): a mounted `record:highlights`
+  registers its field names, and the details body drops every one of them so no
+  value prints twice; it also drops the record's title field, because the page
+  heading already shows it; and each section then hides its empty fields, with a
+  section left holding nothing at all rendering nothing — no heading, no shell.
+  Nothing warns at author time, so the divergence is invisible until you open the
+  tab and count.
+  
+  So the opportunity's **Opportunity Information** section now carries `type` /
+  `lead_source` / `crm_campaign` (its `name`, `crm_account` and `owner_id` live in
+  the header and the strip), **Stage & Forecast** carries `stage` /
+  `forecast_category` (`amount`, `close_date`, `probability` and
+  `expected_revenue` are in the strip), and **Description** is unchanged. On the
+  case page, **Case Information** carries `case_number` / `crm_contact` / `type` /
+  `origin` and **Status & SLA** carries `is_escalated` / `escalation_reason` /
+  `resolution_time_hours`. Section names and labels are untouched, so every locale
+  still resolves. Note that the object-level `highlightFields` list is a different
+  thing and is not consulted by this component — `stage` is in the opportunity's
+  and renders normally.
+  
+  Two author-time warnings on the same two components are fixed in passing:
+  `columns` is a string enum (`'2'`, not `2`) in `@objectstack/spec` 17, and
+  `layout` was removed there entirely (#6946, ADR-0087 D2) — it selected nothing.
+  
+  `test/detail-section-dedup.test.ts` holds the class shut: no `record:details`
+  section may name a field its page highlights, or the record's title field.
+  
+  Because the renderer already dropped these names before rendering, the tab looks
+  the same as it did — what changes is that the metadata now tells the truth about
+  it. A section whose fields are all empty still disappears, and no authored key
+  can keep it; that is platform behaviour and is filed upstream.
+- 8c07f11: Correct `lead_detail.page.ts` on what an authored `record:details` does when
+  `sections` is omitted. It renders an **empty body** — not the object's
+  `highlightFields`, not its `fieldGroups`, not a bare auto-detected header chip.
+  
+  The comment claimed the `highlightFields` fallback. A `crm_forecast` reading
+  recorded on #1452 claimed the `fieldGroups` one. Both read as authoritative,
+  they contradicted each other, and neither had been run against the pinned
+  version — so #806's ruling was written on a mechanism that does not exist, and
+  that cost a full round before anybody measured it. This corrects the prose only;
+  `properties.sections` is untouched, because whether this page keeps authoring
+  sections is #806's subject and a maintainer decision.
+  
+  Measured on #806 by R28, and now recorded in the file so the next reader need
+  not rediscover the method: headless Chromium driving a real `objectstack start`
+  against a wiped DB, `@objectstack/console` 17.2.0, two runs over the same
+  records. Unmutated, 6 sections and 20 field rows; with `properties.sections`
+  deleted, 0 and 0 — the whole body between the tab strip and the "Created by"
+  footer absent. Negative control in both runs: `crm_contact`, which authors no
+  record page, kept rendering its five `fieldGroups`-derived headings in A and B
+  alike, so run B's nothing is the page's and not a dead instrument.
+  
+  Why both wrong answers looked right: `fieldGroups` derivation is real, but it
+  lives in the console's page **synthesizer** — the path that fabricates a record
+  page for an object that has none authored, which is exactly why the
+  `crm_contact` control shows it. The `record:details` **renderer** that draws an
+  authored page reads neither `fieldGroups` nor `highlightFields`; it forwards
+  `sections`/`fields` and the detail view guards each with `.length > 0` and no
+  else branch. Authoring a page opts out of the synthesizer, and out of the
+  derivation with it.
+  
+  ⚠️ The browser numbers are 17.2.0 and this repo now pins 17.3.0; the browser run
+  was **not** repeated for this change. The installed 17.3.0 bundle was read
+  statically instead, and the mechanism is unchanged: both guards are still
+  `.length > 0` with no else, the renderer still reads neither fallback source,
+  and the synthesizer still passes the derived `highlightFields` to the details
+  node as `hideFields` — highlight fields are subtracted from that body, never
+  substituted into it, the opposite of the old sentence. Re-measure in a browser
+  before quoting the 0/0 for any later version.
+  
+  No behaviour changes: comments only.
+- 7a67bc0: Replace the last hand-copied `crm_*` transcript left in the tree with pointers at its
+  source of truth. `docs/developers/api_reference.md` listed fifteen object names while
+  `src/objects/*.object.ts` registers eighteen — `crm_article_feedback`, `crm_event` and
+  `crm_event_attendee` had zero hits, with no phantom entries in the other direction. That
+  is the same original already replaced in `AGENTS.md` (PR #1438), `docs/ARCHITECTURE.md`
+  (PR #1476) and the three published `api-reference` pages (PR #1489); this was the fourth
+  and last copy of it.
+  
+  The fifteen `Key fields:` lists went with the roster, measured rather than assumed. They
+  transcribed 274 field names against the 302 those same fifteen objects declare on disk.
+  Fifteen of the 274 match no field at all: `owner` in eleven sections, plus `competitors`
+  on `crm_opportunity`, `view_count` on `crm_knowledge_article`, and `first_opened_date` /
+  `first_clicked_date` on `crm_campaign_member`, which #597 removed because no email
+  engine in the installed platform can write them. Forty-three declared fields were absent.
+  Twelve of the fifteen sections named at least one field that does not exist and thirteen
+  were incomplete; two were correct. The `owner` entries are the sharpest of these: the
+  declared field is `owner_id`, and the note above it in `account.object.ts` reads "⛔ Never
+  author a SECOND `owner` lookup beside it" — so the page taught eleven times over the one
+  field name that file exists to forbid.
+  
+  Neither list is completed. A completed transcription drifts again next quarter — 2026-08-31
+  ruling item 5, whose text names an object's fields beside the roster itself, and the case
+  law behind it (#610, #965, #977, #1228). The roster pointer carries the wording PR #1438
+  landed and PR #1476 and PR #1489 reused, unchanged, because these are copies of one
+  original. The field pointer says where fields are declared and what a name-only transcript
+  drops, and restates no count.
+  
+  No guard is added or retired: 2026-08-31 ruling item 3 keeps gate-type mechanisms on the
+  platform, and deletion needs no coverage. `test/docs-src-tree-paths.test.ts` lists this
+  file in `TREE_DOCS`; the guard is untouched and green either side of this change, and the
+  page still names `src/objects/` inline, so its membership there has not gone vacuous.
+- 136beb5: Tell a rep the discount ceiling at the box they type it into, instead of only
+  after the quote is refused.
+  
+  *Generate Quote* asks for a **Discount %** and accepts anything the percent
+  field's arithmetic domain allows, but a quote over **60%** is refused outright:
+  `discount_within_ceiling` is a hard block with no approval path, on the quote
+  and on each line item. The screen said nothing about it, so the only way to
+  learn the number was to enter one, submit, and read the rejection. That field
+  now reads **`Discount % (≤ 60)`**, with `0-60` in the box as a placeholder while
+  it is empty, so the rule is legible before the first attempt rather than after
+  the first failure.
+  
+  Both strings interpolate `QUOTE_DISCOUNT_CEILING` — the same constant the two
+  validation rules interpolate, imported rather than retyped — so the hint cannot
+  drift from the rule it describes. Raising or lowering the ceiling stays a
+  one-line edit in `src/objects/_thresholds.ts`, and the screen now follows it.
+  
+  **The ceiling itself is unchanged**, and so is the fact that it blocks: this is
+  the rule becoming visible, not the rule becoming softer. Anything above 60 is
+  still refused at write time by the same validation, whether it arrives from this
+  screen, the quote form, or the API.
+  
+  One thing the card asked for could not ship. A **client-side `max`** on the
+  input is not authorable at 17.3.0: a screen field's shape is closed to
+  `name` / `label` / `type` / `required` / `options` / `defaultValue` /
+  `placeholder` / `visibleWhen`, and `max` is rejected by name rather than
+  ignored, so it fails validation instead of quietly doing nothing. `helpText` is
+  closed the same way. The browser therefore still lets a rep type 70; the
+  difference is that the field now told them it would not be accepted. The comment
+  beside the field records the measurement so the next author does not re-chase it.
+- 38df2fe: Replace the two hand-copied machine lists left in `docs/` with pointers at their
+  source of truth. `docs/ARCHITECTURE.md` transcribed a fifteen-name `crm_*` object
+  table that had drifted three objects behind `src/objects/*.object.ts` —
+  `crm_article_feedback`, `crm_event` and `crm_event_attendee` were missing, with no
+  phantom entries in the other direction. `docs/DEPLOYMENT.md` stated `pnpm verify` as
+  a four-step chain when `package.json` chains eight, omitting `lint`,
+  `lint:i18n-gate`, `hygiene` and `hygiene:tokens` — so anyone troubleshooting from
+  that page believed a green local run had covered a shrink-only ratchet and the i18n
+  gate that it had in fact never run.
+  
+  Neither list is completed. A completed transcription drifts again next quarter,
+  which is 2026-08-31 ruling item 5 and the case law behind it (#610, #965, #977,
+  #1228). Both sites now carry the wording PR #1438 already landed for the same two
+  transcriptions in `AGENTS.md`, because these were two copies of one original. The
+  `docs/DEPLOYMENT.md` sentence states no step count at all — the number is itself a
+  transcription that would drift.
+  
+  No guard is added: 2026-08-31 ruling item 3 keeps gate-type mechanisms on the
+  platform, and this repo does not grow a gate farm.
+- 1812a9b: Document the triage claim gesture, in all three locales.
+  
+  The claim seam shipped without its documentation half: an unowned case in
+  **Unassigned — triage** becomes yours when you move it to *In Progress*,
+  *Waiting on Customer* or *Waiting on Support* — the app stamps you as its Owner
+  in the same save — after which it leaves that tab and appears in **My Open
+  Cases**. That was real behaviour with nothing written down, because the PR that
+  landed it could not touch `content/docs/**`.
+  
+  `service/cases` now carries the gesture end to end: the three statuses that
+  claim, the four that deliberately do not (*New* is the state the row is already
+  in; *Escalated* belongs to the escalation hand-off; resolving or closing a case
+  is not picking it up, and leaves it ownerless), and the reason the claim cannot
+  be spelled as an owner edit — a save carrying Owner is refused for an agent
+  whatever name it holds, so the status move is the only spelling and the only
+  name it can write is the caller's own.
+  
+  `administration/sharing-and-security` gains the admin-facing half:
+  *Unassigned Cases — Triage* is the one shipped rule meant to be **spent** rather
+  than held — it opens an unowned case to every `service_agent`, and the claim is
+  what ends the grant. Claiming is added to the list of everyday actions that
+  write Owner without being transfers, which is why the gesture needs no new
+  permission.
+  
+  Two accuracy fixes ride along on the pages being edited. The rule's row said
+  `service_agent` gets unowned **cases that are not closed**; the rule also
+  excludes *Resolved*, so the row overstated the grant in all three locales. And
+  the two Chinese pages' rows are confirmed present — the earlier gap they were
+  filed for is already closed.
+- 088af75: The duplicate banner on a lead now appears for a **confirmed** duplicate too,
+  not only a suspected one — and its wording no longer calls every flagged lead
+  "suspected".
+  
+  The banner shipped gated on `duplicate_status == "suspected"`. A lead a reviewer
+  had already **confirmed** as a duplicate — a person's verdict, stronger evidence
+  than the machine's guess — showed no banner at all. The record page was not
+  silent about it (the **Duplicate Management** section on the Details tab renders
+  for any duplicate state), but the alarm was, which is the opposite of the way
+  the two states rank.
+  
+  That gap matters more than it used to. A confirmed duplicate can no longer be
+  converted: **Convert** opens a refusal instead of the conversion form. So the
+  one state the record page stayed quiet about was also the one state that stops
+  the rep's next click — they pressed Convert and met a refusal with no warning on
+  the record behind it. The banner now shows on any lead carrying a duplicate
+  verdict, so the refusal is never the first the rep hears of it.
+  
+  **The wording changed with it.** One banner covers two states that mean
+  different things, and it has one title and one body — so it now names the fact
+  both states share ("this lead is marked as repeating a record this app already
+  has") and sends the reader to **Duplicate Status** for the verdict and to
+  **Duplicate Management** for the record it repeats, instead of asserting a
+  verdict of its own. Describing a reviewer's finished finding as a machine's
+  suspicion was the one thing the widened banner must not do. All four locales.
+  
+  A clean lead still gets nothing, on every driver. "Any verdict the record
+  carries" is not the same predicate as "the column exists": a lead that has never
+  been flagged comes back from some drivers with the column simply absent and from
+  others with it present and null, and only the first of those is what a bare
+  existence check answers "no" to. Both shapes are pinned, shape by shape, against
+  the real expression engine in `test/lead-duplicate-visibility.test.ts`, together
+  with the guard that keeps the predicate answering a verdict instead of faulting
+  — on this surface a predicate that cannot answer shows the banner, so an
+  unguarded one would warn on every clean lead in the system.
+- 8dccbbb: Split the lead detail page's duplicate banner into **one `record:alert` per
+  verdict**, so each one states the next step its verdict actually has.
+  
+  ### One banner could not state either next step
+  
+  #1207 gated a single banner on `duplicate_status == "suspected"`; #1289 widened
+  it to every verdict the field carries. Widening was right, but a `record:alert`
+  carries one `visible` and one title/body pair, and `pickLocalized` picks by
+  LANGUAGE, not by row — so one component covering both verdicts had to choose
+  copy that named **neither**, or it would have mislabelled every lead in the
+  other state.
+  
+  Since #1288 the two verdicts have opposite next steps:
+  
+  | verdict | at conversion | what the rep should do |
+  |:--|:--|:--|
+  | `suspected` | warns, conversion **proceeds** | compare against the linked record, then convert or disqualify |
+  | `confirmed` | **refused** (`refuse_confirmed_duplicate`) | cannot convert — disqualify, naming the survivor |
+  
+  So the neutral banner announced that something was wrong without saying what to
+  do, and the rep had to scroll to the Duplicate Status chip to find out which
+  situation they were in. The `confirmed` case was worse than that: nothing on the
+  record said the Convert button would refuse them, so they learned it by pressing
+  it.
+  
+  ### What ships
+  
+  Two components, two predicates, two next steps, in all four locales. The
+  `confirmed` banner is the only place a rep is warned about the refusal before
+  they press Convert, and it ships at `error` severity — which the renderer maps
+  to `role="alert"` / `aria-live="assertive"` rather than the polite `role=
+  "status"` every other level gets. `suspected` stays `warning`, because
+  conversion still goes through.
+  
+  A lead carrying a value neither option declares now raises **no** banner, where
+  the widened predicate raised the neutral one. That matches what the conversion
+  flow already does with such a row — its `e22` Clean edge converts it — so the
+  page and the flow now agree about the same lead.
+  
+  ⛔ Nothing here changes what the app refuses. That was ruled by #1288 and
+  shipped by PR #1555; this card changes only what the record page tells the rep.
+- 413d964: A lead flagged as a suspected duplicate now says so — on its record page, and
+  again at the moment someone converts it.
+  
+  The detection already worked: `lead_duplicate_check` matches a re-captured email
+  at intake, writes `duplicate_status: 'suspected'` and links the record the lead
+  repeats. Nothing carried that anywhere a seller would see it. The record page
+  never read the flag, and **Convert Lead** asked one question ("create an
+  opportunity?") without consulting it, so a known duplicate converted into a
+  second account, a second contact and a second opportunity — two reps working the
+  same buyer, and the same deal counted twice in the pipeline. The
+  **Suspected Duplicates** queue caught these eventually, but that is the
+  reviewer's list; the rep with the record open never saw a thing.
+  
+  **On the lead record page.** A warning banner now sits under the header on any
+  lead flagged `suspected`, and the Details tab carries a **Duplicate Management**
+  section with the duplicate status, which kind of record it repeats, and the link
+  to that record — a lead link or a contact link, whichever the flag names. Both
+  are silent on a lead that carries no duplicate claim: the banner's predicate
+  answers "no" and a details section holding only empty fields renders nothing at
+  all. The banner's copy ships in all four locales.
+  
+  **At conversion.** The conversion screen now opens with a line naming what is
+  about to happen — that intake flagged this lead as repeating an existing record
+  with this email address, and that converting creates a second account, contact
+  and opportunity for the same buyer. It appears only on a flagged lead; a clean
+  lead sees the same screen it always did. The line names the record by the email
+  the two share, never by an internal id, and the conversion is **not** blocked:
+  whether a duplicate may be converted at all is a product decision and is left
+  open deliberately.
+  
+  Both surfaces read the flag through predicates that answer for every record
+  shape, including the drivers that omit a column the record never set. That is
+  not a detail: the banner's predicate fails soft, so an unguarded one would show
+  a duplicate warning on every clean lead, and the conversion flow's condition
+  fails the whole run, so an unguarded one would leave ordinary leads unconvertible.
+  `test/lead-duplicate-visibility.test.ts` pins both directions on the real
+  engines.
+- bec10da: The email guide stops citing a **Settings** app HotCRM does not have.
+  
+  `content/docs/guides/email-and-calendar.mdx`, under the heading `## Email
+  templates (not shipped yet)`, sketched the intended surface as "reusable
+  templates saved in **Settings → Email Templates**". There is no Settings app:
+  measured against `@objectstack/platform-objects` 17.3.0, the app switcher ships
+  exactly `Setup` / `系统设置` / `セットアップ` / `Configuración` and `Studio`, and
+  `Settings` is an app label in no shipped locale and a navigation label of
+  neither app. The one real Email Templates page is Studio → Integration → Email
+  Templates, and that is the platform's authentication-mail page — it does not do
+  the per-team folders, approval gating and AI personalisation this sentence
+  promises, so redirecting the sketch at it would have turned an honest "not
+  shipped yet" into a false claim about a page that does exist.
+  
+  So the path form is dropped rather than repointed, following this page's own
+  zh-Hans and zh-Hant twins, which already write it as a plain noun phrase
+  (「邮件模板」设置页 / 「郵件範本」設定頁) instead of a navigation path. The
+  sentence now reads "reusable templates saved on an **Email Templates settings
+  page**" — an indefinite article, for a page that does not exist — and the
+  paragraph below it still says HotCRM ships none of it. The English page was the
+  only one of the three faces still naming an app.
+  
+  One same-class instance on this same page is deliberately **not** fixed here and
+  is reported instead as #1808, because it is outside this card's ruled scope: under
+  `## Connecting your inbox (not shipped yet)`, the intended flow is still cited
+  as a bold `Settings → …` path. Its own next line already says no such settings
+  page exists, so the page does not mislead a reader who finishes the section;
+  which wording replaces it is the same docs judgement that was ruled for the
+  templates sketch, made for a different sentence.
+- ebb67fe: Spanish (`es-ES`) now calls the quote object by one name: **Cotización**.
+  
+  The pack named the same object two ways at once. Its declared label was
+  `Cotización`, but eight strings called it `Presupuesto` — the "Generar
+  Presupuesto" action and its success message, the win reason `quote_accepted`,
+  the whole `crm_quote_line_item` object (`Línea de Presupuesto`, its plural, its
+  description and its lookup back to the quote), and the `crm_contact` help
+  sentence. A Spanish user reading "Línea de Presupuesto" and then looking for
+  Presupuesto in the navigation found Cotizaciones, and nothing in the product
+  told them these were the same record.
+  
+  The help sentence carried a second, visible symptom: because it named the
+  masculine `el presupuesto`, it inflected the two statuses to match it and told
+  users to look for **Presentado / Aceptado**, while the picklist renders
+  **Presentada / Aceptada**. The status options were right all along — they agree
+  with the feminine `Cotización` — so they are unchanged; the sentence now names
+  the right noun and reads `la cotización pasa a Presentada o Aceptada`.
+  
+  `Presupuesto` remains the Spanish word for **budget**, and its five budget-sense
+  uses are deliberately untouched: `Presupuesto y ROI` and `Costo Presupuestado`
+  on campaigns, the campaign validation message `El coste real supera el coste
+  presupuestado`, and `Sin Presupuesto` as a disqualification and a loss reason.
+  A find-and-replace corrupts all five, which is why every occurrence was graded
+  by what it refers to rather than swept.
+- 5e08628: Declare `crm_case.is_escalated` and `escalated_date` `readonly: true`, and move
+  the write that needed elevation into a dedicated `runAs: 'system'` sub-flow
+  instead of elevating the screen flow a person clicks (#1434, maintainer-approved
+  decision batch #21 ②).
+  
+  **Nothing users see changes.** The Escalate Case action behaves as before: the
+  agent types a reason, the case flips to escalated with `priority: 'critical'`,
+  and the escalation flags get stamped. What changes is who makes each write.
+  
+  Both stamped columns are written only by flows, never typed by anyone, so
+  `readonly: true` is the honest declaration — but the platform's readonly strip
+  is one branch of the UPDATE path (`if (!opCtx.context?.isSystem)`, over
+  CALLER-supplied keys), so a flow write to a readonly column survives exactly
+  when that flow's effective `runAs` is `'system'`. `escalate_case` is invoked
+  from the UI by a person and must keep running as that person, so declaring the
+  fields readonly would previously have silently dropped the escalation the agent
+  just confirmed — while the flow still reported success. That was the whole
+  reason the `STAMPED_NOT_TYPED` guard exemption existed.
+  
+  The fix elevates the **write**, not the **flow**. `escalate_case` keeps
+  `runAs: 'user'` and writes only what the agent may legitimately write —
+  `escalation_reason` (their own screen input), `priority` and `status`. The two
+  stamps move into the new `case_escalation_stamp` flow (`runAs: 'system'`, one
+  `update_record`, exactly two columns), reached through a `subflow` node. The
+  option of giving the whole screen flow `runAs: 'system'` was costed and
+  explicitly not adopted: it would elevate every write the flow makes and stop it
+  carrying the acting user's context downstream.
+  
+  With the cause removed rather than documented, the `STAMPED_NOT_TYPED` exemption
+  is **deleted**, along with the counter-pins in
+  `test/readonly-write-semantics.test.ts` and
+  `test/case-create-form-narrowing.test.ts` that existed to keep its justification
+  honest. `test/metadata-references.test.ts`'s guard now skips both fields for the
+  right reason — they are declared readonly — rather than via an exemption list.
+  
+  Three things were measured on a real engine rather than assumed, and all three
+  are pinned in `test/readonly-write-semantics.test.ts`:
+  
+  - **The ruling's premise** — a callee flow's own `runAs` governs its writes
+    rather than inheriting the caller's context. A `runAs: 'system'` callee
+    invoked from a `runAs: 'user'` parent has its write to a readonly column
+    survive; the *same* callee declared `runAs: 'user'` is stripped, so it is the
+    callee's declaration that decides and not the subflow hop.
+  - **The elevation is scoped to the child run.** In the same run in which the
+    child's stamp lands, the parent's own later write to an identical readonly
+    column is still stripped — the screen flow really does keep the acting user's
+    context, which is the property this change exists to protect.
+  - **The write order.** Splitting one `update_record` in two creates an ordering
+    constraint the single node did not have: `escalation_reason_required` rejects
+    any write whose merged record has `is_escalated == true` with a blank reason.
+    The reason is therefore written **first** and the stamp **second**. The
+    counterfactual is measured too — stamping first is refused by that validation,
+    and because the subflow reports its child's failure the run aborts before the
+    reason is written either, losing the whole escalation.
+  
+  `status: 'escalated'` deliberately stays in the user-context node: besides being
+  user-writable, it is the transition both escalation hooks key off
+  (`case_escalation_reassign` and `case_status_side_effects`), so keeping it there
+  keeps the ownership hand-off and the follow-up tasks firing from the acting
+  user's write exactly as before. `escalation_reason` stays writable for the
+  inverse reason — declaring it readonly would make the platform strip what the
+  agent just typed, which is this card's own harm turned onto user input.
+  
+  `close_case` keeps its long-standing flow-level `runAs: 'system'` and now says
+  in the file that it is a historical precedent rather than a policy, so it stops
+  being citable as a pattern for elevating the next screen flow.
+- b5eb6a2: Case Escalation: a critical case with no owner no longer ends its run in failure
+  
+  Both escalation flows — `case_escalation` (a case turned critical) and
+  `case_escalation_on_create` (a case raised critical, the phone-in P1 path) —
+  notify the case's owner after escalating, and they addressed exactly one
+  recipient. But `owner_id` is optional on a case, and an unowned case is an
+  ordinary thing to have (this app ships a `pnpm backfill:owner` script precisely
+  because unowned rows happen, and both the REST API and an import can create
+  one).
+  
+  When either flow reached a critical case with no owner, the notification had
+  nobody to send to and failed. Measured on all three shapes an empty owner takes
+  — the column never written, an explicit null, and a blank/whitespace value —
+  in both flows.
+  
+  **This is a narrower fault than the SLA sweep's (#1405), and the difference is
+  structural rather than a matter of degree.** The SLA monitor's work happens
+  inside a loop over up to 500 cases with no per-iteration containment, so one
+  unowned case there killed every breached case queued behind it. These two flows
+  are record-change flows with no loop: one unowned case ends only its own run.
+  Do not read this as "the same defect" without that qualifier.
+  
+  What was actually lost was the notification plus a terminal failure in run
+  history where nobody looks. The escalation itself always landed — it is written
+  before the notification — and it still does: the check gates only the
+  notification, and an unowned critical case is still flagged `is_escalated`,
+  moved to `escalated`, stamped with an escalation date and reason, and so still
+  appears in the views and reports where a service manager finds it. The run
+  summary now reports the skipped notification against a named gate rather than
+  simply sending nothing.
+  
+  Worth stating plainly, because it makes this case different from the SLA
+  sweep's: the recipient here is read **before** the escalation is written, so it
+  is deliberately the agent the case is being handed off **from**. When there is
+  no such person, "notify the previous owner" has no one to mean. Skipping it
+  loses nothing a reader would have wanted — unlike the SLA sweep, where the
+  skipped alert was the only notice anyone would get.
+  
+  Who an unowned escalation *should* reach — a service-manager role, say — is
+  still an open product question and is deliberately not answered here.
+- 13b2c1b: The FAQ's AI Copilot answers stop citing a `Setup → AI` group that does not
+  exist.
+  
+  `reference/faq` told a reader with a stale Copilot answer to "re-index at
+  *Setup → AI → Knowledge Bases → Refresh*", and a reader with slow AI responses
+  to "check the AI dashboard (*Setup → AI → Health*)". Setup ships no `AI` group,
+  so neither path has a first segment, let alone a screen at the end of it.
+  Re-resolved against the installed platform (`@objectstack/* 17.3.0`) the way
+  `test/docs-setup-navigation-names.test.ts` builds its roster — `SETUP_APP.navigation`
+  plus `SETUP_NAV_CONTRIBUTIONS` plus `SetupAppTranslations`, 215 Setup labels
+  across the four shipped locales:
+  
+  - Setup's nine groups are *Overview*, *Apps*, *People & Organization*, *Access
+    Control*, *Approvals*, *Configuration*, *Diagnostics*, *Integrations*,
+    *Advanced*. No *AI* among them.
+  - `AI` **is** a group — in **Studio**, holding *Agents* / *Tools* / *Skills*.
+    This is #1113's second pass again: a real label cited under the wrong app.
+  - *Knowledge Bases*, *Refresh* and *Health* resolve to nothing in either app,
+    in any of the four locales. Setup has no dashboard of any kind.
+  
+  Both answers were open questions rather than mechanical corrections, because
+  neither surface they promised had been measured. Both now are:
+  
+  - **Nothing re-indexes.** The Copilot queries published `crm_knowledge_article`
+    records directly, so a saved edit is live immediately. HotCRM declares no
+    knowledge source (the platform's own vector store is configured at **Setup →
+    Configuration → Knowledge**, and nothing in this app consumes it), and
+    `ai-copilot/knowledge-bases` already says in its own words that there is "no
+    nightly re-index and no manual re-index button". The answer is now a denial
+    that ends somewhere useful: correct the article at **Service → Knowledge**.
+  - **`Configuration → AI & Embedder` is provider configuration, not health.**
+    Its settings namespace is `ai` — "LLM provider, model, credentials, and
+    embedder configuration" — carrying provider selection, API keys, models,
+    generation defaults, conversation titles and two observability toggles. Its
+    only gestures are the *Test connection*, *Test embedder* and *Reset to
+    environment defaults* buttons: a point-in-time probe, not a monitor. Nothing
+    on it reports latency or throughput. The answer now denies the dashboard,
+    names that page for what it is, and drops "knowledge-base re-indexing in
+    progress" from the list of causes, since nothing re-indexes.
+  
+  All three locales, lines 107 and 120 only. The two replacement paths are
+  written **bold**, which moves both claims from a shape no guard parses into the
+  one #853's rule 2 and #1117's rule 3 resolve live — the italics are why these
+  two lines survived every pass that cleared the quarantine ledger. Per #1368 the
+  zh-Hant face names navigation in English; the zh-Hans face names it in the
+  zh-CN labels the console shows (**设置 → 配置 → AI 与 Embedder**, **服务 →
+  知识库**).
+- ff43321: The FAQ answer *"The Copilot won't answer about a specific customer"* stops promising
+  an **AI redaction rule** that ships nowhere.
+  
+  `reference/faq` line 116 told admins they could "block the Copilot from referencing
+  flagged accounts (e.g., VIP, in litigation)", and that "The Copilot says so explicitly".
+  No such control exists, in any of the three faces. Resolved against the installed
+  platform (`@objectstack/* 17.3.0`): none of the eleven shipped settings namespaces
+  carries a redaction or sensitivity key, no Setup entry names redaction, sensitivity or
+  masking in any of the four shipped locales, and `src/` carries no VIP, litigation or
+  AI-exclusion flag for anything to read. The platform's only `redactFields` belongs to an
+  object's `publicSharing` block — the fields stripped from share-token responses — and has
+  nothing to do with the Copilot.
+  
+  This is the risk worth naming: nothing leaks. The bullet is dangerous the other way
+  round. An admin who believes flagged-account blocking is sitting there to be switched on
+  may never configure the control that is actually doing the work, and a false control
+  placed next to a true one can quietly substitute for it.
+  
+  So the line becomes a denial that hands the reader the real mechanism: field-level
+  security. The Copilot reads as the signed-in user, so a field masked on their profile
+  never reaches it — which is what `administration/sharing-and-security` already says in
+  its own words, FLS being enforced for the Copilot exactly as it is for list views,
+  reports and the API. It is permission-shaped visibility, not per-account blocking, and
+  the replacement is careful not to claim otherwise.
+  
+  The same claim in checklist form was corrected on `administration/setup` section 14; the
+  two pages now deny it in the same voice and send the reader to the same page.
+- 81a79ee: The FAQ's Integrations section stops troubleshooting two connectors that do not
+  exist.
+  
+  `reference/faq` told a reader whose email was not logging to check that "the
+  **Gmail / Outlook connector** is connected (Settings → Email)", and a reader
+  whose contract had not updated to "check the **DocuSign integration log**
+  (Setup → Integrations → DocuSign → Activity)". Neither connector ships, so
+  neither screen exists — and there is no `Settings` app at all. `Setup →
+  Integrations` is real, but as this app ships it holds exactly the two entries
+  the platform contributes, *Connect an Agent* and *Datasources*; no vendor
+  mounts anything under it.
+  
+  Both answers now say what actually ships and point the reader at the
+  Integrations guide (`/docs/guides/integrations`), the same shape #1401 gave the
+  neighbouring Stripe answer on this page:
+  
+  - **Email.** Nothing logs an inbound message, by address match or otherwise,
+    and there is no exclusion list. What exists is the outbound half — **Send
+    Email** on a contact, which writes the message as a record and leaves an
+    entry on that contact's Activity timeline, is hidden on a contact with *Email
+    Opt Out* ticked, and delivers only through the mail transport a deployment
+    configures. Also linked: the Email & Calendar guide
+    (`/docs/guides/email-and-calendar`).
+  - **DocuSign.** There is no integration log to open and no webhook delivery to
+    retry. Until a connector ships, a quote's or a contract's status is a field
+    someone sets by hand and the signed document is a file someone attaches.
+  
+  All three locales. This is #756's residue on the page that *troubleshoots*
+  connectors: #756 corrected the pages that *list* them and never opened this
+  one, and no guard could see either line — neither is a bold `**App → …**`
+  citation, so #853's navigation rule does not parse them and #1117's widening
+  does not reach them.
+- b9c8820: Correct the rationale header of `test/field-groups-coverage.test.ts`: it
+  justified its assertions with a mechanism #1521 measured false. Comment-only —
+  ⛔ not one assertion changed, added, weakened or deleted.
+  
+  The header claimed `fieldGroups` "is what turns a detail page from one flat
+  grid of every column into the sectioned layout the rest of the app uses", and
+  that an object with no groups "renders, it just renders badly". Both are wrong,
+  in different directions.
+  
+  `fieldGroups` derivation lives in the console's page **synthesizer** — the path
+  that fabricates a record page for an object that has none authored. The
+  `record:details` **renderer** that draws an authored page reads neither
+  `fieldGroups` nor `highlightFields`: it forwards `sections`/`fields`, and the
+  detail view guards each with `.length > 0` and no else branch. An authored page
+  opts out of the synthesizer, and out of the derivation with it. `crm_lead` is
+  the counter-example already in the tree — `src/pages/lead_detail.page.ts`
+  authors six sections while `src/objects/lead.object.ts` declares ten groups the
+  detail renderer never consults.
+  
+  The second claim understated the failure in the one direction that mattered: an
+  authored `record:details` that omits `sections` renders **0 sections and 0
+  field rows**, an empty body — not an ugly one. That is the same understatement
+  that let #806's ruling be written on a mechanism that does not exist, which is
+  why the correction says so in the file rather than merely fixing the sentence.
+  
+  ⚠️ Provenance is recorded with its expiry, because the point of the card is that
+  unmeasured mechanism claims are what caused this: the 0/0 is R28's browser
+  measurement on #806 (headless Chromium, wiped DB, `@objectstack/console`
+  17.2.0, negative control included), corroborated statically by #1521 on the
+  installed 17.3.0 bundle. Neither #1521 nor this change re-ran the browser, and
+  the header now says so.
+  
+  The assertions stay because `fieldGroups` is still load-bearing for every form
+  and every synthesized detail page — the header now explains that, instead of
+  resting on a page-level fallback that does not exist. The correction is also
+  bounded: a `record:details` section may name `group:` in place of `fields:` and
+  inherit that group's members and presentation (`deriveFieldGroupLayout`,
+  ADR-0085 §5, verified on the installed 17.3.0 spec), which is a per-section
+  opt-in rather than a page-level fallback.
+  
+  `src/objects/campaign_member.object.ts` carried the same missing word in the
+  same sentence — "a detail page hoists the record title plus the first four
+  highlightFields out of the body" — and is scoped to **synthesized** here too,
+  matching `src/objects/opportunity_line_item.object.ts`, which already had it
+  right. `crm_campaign_member` authors no record page, so the claim held; only
+  the scope was missing.
+- 80dd40c: `filter:` on `ctx.api` is a live alias of `where`, not a silent drop — measured,
+  and the three places that said otherwise now say what was measured.
+  
+  Three sources in this repo carried two incompatible answers about what happens
+  when a hook passes `filter:` instead of `where:`:
+  
+  - `test/hook-query-predicate.test.ts` asserted, against a real engine and green
+    in CI, that `filter` is a live predicate alias;
+  - the `HookQuery` docblock in `src/objects/_hook-api.ts` and `AGENTS.md` §2 both
+    said it "fails **silently**" — that `findOne` drops the key and returns the
+    object's **first row**, and that `count` counts the **whole object**.
+  
+  The sharpest form of it was inside a single file: the same green test file both
+  asserted the alias works and told authors, in its guard's failure message, that
+  "the kernel drops it and reads the wrong record".
+  
+  This is not a doc nit, because **the two errors point in opposite directions**.
+  "Silently dropped" means a hook querying by `filter` matches every row — an
+  unscoped read. "Aliased" means it matches correctly. An author who believes the
+  wrong one mis-judges the blast radius of every `filter` call site, and the stale
+  belief is the one that errs unsafely.
+  
+  **Measured**, per method, against the pinned `@objectstack` packages (17.2.0),
+  on the object the kernel injects as `ctx.api` — a real `ScopedContext` over a
+  real ObjectQL engine, not the test harness:
+  
+  | method | `filter:` behaviour |
+  |:--|:--|
+  | `find` | **aliased** to `where` — predicate applied |
+  | `findOne` | **aliased** to `where` — predicate applied |
+  | `count` | **aliased** to `where` — predicate applied |
+  
+  `update` and `delete` fold the same key on their options bag. Nothing is
+  dropped: the engine rejects any option it does not recognise, so `filters`
+  (plural) and every misspelling **throw**, and `findOne` with no predicate at all
+  throws rather than returning an arbitrary row. On this version a bad predicate
+  key cannot produce an unscoped read.
+  
+  The measurement carries negative controls, because a green that also appears
+  when the apparatus is dead proves nothing. An unrecognised key (`wibble:`) must
+  throw — that is what a key this engine does not know does, and if it ever passes
+  silently the alias greens stop being evidence. The no-match probes carry the
+  rest of the weight: a dropped predicate and an applied one are indistinguishable
+  when the probe matches, and separate only on a predicate matching nothing, where
+  "applied" gives the empty answer and "dropped" gives the unfiltered one. Both
+  stale alternatives — the first row, the whole object — are now asserted against
+  by name. An apparatus control asserts the engine discriminates at all (an
+  unfiltered read returns 3, a scoped read returns 1), so an engine that ignored
+  predicates entirely could not read as a pass.
+  
+  **The `where`-only convention and its repo-wide guard are unchanged.** Only the
+  stated reason changes, and it is still a real one: mixing the spellings is the
+  live hazard. A query assembled in two places that ends up carrying both keys
+  with different values throws `Conflicting options … 'where', 'filter' are
+  spellings of the same parameter`, and an empty `where: {}` counts as a different
+  value rather than as "no opinion" — so a base predicate plus a `filter:`
+  override is a runtime throw, not a merge. One spelling makes that unreachable,
+  and `HookQuery` still omits the alias so the mistake stays a compile error.
+  
+  The history is kept and dated rather than deleted: the repo really did pay for a
+  silent drop once, seventeen hook calls whose predicate vanished, on a kernel
+  that is not the one pinned here. The failure that produced this card is prose
+  written against a real measurement that later stopped being true and then
+  travelled, so the test file's header now says explicitly which paragraphs are
+  history and which are measurements of the currently pinned engine.
+  
+  `AGENTS.md` also stopped citing `.changeset/hook-query-where-not-filter.md`,
+  which no longer exists — that changeset was consumed at release and the record
+  lives in `CHANGELOG.md`.
+- dce8eef: Three first-week frictions in the sales journeys, each one a place the app knew
+  the answer and made you click for it anyway.
+  
+  **Converting a lead no longer asks twice.** *Convert Lead* used to raise
+  `Are you sure you want to convert this lead?` before opening the Conversion
+  Details screen — a screen that already states the decision, already carries a
+  Cancel button, and already warns you when this lead repeats one you have. The
+  confirm added a click and no information, so it is gone. Confirms stay where
+  they earn their place: destructive actions with no follow-up screen, such as
+  closing or escalating a case. The AI approval signal is untouched — an agent
+  calling this action still reports that it needs human approval, which was
+  always a separate flag from the console's dialog.
+  
+  **The task list stops spelling "done" three ways.** The All Tasks grid showed a
+  completion tick, a status and a progress percent side by side. Nothing in the
+  app maintains a percent per task — it is written once, as 100, when a task is
+  completed — so on that grid it was the status column again at lower resolution:
+  0% could not tell a task not started from one in progress. The column is gone
+  from that one grid. The field is untouched, and every view that uses it for
+  something still does: the Execution Plan gantt fills its bars from it, the Task
+  Board and My Open Tasks show it, Avg Progress still aggregates it, and you can
+  still set it on the task form.
+  
+  **An opportunity's Related tab opens on its quotes** instead of on three shut
+  bars whose headers already told you the counts.
+- 6ed7b8d: The seeded forecast module now opens on numbers instead of zeros. A fresh
+  install showed seven forecast snapshots of which six carried `0` for
+  `commit_amount`, `best_case_amount` and `pipeline_amount`, so four of the
+  thirteen columns the Forecasts list renders were dead on day one — `coverage_ratio`
+  among them, since it divides by the pipeline figure. Closed-versus-quota alone
+  is a scoreboard; a sales manager opening the module could not see the one thing
+  it exists to answer, which is whether the number is going to be made.
+  
+  The zeros came from a stated theory — a closed period has no pipeline left — and
+  that is the one reading a period-END snapshot cannot have. A period ends with
+  deals still open, which is exactly what the seeds' own notes describe ("two
+  enterprise deals slipped into the next quarter"). Each settled period now carries
+  the residual that was still open on its closing day, in the cumulative shape the
+  object defines and the scheduled `forecast_snapshot` sweep writes: pipeline is a
+  superset of best case, which is a superset of commit. The residual is deliberately
+  a remainder rather than a mid-period book — smaller than what the period actually
+  closed — so the settled rows read as settled and only the current period shows a
+  full pipeline.
+  
+  `coverage_ratio` follows for every period with a quota still to make. It stays 0
+  on the three periods that over-attained (106%, 109%, 105%), which is not a
+  leftover of this defect but the formula's documented behaviour: with the quota
+  already met there is no gap left to cover.
+  
+  The current quarter is untouched. That window has exactly one producer — the
+  scheduled `forecast_snapshot` sweep — and `demo-bootstrap` documents its own
+  correctness as depending on the seeds staying out of it, so the demo dataset
+  still ships no row there.
+- c73b496: Scope the `forecast_snapshot` sweep's four bucket queries to the snapshot row's own organization.
+  
+  The nightly sweep aggregates `crm_opportunity` per owner into a `crm_forecast` row. Its four
+  bucket fetches (open pipeline, best case, commit, closed-won) filtered on `owner_id` and the
+  period window only — neither of which is an organization predicate — while the sweep runs
+  `runAs: 'system'`, whose reads are not constrained by the driver's organization predicate.
+  `sys_user` is a global identity carrying no `organization_id`, so nothing else narrowed them
+  either. An owner holding opportunities in more than one organization therefore had **every**
+  organization's deals summed into the single snapshot row: one tenant's forecast reporting
+  another tenant's pipeline, with no NULL partition and no index violation to make it visible.
+  
+  The fetches now pin `organization_id` to `{currentForecast.organization_id}` — the row being
+  written — reusing the same "prove the source carries the right organization" mechanism the
+  sweep's `create_record` already establishes with `{ownerAnyDeal.organization_id}`.
+  
+  What this does and does not change, stated plainly: `crm_forecast` is still keyed by (owner,
+  period), so a cross-organization owner still gets **one** snapshot row, and that row now
+  reports **only its own organization's** numbers. That is true but **incomplete** — it does not
+  make forecasts complete for a multi-organization owner, and the other organizations' deals are
+  now absent from the snapshot rather than mixed into it. It is strictly better than the previous
+  behaviour, which reported a false total blending another tenant's amounts. Whether such an owner
+  should instead get one row per organization is a product decision, recorded and deliberately not
+  undertaken here.
+- 4f96629: Document that a manual (or AI) forecast stands the nightly Forecast Snapshot
+  sweep down for that owner and period.
+  
+  The behaviour shipped earlier: at 03:00 the sweep now asks two questions
+  through two filters. *Has this period been handled?* reads the owner's whole
+  current-quarter window and is deliberately source-blind — any row answers it.
+  *Which row is mine to write?* matches only rows whose **Source** is
+  `Scheduled snapshot`. So a row a person or an agent put in that window is
+  never adopted, overwritten or re-stamped, and no second row is opened beside
+  it. Deleting the row hands the period back to automation.
+  
+  The forecasting guide had not been told. One sentence was actively wrong
+  rather than merely incomplete: *"Re-running it refreshes the same row"* reads
+  as "it refreshes whatever row is in the window" — precisely the behaviour that
+  was removed. A manager who set **Source** to *Manual entry* and expected the
+  nightly job to keep updating the row was following the page correctly and
+  would have been wrong. The same implication sat, unqualified, in the FAQ
+  answer about rolling up from opportunities automatically.
+  
+  `content/docs/sales/forecasting.mdx` now says, in all three locales:
+  
+  - the **Source** table row flags that `manual` and `ai` are load-bearing, not
+    just provenance labels;
+  - the **Scheduled** entry says the sweep refreshes *the row it wrote itself*;
+  - the current-quarter section carries the suppression rule, its escape hatch
+    (delete the row — and who can: deleting a forecast is an admin action, a
+    sales manager can create and edit but not delete), and the cases that are
+    **not** suppression — a
+    `Scheduled snapshot` row is still refreshed in place, an empty window is
+    still the sweep's to open, and a manual row added *beside* a scheduled one
+    suppresses nothing;
+  - the automatic-roll-up FAQ answer is qualified the same way.
+  
+  `content/docs/administration/profiles.mdx` loses a claim that was already
+  inaccurate before any of this: forecast snapshots were said to be written by
+  the nightly job *"never by hand"*. A sales rep indeed never writes one — that
+  is what the bullet is about — but managers and admins do, and now that hand
+  entry has a defined effect on the nightly job, the parenthetical was teaching
+  the opposite of the rule.
+  
+  Documentation only. No metadata changed.
+- db5fe70: Correct **Who can edit** on the Forecasting page: a sales rep reads their own
+  forecasts, they do not edit them. The page told reps the opposite, and the Sales
+  Rep profile has never granted it — a rep who followed the page, opened their
+  snapshot and changed a number could not save it, with nothing on the page to
+  explain why.
+  
+  Every sentence in the section is now derived from `src/profiles/*.ts` rather than
+  from a remembered permission model:
+  
+  ```
+  sales-rep.profile.ts      crm_forecast: allowCreate: false, allowRead: true,
+                                          allowEdit: false, allowDelete: false,
+                                          viewAllRecords: false, modifyAllRecords: false,
+                                          readScope: 'own'
+  sales-manager.profile.ts  crm_forecast: allowCreate: true,  allowRead: true,
+                                          allowEdit: true,  allowDelete: false,
+                                          viewAllRecords: true,  modifyAllRecords: true
+  system-admin.profile.ts   crm_forecast: allowCreate: true,  allowRead: true,
+                                          allowEdit: true,  allowDelete: true
+  ```
+  
+  Three claims in those four lines were wrong, and they are corrected together
+  because they are one sentence apart and one reader's question — *can I change
+  this number, and if not, who can?*
+  
+  - **Reps read, they do not write.** The correction says where writing lives
+    instead of stopping at "no": the nightly snapshot job and the sales manager are
+    the writers, so a rep who wants a number changed goes to their manager.
+  - **"Sales operations" is not a profile.** The page granted a persona nothing
+    implements — `src/profiles/` holds `guest-portal`, `marketing-user`,
+    `sales-manager`, `sales-rep`, `service-agent`, `system-admin` and
+    `tenant-admin`, and no sales-operations anywhere. The authority the sentence
+    described — see every forecast, override any number — is real and belongs to
+    the sales manager, so it moves onto the manager's line rather than being
+    deleted along with the persona.
+  - **Deleting a forecast is an admin action**, and the section did not say so.
+    That matters more than it reads: deleting the row is how a suppressed period is
+    handed back to the nightly sweep, so a manager who wants automation back needs
+    to know the last step is not theirs. The page already stated the rule under
+    *How forecasts get created*; **Who can edit** now carries it as a roster row
+    rather than a second, differently worded copy.
+  
+  One more sentence in the same file was making the same claim and is corrected
+  with them: the **Source** table glossed `manual` as *rep entry*, contradicting
+  both the corrected section and the page's own *How forecasts get created*, which
+  already said a manager enters the number. It now reads *manager entry*.
+  
+  All three locales — `forecasting.mdx`, `.zh-Hans.mdx`, `.zh-Hant.mdx` — carry the
+  same corrections, so no locale is left telling reps something the other two no
+  longer do. `content/docs/administration/profiles.mdx` needed no change: it
+  already describes a rep as reading their own snapshots and never writing one, in
+  all three locales, and the two pages now agree with each other and with the
+  metadata.
+  
+  No permission changes. Nothing widens; the prose narrows to what the profiles
+  have always enforced.
+- 89874d2: Four fields the app declares, labels in every locale, and then showed nowhere
+  now reach a screen. Each was already stored and — on a synthesized layout —
+  editable, but no view, form or panel named it, so nothing in the product
+  pointed a user at it.
+  
+  - **Company Logo** on an account is now uploadable, from the **Branding** half
+    of the account form beside **Brand Color**, and the **Account Cards** view
+    finally earns its name: each card is headed by that account's logo. An
+    account with no logo keeps its card, without the image. Before this there was
+    no upload control anywhere in the app, so the field could not be filled at
+    all.
+  - **Description** on a campaign joins the **Campaign Information** section of
+    the campaign form. Seven of the demo campaigns ship a brief in it that no
+    screen would show, and no marketer could write one.
+  - **Description** on a contract joins the contract form's **Notes** tab, above
+    **Special Terms**. The two are not redundant and the split is the one the
+    contract guide already teaches: Description is the plain summary of what the
+    contract is, Special Terms is where every free-text *term* goes — renewal
+    instructions, an unlisted billing cadence, an unlisted payment arrangement.
+    Description was the one field in the documented inventory no form offered.
+  - **Added Date** on a campaign member joins the **Campaign Members** panel on a
+    campaign, between the person and their response. The enrollment stamp is
+    written on every enrollment and was the one thing the register did not show:
+    a marketer could see when a member *responded* but not when they were
+    *added*.
+  
+  Nothing was suppressed, whitelisted or deleted to get here, and no field
+  changed its meaning: each of the four gets the consumer it should always have
+  had.
+- 1d99189: Give the four fields that belonged to no `fieldGroups` group one, and declare
+  groups on the two line-item objects that had none — so rung 1 of the layout
+  ladder exists everywhere a form can be derived.
+  
+  `fieldGroups` is what lets a form be *derived* instead of hand-enumerated. A
+  field that opts into no group cannot be reached by derivation at all: the only
+  way to put it on a form is the per-field enumeration the ladder exists to avoid.
+  Four fields sat in that state — `crm_forecast`'s three formula fields
+  (`expected_amount`, `attainment_pct`, `coverage_ratio`) and
+  `crm_knowledge_article.article_number` — and two objects declared no groups at
+  all.
+  
+  | object | change |
+  | --- | --- |
+  | `crm_forecast` | the three formula fields join the existing `amounts` group |
+  | `crm_knowledge_article` | `article_number` joins `basic`, beside the other identity columns |
+  | `crm_opportunity_line_item` | new `basic` / `pricing` groups over its 9 fields |
+  | `crm_quote_line_item` | new `basic` / `pricing` groups over its 11 fields |
+  
+  The line-item split is derived from the fields those objects actually declare,
+  not copied off a neighbour: everything `total_price` multiplies together is
+  `pricing` (quantity, list price, sales price, discount, and on the quote line
+  subtotal and tax rate), everything that says *which* line this is is `basic`
+  (the parent link, the product, the description, the line number). The parents
+  agree — `crm_quote` and `crm_product` both keep every money field, tax
+  included, in one `pricing` group and both keep `description` in `basic`.
+  Neither new group is a subset of the highlight strip, so neither is hoisted out
+  of the body on a synthesized detail page (`field-group-shadowed`).
+  
+  Section headings for the two new group keys are translated in all four locales.
+  
+  ### The `forecast.view.ts` `amounts` section is deliberately NOT deleted
+  
+  The proposal these groupings came from expected the authored `amounts` section
+  to become exactly equal to the `amounts` group once the three formula fields
+  joined it, hence redundant, hence deletable. Measured field-by-field off the
+  built metadata, it does not:
+  
+  ```
+  authored forecast.view.ts `amounts` : quota, closed_amount, commit_amount, best_case_amount,
+                                        pipeline_amount, expected_amount, attainment_pct, coverage_ratio
+  derived  crm_forecast  `amounts`    : quota, pipeline_amount, best_case_amount, commit_amount,
+                                        closed_amount, expected_amount, attainment_pct, coverage_ratio
+  ```
+  
+  The membership is equal — the same 8 fields, none extra, none missing — but
+  positions 1–4 are **reversed**. The authored section runs closed → commit →
+  best case → pipeline, most-certain money first; the object declares the
+  cumulative ladder its own header documents, pipeline → best case → commit →
+  closed. The section is therefore not redundant: it encodes an ordering the
+  group does not, and deleting it would silently re-sort a form. The grouping
+  half stands on its own and ships; the section stays exactly as it is.
+- 789a732: Two documents in `docs/` asserted their own freshness with a hand-written date that nothing
+  produced, nothing checked and nobody had updated since the day it was typed. Neither date is
+  bumped here — bumping is the one move that must not happen, because it converts an obviously
+  stale assertion into a plausibly fresh false one and manufactures exactly the claim the line
+  was making without backing.
+  
+  They did not resolve the same way, and the difference is the point.
+  
+  `docs/README.md` read `> Last reviewed: June 4, 2026`. Measured: that string entered the file
+  in the single commit that created the tree's current form — a reorganisation, not a review —
+  and the pickaxe finds no second commit that ever touched it, across every ref. Six commits
+  have maintained the file since, each repointing a row or a step, and not one of them moved the
+  stamp. So the file **is** maintained; its stamp never was. There is no review cadence, no
+  reviewer and no producer behind that date, which makes it the weakest form of the class: a
+  reader cannot tell "read on that date and unchanged since" from "typed once and never
+  revisited", and the line asserts the first while the history shows the second. The header now
+  states the mechanism that actually keeps the index true — a PR that adds, moves, retires or
+  renames a document under `docs/` updates the tables in the same PR — and points at `git log`
+  for the one freshness record that cannot go stale. It is reworded in place rather than
+  deleted, following PR #1569 on this same file: an absent instruction is not enforceable by a
+  reader, and a header that simply loses its maintenance sentence invites the next person to
+  add a fresh one.
+  
+  `docs/feature-inventory.md` read `> 最后清点日期:2026-08-07。` — same class by shape, opposite
+  disposition on measurement. That date names an event that really happened: the full
+  count-from-`src/` compile that created the file. It is also **load-bearing**, which a delete
+  would have broken. The 「总览统计(清点时点)」 block is scoped to it, and those figures have since
+  drifted hard — of nine spot-checked, six no longer match the tree (objects 17→18, flows 21→22,
+  dashboards 5→7, reports 10→6, datasets 9→10, profiles 6→8). The date is the only thing making
+  that block true; remove it and a frozen reading starts reading as a claim about today. So the
+  stamp is kept and reframed, the shape PR #1705 landed for the module-split inventory: it now
+  says in words that it is an event date rather than a freshness claim, that rows are maintained
+  incrementally under the file's own 「锚点即真相」 rule, that incremental maintenance does not
+  move the date, and that hand-editing the overview figures to match today's tree is not a
+  count — it swaps an honest old reading for an unsourced new one.
+  
+  The population was re-derived by meaning rather than by phrase, across `docs/` and
+  `content/docs/`, because the two stamps share a semantics and share nothing lexically: a search
+  for the English wording cannot reach the Chinese one. No third instance of this defect exists.
+  
+  No gate and no test is added: 2026-08-31 ruling item 3 keeps gate-type mechanisms on the
+  platform. `test/docs-src-tree-paths.test.ts` lists `docs/README.md` in both `TREE_DOCS` and
+  `TREE_DIAGRAM_DOCS` and `test/docs-role-hierarchy.test.ts` scans it; all three read `src/<dir>/`
+  paths and a forbidden-term list, none pins the header, and every one is green either side.
+- cd198f1: A case submitted through the public support form can no longer arrive carrying
+  an escalation reason, and the hook no longer claims to give those cases a
+  priority it never gave them.
+  
+  **The escalation reason.** The web-to-case branch already replaced the internal
+  fields a public submitter must not write — the owner, the internal notes, the
+  resolution and the escalated flag. It did not replace `escalation_reason`, so a
+  submission could plant one and it would land on a case whose escalated flag had
+  just been correctly cleared. The record then contradicted itself in a single
+  place: the **Escalation** group on the case page renders the flag and the reason
+  side by side, so a service agent opening that case read a stated reason for an
+  escalation that had not happened. The reason is now blanked with the flag it
+  explains.
+  
+  This is a deliberate widening of what that branch protects, not a repair, so the
+  reasoning is on the record: an escalation reason is a statement about our
+  pipeline rather than about the submitter's own problem, which is the line this
+  branch draws. Every real writer of the column is internal — the escalation flow,
+  the SLA monitor sweep and the **Escalate Case** action — and the public form
+  collects only subject, description, type and priority, so no information a
+  customer actually supplies is lost. Nothing changes for staff: an agent
+  escalating a case still writes the reason exactly as before, and the validation
+  requiring one when a case is escalated is untouched.
+  
+  **The priority default.** The same branch carried a line setting a submitted
+  case to medium priority when none was given. It never ran. The priority field
+  declares **Low** as its own default and the platform applies field defaults
+  before this hook is reached, so the slot was always already filled — a case
+  submitted without a priority has always been stored as Low, with the 168-hour
+  Low SLA clock to match. The line is removed. It described behaviour the app did
+  not have, which is worse than no comment at all for anyone reading the hook to
+  learn how intake works. Whether a web-submitted case ought to start above Low is
+  a separate product question and is left open rather than settled by dead code.
+  
+  `test/case-guest-branch-leftovers.test.ts` pins both against a real engine, on
+  the values that end up stored: the blanked reason, the untouched staff write,
+  and — for the priority — the rank and the SLA deadline the hook derives, which
+  are what show which priority the hook actually saw.
+- d3fb7ca: Anonymous case submissions can no longer plant `customer_rating` or
+  `customer_feedback`. The guest branch of `case.hook.ts` now nulls both, joining
+  the five fields it already stripped.
+  
+  `crm_case.customer_rating` is the satisfaction score — the customer's verdict on
+  how a case was HANDLED, which `case_csat_followup` exists to collect after the
+  work — and `customer_feedback` is the prose beside it. Neither is a fact a
+  submitter states about themselves when opening a case, and a case that arrives
+  already rated five stars is a quality measure with no service behind it, on the
+  one column `case_metrics` reporting reads back.
+  
+  **This is defence in depth, and the record says so rather than implying a
+  breach.** The middleware path was measured against a real server
+  (`objectstack start`, the production plugin set) rather than left as the open
+  question the hook's own comment flagged. Unauthenticated over HTTP, every
+  generic write surface answers `401 UNAUTHENTICATED`
+  (`/api/v1/data/crm_case`, its `:id` update, `/api/v1/actions/…`, `/api/v1/mcp`);
+  the single anonymous write path that survives is the public form route
+  `POST /api/v1/forms/support/submit`, and it filters the request body against an
+  allow-list built from the matched form view's own declared sections — so a
+  planted `customer_rating` was already dropped before ObjectQL and before the
+  hook. **A guest does not reach these columns on the shipped app today.**
+  
+  What makes the fix load-bearing rather than cosmetic is that the allow-list is
+  the form's FIELD LIST — a product decision, not a security declaration.
+  Measured by widening it: adding `customer_rating` to `web_to_case`'s sections,
+  one line, the exact edit the open product question on #1428 would make, and the
+  same anonymous POST stored `customer_rating: 5`. Field-level permissions cannot
+  catch it either — re-measured against the installed platform,
+  `getFieldPermissions` builds its mask only from fields a permission set names,
+  and `guest_portal` names none, so its mask is empty and the write guard is
+  skipped. The hook branch is the layer this app declares to be its field-level
+  control for anonymous intake, and it is the layer that has to hold when the form
+  list moves.
+  
+  The strip stays guest-scoped: an authenticated agent logging a rating is
+  unaffected, which is what `case_csat_followup` notifies the case owner to do.
+- d2339bb: Anonymous web-to-case and web-to-lead submissions are now actually sanitised.
+  Until now the control read as enforced and did nothing.
+  
+  Both intake hooks open with a guest branch — `case_sla_defaults` on `crm_case`,
+  `lead_automation` on `crm_lead` — that stamps a few defaults and then removes
+  the fields a public submitter must not write. On a case: the internal notes, the
+  resolution, the escalation flag, the closed flag and the case owner. On a lead:
+  the entire conversion surface (`is_converted` and the four `converted_*`
+  columns), the owner, and the duplicate link and verdict.
+  
+  Both branches expressed the removal as `delete input.<field>`, and **measured
+  against the real engine, every one of those deletes was a silent no-op** — while
+  the assignments two lines above them (`origin = 'web'`, `lead_source = 'web'`)
+  landed on the same object in the same call. A submission that carried
+  `internal_notes` and `resolution` stored them verbatim; one that carried
+  `is_escalated: true` claimed the outcome of the escalation path without ever
+  entering it; one that carried `is_converted: true` arrived pre-converted, which
+  is a state the converted-lead lock then refuses to let anyone edit out. A
+  submitter who posted `duplicate_status: 'confirmed'` switched the intake dedupe
+  off for their own submission, because that check stands down on a record that
+  already carries a verdict.
+  
+  Each removal is now an overwrite with the safe value — `null`, or `false` for
+  the two flags — because assignment is the operation that survives. `null`
+  specifically: an empty string is a real value in a lookup column, and an
+  explicit `undefined` stores the *key* rather than omitting it. The downstream
+  hooks that depend on the strip still behave as intended, which is why the safe
+  value matters — `case_auto_assign` and `lead_auto_assign` treat a nulled
+  `owner_id` as ownerless and go on to assign a real one, and `lead_duplicate_check`
+  treats a nulled verdict as blank and runs.
+  
+  **`is_closed` on a case is now derived on every write, a guest's included.** It
+  used to be recomputed only for trusted writes, on the assumption that a guest
+  could not state it — so once the strip became real, a guest-submitted
+  `status: 'closed'` would have stored `is_closed: false` beside it. The two
+  contradict each other, and every consumer keyed on the flag reads such a case as
+  open backlog: the pinned **Unassigned — triage** view and the
+  `case_unassigned_triage_sharing` rule would both have held it forever.
+  
+  One consequence worth stating: a guest submission that names `status: 'closed'`
+  is now **rejected**, by the pre-existing "Resolution is required when closing a
+  case" rule, because the resolution it planted no longer survives to satisfy that
+  rule. Previously such a submission was accepted and stored the contradiction
+  above. An ordinary submission — which names no status — is unaffected and
+  defaults to `new` exactly as before.
+  
+  `test/guest-submission-sanitisation.test.ts` pins all of it against the shipped
+  stack, asserting the **stored row** in each case rather than the absence of an
+  error, with a positive control that fails if the guest branch stops running at
+  all and a trusted-write control that fails if the sanitisation ever stops being
+  guest-scoped.
+- 3cd17a0: The shared flow harness no longer orders NULL by string coercion, so a range
+  filter selects the rows a driver selects.
+  
+  `test/helpers/flow-harness.ts` routed all four ordering operators through
+  `compare()`, whose fallback is `String(a) < String(b)`. `String(null)` is
+  `"null"`, so `compare(null, 0)` compared `"null"` against `"0"` — and
+  lexicographically `"n" > "0"`. The answer was not merely wrong, it was
+  **asymmetric**: the same null row was ADMITTED by `$gt` / `$gte` and REJECTED
+  by `$lt` / `$lte`. `"null"` sorts above any `2xxx` date string too, so a date
+  window was wrong the same way, and which half a sweep got wrong depended only
+  on the direction its window happened to be written in. A symmetric bug gets
+  noticed because everything shifts; this one stayed invisible.
+  
+  **Measured over BOTH shipped drivers**, not reasoned from SQL. Three `crm_case`
+  rows through real `ObjectQL` on ObjectStack 17.2.0 — one valued, one with the
+  key omitted, one with the key written as an explicit `null` — under all four
+  operators. `SqliteWasmDriver` and `InMemoryDriver` returned the identical
+  selection every time: neither the null row nor the absent-key row is selected
+  by any of the four, in either direction. The two spellings are not
+  distinguishable here either — sqlite materialises the omitted key to `null`,
+  the memory driver leaves it sparse, and the four operators answer the same on
+  both shapes. So an unorderable value now satisfies none of the four, and an
+  unorderable operand never reaches the comparison at all (`compare(5, null)` was
+  `"5" < "null"`, which made `{ $lt: null }` select a row both drivers exclude).
+  
+  This is what the repo's own flow authors had already written down —
+  `knowledge_article.view.ts` states that "`$lt` matches neither null nor an
+  absent key", and `opportunity-stagnation.flow.ts` relies on it to keep
+  unstamped rows out of a stagnation sweep. The harness was the one place that
+  disagreed with them.
+  
+  **No shipped flow changed, and no assertion was weakened.** All 19 suites that
+  import the harness are green before and after — 350 tests, 0 failures either
+  way. That is not evidence the rule was already covered. Instrumented across
+  those 19 suites the new guard fires 9 times, and every one of the 9 is `$lt` or
+  `$lte` — the direction the string comparison happened to get right. The
+  over-admitting half, `$gt` / `$gte` silently keeping a row a driver drops, was
+  exercised by nothing at all, which is exactly why nothing went red. Six new
+  cases in `test/flow-harness-declared-columns.test.ts` cover it now; all six
+  fail against the previous harness.
+  
+  `$eq` / `$ne` / `$in` / `$nin` are untouched: they are equality-shaped, the
+  store models `IS NULL` rather than SQL's unknown, and a sentinel pins that they
+  still behave. The `store`-stays-live contract preserved by #1490 is untouched
+  and still pinned.
+- a0ef8da: Name page-header buttons by action id, which is what the protocol asks for.
+  The four record pages — Account, Case, Lead, Opportunity — authored whole
+  `ActionDef` objects in their `page:header` `actions` array, imported from
+  `src/actions/`. `PageHeaderProps.actions` is `z.array(z.string())`, described
+  as "Action IDs to show in header" (`@objectstack/spec` 17.3.0), so all sixteen
+  entries were rejected by the props schema and reported by `objectstack lint` as
+  `component-props-invalid`. They now read as ids — `convert_lead`,
+  `generate_quote`, `escalate_case`, `close_case`, `clone_opportunity`,
+  `schedule_followup` and the `log_call` / `log_meeting` / `schedule_meeting`
+  activity trio — and the rule reports zero.
+  
+  Nothing a user is offered changes: the same sixteen buttons are named on the
+  same four headers, in the same order. What changes is that the source now says
+  it the way the contract says it.
+  
+  The conversion trades a compile-checked reference for a plain string, so the
+  resolution the type system used to perform for free is now asserted instead.
+  Every id was checked against the app's own registry — all sixteen name an
+  action that exists AND is reachable from the page's object, since the runtime
+  registers a body action under `<objectName>:<action.name>` and the dispatcher
+  probes `<objectName>` first. A new guard in `test/action-references.test.ts`
+  keeps that true, and pins that its resolver still refuses both ways an id can
+  dangle: a name no action carries, and a real name scoped to a different object.
+  
+  Two records that described the old state are retired with it. The four
+  `KNOWN_UNCONFORMING` exemptions in `test/metadata-references.test.ts` are gone,
+  and the note above them — which argued that the source should follow objectui's
+  current `page:header` renderer rather than the spec — is replaced by what
+  settled it. This is a pure metadata application; it declares no `@object-ui/*`
+  dependency at all, so a renderer's behaviour was never its authority and cannot
+  be measured from here. Metadata conforms to the protocol. Renderer-side id
+  resolution belongs to the renderer's own repo.
+- 8593f26: Five lifecycle hooks computed a persisted date on the **local** calendar and
+  rendered it on the **UTC** one. Each is now spelled on one calendar — UTC
+  throughout (`getUTCDate` / `setUTCDate` / `setUTCMonth`), matching the calendar
+  the engine resolves a bare `{TODAY()}` to and the calendar these dates are
+  rendered on.
+  
+  **This changes what gets written, and it is meant to.** In any deployment whose
+  server clock is not UTC, the dates below moved by one day in the cases named.
+  No deployment running at UTC sees any change at all — there the two calendars
+  coincide, which is why the defect survived: nothing in CI could see it.
+  
+  | hook | field | what a non-UTC deployment wrote before |
+  | --- | --- | --- |
+  | `lead_automation` | the qualified-lead follow-up task's `due_date` | one day early when the two-day window crossed a DST spring-forward |
+  | `case_status_side_effects` | the escalation follow-up task's `due_date` | one day early — a one-day follow-up landed on the day of the escalation itself |
+  | `opportunity_promote_account` | the close-won activation task's `due_date` | one day early when the three-day window crossed a spring-forward |
+  | `quote_workflow` | `crm_quote.expiration_date` | one day early for **every** quote whose `quote_date + 30` span crosses a transition — measured on 60 of 730 consecutive quote dates in `America/New_York`, `Europe/Berlin`, `America/Santiago`, `Australia/Sydney` and `Pacific/Auckland` |
+  | `quote_on_accepted` | the drafted `crm_contract.end_date` | one day early when the offset at the end of the term differs from the offset at its start — 9 of 730 consecutive acceptance dates in `America/New_York` |
+  | `task_recurrence` | the next occurrence's `due_date` and `reminder_date` | one day early on month and year steps, and the error compounds: each occurrence is computed from the previous one, so a monthly series drifted a further day per occurrence |
+  
+  The two date-string sites are not the same edit as the three "advance now by N
+  days" ones, and the difference is why their exposure is wider. `quote.hook.ts`
+  and `task.hook.ts` advance a stored `YYYY-MM-DD`, which the date-only parse
+  anchors at **UTC midnight** — so the local reading of that anchor is already
+  the previous evening west of Greenwich, independently of what the clock says.
+  Their exposure is therefore every base date whose span crosses a transition,
+  not the one-hour window of instants the three "now" sites have.
+  
+  No test was changed. The previously-red assertions go green because the
+  producer now agrees with the calendar its output is rendered on.
+- 3a77164: Give `crm_case.internal_notes` an authoring surface — the case record page's
+  Description section (#1428).
+  
+  #1427 narrowed the case form to what a creator legitimately authors at intake.
+  Ten of the thirteen fields it dropped kept a surface elsewhere; three did not,
+  and `src/views/case.view.ts` said so in a comment rather than leaving it unsaid.
+  `internal_notes` is the one of the three with no product question attached: it
+  is staff prose a service agent writes, declared on the object, translated in all
+  four locales, and reachable from nowhere.
+  
+  It goes on `case_detail.page.ts`'s existing Description section rather than an
+  "Internal Notes" section of its own, because a section is not a container an
+  author can rely on. Measured on the shipped console (`@objectstack/console`
+  17.2.0, `DetailSection`): a section whose fields are ALL empty returns `null` —
+  no heading, no shell, no toggle. A section holding only `internal_notes` would
+  render nothing until the field is non-empty, and the only way to make it
+  non-empty is to author it there. The Description section escapes that circle
+  because `description` is required on the object, so the section always renders
+  and an unwritten `internal_notes` is reachable through the section's own
+  "Show N empty fields" toggle, then authored by inline edit.
+  
+  Inline edit is the surface deliberately: the record header's Edit button opens
+  `CaseViews.form`, which is also the create form, so putting the field back there
+  would re-open intake — where `case.hook.ts`'s guest branch (`!ctx.previous &&
+  !ctx.user?.id && !ctx.session?.isSystem`) nulls the column anyway. Field-level
+  security is unchanged: `service_agent` editable, `sales_manager` read-only,
+  `sales_rep` cannot read it.
+  
+  `customer_rating` and `customer_feedback` deliberately do NOT get a surface
+  here. Whether staff should type a customer's satisfaction score on the
+  customer's behalf is a product question, and adding two inputs would settle it
+  by accident. Both consequences of leaving it open are now recorded in-tree
+  instead of being implied: the `case_csat_followup` flow notifies the case owner
+  to log a rating that has no input anywhere, and neither field is named in any
+  profile's `fields` map — which on this platform means unrestricted, not
+  restricted.
+- 4f44596: Publish public knowledge articles as share links.
+  
+  `crm_knowledge_article` now declares `publicSharing`, so publishing an article
+  produces a link an unauthenticated visitor can open — no sign-in, no customer
+  portal, and no widening of the guest profile.
+  
+  The link is gated at the moment it is minted. Only a **published** article whose
+  **audience is public** can produce one: a draft, an in-review, an archived, or
+  any internal-audience article is refused outright with `RECORD_NOT_ELIGIBLE`,
+  and no link row is written. Links are view-only and may be issued for the
+  `public` and `link_only` audiences only. What the link serves is stripped of the
+  fields that exist for staff — the article owner, the case it was written from,
+  and the last editorial review date.
+  
+  This ships only now because the platform could not enforce the eligibility gate
+  before `@objectstack/plugin-sharing@17.1.0`. Declaring the block earlier would
+  have opened anonymous access to internal and draft articles rather than
+  restricting links to public ones, so it was deliberately withheld. Enforcement
+  is re-verified end to end in `test/knowledge-article-share-links.test.ts`, in
+  both directions.
+- c716a2c: A bulk update that matches knowledge articles is no longer refused outright, and
+  the seeded articles are owned from the first boot.
+  
+  `knowledge_article_publish_timestamps` decided both of its payload writes from
+  the row in front of it. A predicate update — `update(object, payload,
+  { multi: true, where })` — sends **one** `SET` clause for every matched row and
+  hands each row's `beforeUpdate` that same payload rather than a per-row copy
+  (ADR-0058 Addendum II D3), so those writes did not stay on the rows they were
+  decided on. Measured on the pinned `@objectstack/* 17.4.0`, on a fresh
+  `pnpm dev`: the platform's own seed-ownership claim (one payload of
+  `{ owner_id }`, `where: { owner_id: null }`) matched all four seeded articles;
+  the three published ones stamped `last_reviewed_at` and the one draft stamped
+  nothing, and a diverging key set makes the engine refuse the whole batch —
+  
+  ```
+  Refusing a multi-record update on 'crm_knowledge_article': its 'beforeUpdate'
+  handlers wrote 'last_reviewed_at' for some of the 4 matched records and not for
+  others … Nothing was written.
+  ```
+  
+  So **no** article was claimed, all four stayed ownerless, and the **My Drafts**
+  list view — which filters `owner_id = {current_user_id}` — was empty for the
+  admin until the `demo_bootstrap` sweep repaired the rows by id ten minutes
+  later. The same refusal stands in front of any bulk edit whose matched articles
+  do not all agree on publication state.
+  
+  The hook now stands down on the predicate path: `ctx.previous` is supplied there
+  so a guard can **refuse** a write, not so a rewrite can be aimed at one row, and
+  stamping is per-record work. Deriving still happens on every per-record path —
+  which is every writer this app has. After the change, on a fresh database: the
+  boot banner carries no `claimSeedOwnership` warning, `crm_knowledge_article` is
+  4 rows with 0 unowned, the draft article carries no review timestamp it did not
+  earn, and each published article keeps its own historical `published_at`.
+  
+  Both halves of the guard are load-bearing. A batch **insert** also reports
+  `dispatch.mode === 'per-row'`, and there each row does carry its own payload, so
+  the stand-down is scoped to `beforeUpdate`; the seed load still stamps each
+  article's timestamps individually.
+  
+  This also corrects the record on why the defect stood open. It was parked on the
+  belief that a hook body could not see which path it was on — that the sandbox
+  context carried `input`, `previous`, `user`, `session`, `event`, `object`, `api`,
+  `log` and `crypto` and nothing else. That was true when it was measured and is
+  false on the current pin: `@objectstack/runtime@17.4.0` marshals `ctx.dispatch`
+  (`{ mode, index }`) and an `inputOptions` projection into the body sandbox
+  (objectstack#11552), so the guard that would once have lowered cleanly and then
+  evaluated `false` on every production dispatch now answers truthfully.
+  `ctx.input.id` is still absent; a body that needs the row reads `ctx.previous.id`.
+- fc3deb4: **The lead's Activity tab shows the calls, meetings and emails you logged — not
+  the audit trail.**
+  
+  Opening a lead and clicking **Activity** used to return the system's own
+  bookkeeping: `Created Lead "Wei Zhang"`, `Updated Lead "Wei Zhang"`, one row per
+  save. The interactions a rep had actually logged against that lead were nowhere
+  on the tab, and the audit rows duplicated what the neighbouring **History** tab
+  already showed.
+  
+  The tab now lists exactly the interactions: every call logged with **Log Call**,
+  every meeting logged with **Log Meeting**, and every email sent from the record.
+  Field changes stay on **History**, where they belong, and the lead's follow-up
+  tasks stay on **Related Records → Open Tasks**.
+  
+  Two authoring mistakes produced the old behaviour, and both were invisible:
+  
+  - the timeline was filtered by an object name (`crm_task`) where the component
+    filters by *kind of activity* (`task`, `event`, `comment`, …). An unrecognised
+    kind is discarded and the leftover empty filter reads as "no filter", so the
+    tab quietly showed everything;
+  - logged calls and meetings arrive as *completed* activity, which the timeline
+    hides unless asked to include it. Naming the right kind without also asking
+    for completed items would have swung the tab from showing everything to
+    showing nothing.
+  
+  Nothing about your data changes, and no other page is affected. Scheduled (not
+  yet held) meetings still do not appear on any activity timeline — that is a
+  platform-side gap, tracked upstream.
+- 0552bbd: Drop `navigation.view: 'detail_form'` from the default lead list. The key was
+  never resolved as a form-view name, and the inline comment beside it — `// Use
+  named form view` — stated the one thing it does not do.
+  
+  ### The severity question this card existed to answer
+  
+  #1716 was filed with half a measurement and was honest about which half. The
+  bundle read was exhaustive: on `@objectstack/console` 17.3.0 every `.view`
+  property read and every `formViews` read was enumerated, and none of them
+  resolves a form view by authored name. What that could not say is which
+  `onNavigate` consumer the lead grid mounts at runtime, and the two answers were
+  two orders of magnitude apart — an inert dead key, or **the most-used list in
+  the app cannot open a record**.
+  
+  The navigation hook passes the key into the *second argument* of `onNavigate`,
+  the slot that otherwise carries the literal mode string:
+  
+  ```
+  framework-BfSv4Kb0.js   let l = t?.mode ?? `page`, d = t?.view, …
+                          if (l === `page`) { … r(t, d ?? `view`); return }
+  ```
+  
+  and one consumer in the same bundle compares that argument against `edit` /
+  `view` and nothing else — so if *that* consumer were the one mounted,
+  `'detail_form'` would match neither branch and the click would do nothing.
+  
+  ### Measured in a browser: it is the inert answer
+  
+  Booted the app, signed in, opened the lead list and clicked a row. The record
+  opens: `/crm_lead/record/oL_m9wEVBa2qa0Oh` renders the full lead page for Mira
+  Costa — highlights strip, duplicate banners, `Details / Related / Activity /
+  History`. Clicking the row body (a plain, non-anchor cell) and clicking the
+  name link both land on the same record.
+  
+  Control, on the same boot: the account list, which declares no `navigation`
+  block at all and therefore takes the same default `mode: 'page'` without a
+  `view`, behaves identically — row body and name link both open the account
+  record. A list that declares the key and a list that never has are
+  indistinguishable, which is what inert means.
+  
+  So the row click was never broken, and this is a `Task`, not a `Bug`.
+  
+  ### The key named nothing, in a stronger sense than "unresolved"
+  
+  The record the click opens is not rendered by any form view. It is rendered by
+  `lead_detail_page` (`src/pages/lead_detail.page.ts`), a `type: 'record'` page —
+  its tab strip is `Details / Related / Activity / History`, which belongs to
+  neither the default `simple` form (`Contact Information`, `Lead
+  Classification`, …) nor to `detail_form`'s `tabbed` sections (`General`,
+  `Qualification`, `Address`, `Details`). `detail_form` was not merely losing a
+  lookup; nothing on that route consults `formViews` at all.
+  
+  `detail_form` itself **stays**. It is this file's one TABBED layout example in a
+  one-example-per-layout showcase, and deleting the navigation key does not change
+  its reachability — on the measurement above it was already reachable by no path.
+  
+  ### Blast radius
+  
+  `navigation.view` occurred exactly once in the whole tree, on this list.
+  `crm_opportunity`, `crm_task` and `crm_case` declare `navigation` with `mode:
+  'drawer'` and a `width`, never a `view`; `crm_account` and `crm_contact` declare
+  no `navigation` block. There was nothing to sweep.
+  
+  Nothing users see changes: the same click opened the same page before and after,
+  verified on the same running server with the served metadata confirming the key
+  had left the artifact (`/api/v1/meta/view?object=crm_lead` returns
+  `"navigation":{"mode":"page","preventNavigation":false,"openNewTab":false,"size":"auto"}`).
+  
+  The upstream half — that `@objectstack/spec` 17.3.0 declares
+  `navigation.view?: string` as an unconstrained string next to `mode` / `size` /
+  `width` / `preventNavigation` / `openNewTab`, so this authored clean and
+  validated clean while selecting nothing — is filed on the platform, not
+  compensated for here.
+- aeffd73: Fix the Executive dashboard's **Lead Source** filter: it offered `advertising`, a
+  value no record can hold, and it offered only six of the twelve real sources.
+  
+  Picking *Advertising* produced the worst failure shape a filter has. `advertising`
+  is not a `lead_source` value anywhere — the canonical spelling is `advertisement`,
+  and `crm_lead`, `crm_contact` and `crm_opportunity` all take their options from
+  one shared constant — so the control ANDed a term no row matches into every widget
+  bound to it and the dashboard went to zero with no error, no empty state, and
+  nothing to tell the reader apart from a business with no pipeline. Measured on the
+  demo database: **Open Leads** reads 21 unfiltered, **2** under the fixed
+  *Advertisement*, and **0** under the old *Advertising*.
+  
+  The roster is repaired at the same time, and repaired so it cannot drift again.
+  The hand-copied six are gone: the option list is now derived from the canonical
+  picklist, so the filter offers all twelve sources — *Webinar*, *Paid Search*,
+  *Social Media*, *Content / Blog*, *Email Campaign* and *Other* were unreachable
+  before — and a source added to the canonical set reaches this control by existing.
+  Only the wording is still written on the dashboard, in all four locales, and it is
+  the language packs' own: *Advertisement* rather than *Advertising*, and
+  *Event / Trade Show* rather than the shortened *Event* the filter used to show.
+- ba25aae: Leads page: the duplicate review queue is reached from the Leads list's view
+  switcher, not from a "Leads tab", in all three locales.
+  
+  `content/docs/sales/leads.mdx` sent a reader to "the **Suspected Duplicates**
+  view on the Leads tab", with the same sentence on the two Chinese faces as
+  「线索页签」 and 「潛在客戶頁籤」. Both names in it are real — *Suspected
+  Duplicates* is a live view (`suspected_duplicates` in `src/views/lead.view.ts`)
+  and *Leads* is a genuine sidebar item (`nav_lead`, label **Leads**, in
+  `src/apps/crm.app.ts`) — so this is not the fictional-name defect the same
+  family has produced elsewhere. What is wrong is the kind of surface: **Leads**
+  is a row in the sidebar, and a sidebar row has no tab on it. A reader following
+  the sentence looked for a tab row that is not there.
+  
+  The sidebar carries one entry per destination and the several ways of reading
+  one object's records live as tabs across the top of that object's list page —
+  the switcher strip the console builds from the view descriptors. So the queue
+  is reached from the Leads list, and the sentence now says so, matching the
+  wording `content/docs/service/index` already uses for the case kanban ("the
+  **Service Workflow** tab in the case list's view switcher").
+  
+  Each face keeps the vocabulary it already uses: the Simplified page's 线索列表
+  and 视图切换器, the Traditional page's 潛在客戶列表 and 視圖切換器. The view's
+  own name is untouched in all three, and no view, label or navigation entry
+  changed — the names were correct at source, and only the docs moved.
+- c256885: Correct the `authorization-coverage` lifecycle-bits guard, whose comment described a
+  platform state the pinned spec has left behind, and make its assertion non-vacuous.
+  
+  The guard scans every permission grant for `allowRestore: true` / `allowPurge: true`.
+  Its comment said those were "RBAC-gated" bits "whose operations do not exist yet" —
+  live-but-unenforced. On the pinned `@objectstack/spec` 17.3.0 they are neither: ADR-0049
+  enforce-or-remove **retired** both keys (objectstack#12497), and the schema now refuses
+  them at parse time. Measured against the installed package, `allowRestore: true` comes
+  back with the platform's own prescription:
+  
+  > `objects.<object>.allowRestore` was removed in @objectstack/spec 17 (ADR-0049) — the
+  > `restore` ObjectQL operation it claimed to gate has never shipped (roadmap M2), so
+  > granting the bit delivered nothing. Delete the key …
+  
+  Only `true` is refused. The `false` that the pre-retirement schema defaulted into every
+  artifact the published 17.x toolchain built parses as inert residue and is stripped
+  (objectstack#12840) — so `=== true` is both what the scan tests and the only value worth
+  testing for. The comment now says all of that, cites the retirement, and says why the
+  guard **stays**: `validate` and `build` reject such a source earlier in `pnpm verify`,
+  but `pnpm typecheck` does not — `src/profiles/*.profile.ts` are untyped object literals
+  and the suite reads the raw `objectstack.config` rather than a schema-parsed object, so
+  nothing gives the literal a contextual type and a bare `pnpm test` still trips here.
+  objectstack#1883 stays open as the M2 lifecycle anchor, and the keys return with it as
+  bits that really are enforced.
+  
+  The steady state of this guard is an empty result, which a real pass and a collapsed
+  input look identical in. It now carries the same guard-the-guard assertion its immediate
+  neighbour (`allowTransfer`) has carried all along — the population being scanned must be
+  non-empty — so the green says which of the two it is. No new check surface: the sibling
+  pattern, applied to the assertion already in the file.
+- cf22e3b: Split the four locale bundles by translation namespace and CRM domain family.
+  **No translated string changes** — the built `dist/objectstack.json` is
+  byte-identical before and after, whole artifact and not just its translation
+  tree, which is the proof that this is a file layout change and nothing else.
+  
+  `src/translations/{en,zh-CN,ja-JP,es-ES}.ts` had grown into the largest files
+  in the repository. Measured on `main`, `es-ES.ts` was at 88.6% of the 100KB
+  source cap `pnpm hygiene` enforces and `ja-JP.ts` at 87.4%; `zh-CN.ts` had
+  crossed the 70% advisory band since the band was added, and `en.ts` was the
+  only one still outside it. The growth is not incidental and there is no version
+  of "stop adding translations" that fixes it: every new user-visible string in
+  the app adds a row to all four bundles at once. Over the eleven days before
+  this change the four grew 42KB between them, so `es-ES.ts` would have hit the
+  hard cap — a red CI check on somebody else's unrelated PR — inside a month.
+  
+  Each bundle is now assembled from `src/translations/<locale>/`, and the axis
+  was chosen on the measured key distribution rather than on taste:
+  
+  - every namespace that is **not** `objects` — `apps`, `messages`,
+    `dashboards`, `datasets`, `pages`, and any namespace `TranslationData` gains
+    later — lives in `app.ts`. Together they are under a quarter of a bundle, and
+    the schema bounds how many namespaces can ever arrive, so one file holds them
+    with room to spare.
+  - `objects` is 69–78% of every bundle, so it is partitioned again into one file
+    per CRM domain family — `customer`, `pipeline`, `commerce`, `service`,
+    `activity`, `marketing` — with a detail object following its master: line
+    items follow their quote or opportunity, `crm_event_attendee` follows
+    `crm_event`, `crm_campaign_member` follows `crm_campaign`, and
+    `crm_article_feedback` follows `crm_knowledge_article`.
+  
+  A namespace axis on its own was measured and rejected. It leaves `objects` in
+  one 65.7KB file, 3.9KB below the advisory band, which the measured growth of
+  that namespace crosses in about nine days — landing just under a threshold is
+  what this card was filed to stop doing. Under the family axis the largest file
+  in the tree is 24.2% of the cap with 46KB of headroom, and `pnpm hygiene` names
+  no locale bundle at all.
+  
+  The public surface is untouched: `src/translations/index.ts` and
+  `crm.translation.ts` are unchanged, and each `src/translations/<locale>.ts`
+  still exports the same `TranslationData` under the same name. Those four files
+  are now assemblers, and they list their object keys one per line rather than
+  spreading the family files, because `objectstack build` serialises the bundle
+  into the artifact in insertion order and never sorts it — restating the order is
+  what keeps the build byte-identical, and each assembler says so where a reader
+  will find it.
+  
+  Every split file's header states the axis, so the next bundle lands in the file
+  for its family instead of re-growing whichever file happened to be open.
+  
+  One test moved with it. `test/docs-sales-index-navigation.test.ts` proved that
+  `nav_account_workbench` has a label in every locale by regex-scanning the locale
+  file's source text; that proxy broke when the bytes moved to a sibling file even
+  though the label had not changed. It now reads the label through
+  `CrmTranslations`, the surface the app and the i18n gate actually consume, which
+  is both layout-independent and stricter — a present-but-empty label satisfied
+  the old regex and fails this.
+- 9fbf7f3: Correct the lock-file prose in the source-hygiene scan-surface suite, and keep
+  the `package-lock.json` exclusion on a measurement rather than on appearance.
+  
+  `test/source-hygiene-scan-surface.test.ts` still argued about "the two lock
+  files ... they sit at the root", which stopped being true when the StackBlitz
+  demo and the `package-lock.json` it existed for were retired. The gate's own
+  documentation was corrected in that same change; only the suite lagged, and no
+  test run could have caught it — the case builds its fixtures from its own list
+  and never reads the real tree, so deleting the file could not turn it red.
+  
+  The exclusion entry itself is KEPT, because the assumption behind keeping it was
+  tested rather than assumed: adding `package-lock.json` back to the gate's
+  `ROOT_TEXT_FILES` turns that case red on the byte it plants, so the entry is a
+  live guard and dropping it would drop a guard. What was actually wrong is the
+  prose around it, which described an inventory of the tree instead of the
+  property being pinned — that the byte check's whitelist carries no lock-file
+  name, whether or not such a file is at the root today. The three comment sites
+  now say that, and record that the two entries no longer rest on the same
+  reason: `pnpm-lock.yaml` is present and excluded by a live decision, while
+  `package-lock.json` is a name held out of the whitelist against its return.
+- fe0f34e: Security & Compliance: `lockout_threshold: 0` disables the **password-stage**
+  lockout, not every brute-force limit. The page said `0` "disables lockout
+  entirely" and, in Tips, "no account lockout at all" — measured against the
+  installed 17.2.0, two-factor verification keeps a built-in limit of 10 attempts
+  per 15 minutes that no setting reaches. The correction states which control
+  exists and which does not: that limit guards the second factor only, and
+  two-factor is off by default here, so a stock password-only sign-in still has no
+  account lockout. All three locales.
+- b38cc1b: Stop telling a rep to revisit the lost Acme add-on "in Q3". The
+  `Acme Add-on (Lost)` opportunity's description ended *"Revisit in Q3 when that
+  contract is up for renewal"*, while the record itself seeds `close_date` and
+  `stage_entry_date` as `daysAgo(25)`. The date moves with every seed load and the
+  quarter does not, so on the day this was measured the sentence pointed a rep at
+  the quarter the deal had already been lost in.
+  
+  ### The quarter was wrong in two directions at once
+  
+  - **It was a fixed period on a moving record.** `daysAgo(25)` resolves to a
+    different calendar day every time the demo database is seeded; `Q3` was
+    authored once. They agree only by accident, and the label carries no year, so
+    it is ambiguous as well as drifting. There is no fiscal-period mechanism to
+    read it against either — `fiscal` occurs twice in `src/`, both times inside
+    free-text loss prose, and `objectstack.config.ts` never mentions it — so the
+    quarter could only ever have been a hand-typed calendar one.
+  - **It contradicted the record's own loss narrative.** The same record's
+    `loss_details` reads *"Marketing is locked into a 2-year HubSpot contract; the
+    buying window opens when that renews."* A two-year lock and a revisit this
+    quarter cannot both be true, and `loss_reason` / `loss_details` are exactly
+    what the loss-analysis reports are seeded to demonstrate.
+  
+  ### What replaces it
+  
+  The sentence now anchors the follow-up to the event instead of the calendar:
+  revisit when that contract comes up for renewal, because that is when the buying
+  window opens. That is the story `loss_details` already tells, and the same shape
+  the `Acme Corporation` description uses for this very fact — no date to drift.
+  
+  The quarter is removed rather than re-derived. Deriving one here would mean
+  importing `revenue.seed.ts`'s module-private `forecastQuarterLabel` into
+  `sales.seed.ts`, and `revenue.seed.ts` already imports `sales.seed.ts` — the
+  reverse reference is a circular import for a label the record does not own.
+  `#1660` settled this for the sibling `next_step` on the same account: no date
+  goes back into this prose, absolute or relative, because a second copy is a
+  second thing to drift.
+  
+  `close_date`, `stage_entry_date`, `loss_reason`, `loss_details` and the seed
+  record name are all unchanged — the record was already correct; only the prose
+  describing it was not.
+- ec51fa7: Restructure the **Marketing Cloud** overview so its diagram, its numbered life
+  cycle and its *What the system does for you* list tell one story about what
+  moves by itself — all three locales.
+  
+  The page said member enrollment was automatic in three places at once. The ASCII
+  life cycle drew an arrow out of *In Progress* into "Enroll leads/contacts";
+  numbered step 2 said "launch the campaign; the system bulk-enrolls the target
+  audience as campaign members"; and a bullet titled **Automatic enrollment**,
+  sitting in the list of things the app does by itself, promised "a scheduled flow
+  bulk-enrolls members matching your target audience". `campaign_enrollment` is a
+  `type: 'screen'` flow (`src/flows/campaign-enrollment.flow.ts:52`) with no
+  trigger and no schedule; its only entry point is the **Enroll Members** action
+  on the campaign. A heading called *What the system does for you* listing a thing
+  a person does is the defect in one line, and it survived two earlier passes over
+  this page because both were rewriting the bullet directly below it.
+  
+  So this is a page-structure change rather than four line edits. The diagram now
+  has two rows — a STATUS row whose first two moves are yours and whose last is
+  the nightly sweep, and a MEMBERS row that names **Enroll Members** as a button.
+  The numbered life cycle gains enrollment as its own step, placed where it really
+  sits (the action is offered while a campaign is *Planning* **or** *In Progress*,
+  so the audience can be built before launch and topped up after it), and step 3
+  now says that moving the status is the launch and that the move enrolls nobody.
+  The English page links both mentions to
+  `marketing/campaigns#campaign-enrollment-flow`, which carries the full
+  description, instead of restating it.
+  
+  The automation list keeps every bullet that is real and gains a closing
+  paragraph saying, in the place the false bullet used to occupy, that enrolling
+  is deliberately not on the list — nothing enrolls anybody when a campaign moves
+  to *In Progress*, and no schedule enrolls them later, because the audience is
+  answered on a screen and a scheduled run would arrive with nobody to answer it.
+  Nothing here describes the removed cron as returnable and nothing proposes
+  adding one.
+  
+  **Automatic completion** was measured rather than assumed, and it is real:
+  `campaign_completion` (`src/flows/campaign-completion.flow.ts`) is a
+  `type: 'schedule'` flow, `status: 'active'`, `schedule: '0 2 * * *'`, filtering
+  `status: 'in_progress'` with `end_date` in the past and writing
+  `status: 'completed'`. The bullet is kept; its wording now carries the status
+  qualifier the flow's own filter has, so it agrees with the *Campaigns* page and
+  with the life-cycle step beside it.
+  
+  The Simplified page names the action as the zh-CN pack does — **Enroll Members**
+  （批量加入成员）, the shipped label for `enroll_leads` — and the Traditional page
+  mirrors it in that page's own conventions（批次加入成員 · 畫面 · 排程 · 區隔）,
+  never a mechanical conversion, the wording PR #1860 established for this family.
+  
+  No metadata changes: the flow is already a screen flow, and this is the overview
+  page catching up with it.
+- fdea08f: Correct the VM-boundary claim inside the **Update Stage** action body, and state the
+  real reason its catch stays cause-agnostic.
+  
+  `mass_update_stage` carried a comment telling every future author that a host
+  rejection crosses the QuickJS boundary as `{ name, message }` only — that `code`,
+  `status` and `details` are "dropped by the bridge" and that a body therefore
+  "physically cannot test for RECORD_NOT_FOUND". Two of those three keys are not
+  dropped on the pinned `@objectstack/runtime` 17.4.0. `hostErrorToVm` builds the
+  error and then copies `code` (non-empty string), `status` (finite number), `fields`
+  (array) and `userMessage` (non-empty string) onto it. Measured by driving the real
+  `QuickJSScriptRunner` with the error ObjectQL's by-id `update` actually throws, a
+  body's `catch` sees `code === 'RECORD_NOT_FOUND'` and `status === 404`. Only
+  `details` — and `object`, which the old text never named — really are dropped.
+  
+  **No behaviour changed.** The catch is still deliberately cause-agnostic; the
+  comment now gives the reason that is true. Every cause has the same outcome at that
+  point in the loop — the row did not move, so collect it and keep going — and
+  narrowing the catch to a roster of known codes would let an unlisted cause abort the
+  loop, which is the exact failure the paragraph above it forbids. Branching on
+  `err.code` was considered and deliberately not taken: on an all-or-nothing aggregate
+  dispatch it buys nothing but error prose, and it would pin a partial hand-copy of
+  the platform's error-code vocabulary into app metadata.
+  
+  This ships as a `patch` rather than a "releases nothing" declaration because the
+  text lives inside the action's `body.source` template literal rather than in a
+  TypeScript comment. It ships verbatim in `dist/objectstack.json` — twice, once under
+  `objects[].actions[]` and once in the top-level `actions[]` roster — so the built
+  artifact moves even though nothing a user can observe does.
+- f5e136a: **My Open Cases** now lists cases whose status is neither *Resolved* nor
+  *Closed*. It used to list every case that was not *Closed*, so an agent's
+  "open" queue carried their finished work as well as their live work.
+  
+  The tab filtered on `is_closed`, which the case hook derives as
+  `status === 'closed'` — it never flips on *Resolved*. Measured on the seeded
+  demo population: of 38 cases, the old predicate returned 30 and 7 of those 30
+  were resolved; the new one returns 23. Nothing else changes — no case is added
+  to the tab, and the seven that leave it are reachable in *All Cases*, on the
+  *Service Workflow* board where *Resolved* is a column of its own, and by
+  searching. A resolved case is finished work awaiting closure, and the
+  mainstream reading of "open" in a service queue excludes it: Zendesk's open set
+  omits Solved, and ServiceNow's out-of-the-box *Open* filter is
+  `state not in (Resolved, Closed, Cancelled)`.
+  
+  The two sharing rules that hand a service manager `edit` and a service director
+  `read` on critical cases are **unchanged**, deliberately. They also stand
+  through the whole `resolved → closed` window, and there that reach is the
+  feature: `resolved` means "the agent believes this is fixed", and reviewing it —
+  quality sampling, the call-back, a reopen when the fix did not hold — is
+  precisely what a manager does in that window. Both grants are narrow (critical
+  only) and bounded (closing the case ends them). The reasoning now sits beside
+  each rule in the source, and both stay pinned on the boundary roster of
+  `test/live-work-predicate-parity.test.ts`, so a later "consistency" pass that
+  tries to align them turns that guard red instead of quietly revoking access.
+- 88a58e1: The navigation-name guard now checks citations into HotCRM's own sidebar, and
+  the FAQ stops sending readers to a Stripe action that does not exist.
+  
+  The guard added by #853 built its citation matcher from `APP_WORDS` — the
+  Setup/Studio vocabulary — so a bold `**X → …**` path was extracted only when its
+  first segment was Setup or Studio. Re-measured on `main` at `4c6add4`: 307 bold
+  arrow runs across 201 pages, of which the guard saw 144 (Setup 87, Studio 42,
+  设置 15, 設定 0). Everything else was invisible: not quarantined, not counted,
+  not failed.
+  
+  The largest coherent thing in that blind spot was **this app's own navigation**.
+  `Sales`, `My Work`, `Service` and `Activity` are groups declared in
+  `src/apps/crm.app.ts` and relabelled per locale in `src/translations/*` — the
+  sidebar a reader of these pages is actually looking at. A third rule now
+  resolves those pairs live, in all four shipped locales, and it is stricter than
+  the Setup/Studio rule in one respect: its matcher is generated from the shipped
+  group labels, so the group half is checked too rather than taken on trust. It
+  found 30 citations and 8 unresolved ones on its first run.
+  
+  **What readers see change.** Three zh-Hans pages sent readers to
+  **服务 → 知识**; the zh-CN console labels that entry **知识库**, so
+  `administration/setup`, `ai-copilot/knowledge-bases` and `service/knowledge-base`
+  now name the entry that is on screen.
+  
+  And the FAQ's Stripe answer told anyone whose Stripe customer had not linked to
+  "use the **Stripe Sync → Re-link** action". There is no such action and no such
+  surface — zero occurrences of Stripe in `src/`, no connector among the installed
+  platform packages, and `guides/integrations.mdx` already says in its own words
+  that no packaged vendor connector ships and that the closest thing to Stripe
+  today is "Nothing". All three locales now say that instead, and point at the
+  integrations page. `Stripe Sync` is banned by name from first-party text going
+  forward, with the same both-directions check the other retired names carry: if a
+  Stripe connector ever ships, the ban retires itself loudly instead of outliving
+  its reason.
+  
+  `AI Copilot → Revenue Forecasting` on the forecasting pages was checked in the
+  same pass and is **correct** — `Revenue Forecasting` is a real skill, and *AI
+  Copilot* is this product's name for the platform assistant panel, not a sidebar
+  entry. It is left exactly as written.
+- 53cf867: **The three "Open Tasks" related lists now actually hide completed tasks.**
+  
+  Opening an opportunity, a case or a lead and clicking through to **Open Tasks**
+  used to list every task on the record — the follow-ups still outstanding and the
+  ones already ticked off, together, under a heading that promised only the first
+  kind. The count next to it was the count of all tasks. A rep reading the deal
+  had no way to tell from that card what was still owed.
+  
+  All three lists now filter to `status != completed`, which is what their heading
+  has claimed since they were written.
+  
+  The cause was one authored key in three places, and it never announced itself.
+  `record:related_list` declares its `filter` prop as an array of rule objects —
+  `{ field, operator, value }`, `operator` drawn from a closed vocabulary
+  (`equals`, `not_equals`, `in`, …). None of the three lists used that shape:
+  
+  - the opportunity's and the case's lists spelled the key `op` and the value
+    `neq` — `{ field: 'status', op: 'neq', value: 'completed' }`;
+  - the lead's list used a bare AST array — `[['status', '!=', 'completed']]` —
+    the spelling a `*.flow.ts` node `config` takes, on a surface that does not
+    take it.
+  
+  A rule the component cannot read is dropped, not refused: the page still built,
+  the artifact still wrote, and the list still rendered, minus its filter. So the
+  defect had no failing symptom to notice — only a heading that no longer matched
+  what was under it, on three pages, arriving by two different routes.
+  
+  A guard in `test/metadata-references.test.ts` now checks both halves against the
+  component's own props schema: that every authored related-list filter is in the
+  shape the component accepts, and that every task list still carries a rule
+  excluding completed work. Nothing about your data changes, and no other list,
+  flow or view is affected — those surfaces have their own filter spellings and
+  are unchanged.
+- d24a6cb: Delete the phantom **Add Product** button from the Opportunities page and say how a
+  line item actually reaches a deal — in all three locales.
+  
+  The detail-layout list carried "**Line Items** — with an **Add Product** button."
+  No action of that name is declared anywhere in `src/`. The list the bullet described
+  is `opp_products`, a `record:related_list` inside the *Related* tab's accordion,
+  and its authored properties are `objectName`, `relationshipField`, `columns` and
+  `limit` — nothing else. `RecordRelatedListProps` (`@objectstack/spec/ui` 17.3.0)
+  declares exactly two ways a related list can carry a button, `actions` and `add`,
+  and this list authors neither, so it renders its rows and the *View all* link that
+  `showViewAll` defaults on, and no button at all. The panel's declared label is
+  **Products**, which is what the bullet now calls it.
+  
+  Deleting the clause on its own would have traded a false statement for a dangling
+  promise, because **Line items — what's actually being sold** further up the same
+  page tells a reader "Each opportunity can have line items". So that section now
+  states the measured route: nothing on this screen adds one; there is no line-item
+  entry in the sidebar either, because `crm_opportunity_line_item` has no list view
+  of its own and no navigation entry; permission is not the constraint, since a rep's
+  profile grants create on the object; nothing in `src/` creates a line item (the two
+  flow references in `billing-handoff` both *read* them through `get_record`, and no
+  seed dataset makes one). What is left is an import or the API — and the typed
+  **Amount** the same section already documents as an equal alternative.
+  
+  Whether the app ought to offer that button is a question about `src/`, not about
+  this page, and is filed separately rather than answered here. Documentation only:
+  `src/pages/opportunity_detail.page.ts` is correct as authored, and no gate or test
+  was added.
+- d24a6cb: Call `loss_details` by its declared label — **Loss/Win Details** — everywhere the
+  Opportunities page names it, in all three locales.
+  
+  The field is `Field.textarea({ label: 'Loss/Win Details' })` on `crm_opportunity`,
+  and both language packs agree with it: `src/translations/en/objects.pipeline.ts`
+  carries the same English label and `src/translations/zh-CN/objects.pipeline.ts`
+  carries 「赢/丢单详情」. That is what the *Win / Loss* form section renders and what
+  a rep reads on screen. The page named it four different ways and none of them was
+  the label: **Win/Loss Details** with the halves the other way round, a lowercase
+  `win/loss details` inside the record-stores table, and twice as **Loss Details**
+  with the win half dropped entirely.
+  
+  The short form is not merely shorter, which is why this is a wording correction
+  rather than a typo sweep. `loss_details` carries the free-text context behind
+  *either* outcome — the pack's own help text says "Free-text context behind the win
+  or loss reason" — and the *Win / Loss* form section offers it beside both
+  `win_reason` and `loss_reason`. Calling it *Loss Details* in the two places a rep
+  is most likely to read it, the detail-layout list and *Tips for sales reps*, tells
+  them the box is for losses; the second of those then says these fields "are the
+  only competitive data the app keeps", which is exactly the sentence that has to be
+  right about which of them a win writes to.
+  
+  The Chinese faces already used the pack wording in two of their four sites; the two
+  coined short forms — 「丢单详情」 / 「丟單詳情」 — return to 「赢/丢单详情」 and
+  「贏/丟單詳情」. No `src/` metadata changed: the object, the packs and the form
+  agree with each other and only the prose disagreed.
+- e5cedc7: Correct the Opportunities page where the new add picker falsified it. The **Products**
+  panel on an opportunity's *Related* tab now carries an **Add** button, so the two
+  passages that told a reader nothing on the deal screen adds a line item were wrong the
+  moment that button landed. Fixed in all three locales.
+  
+  Read this beside the two changesets it ships with.
+  `opportunities-line-items-real-route.md` documented yesterday's behaviour honestly —
+  nothing on the opportunity screen adds a line item, so a line reaches a deal through an
+  import, the API, or the hand-typed **Amount**. `opportunity-products-panel-adds-a-line.md`
+  then made that false on the same day by authoring `RecordRelatedListProps.add` on
+  `opp_products`. This changeset supersedes the first: where the two disagree, the panel
+  has the button.
+  
+  It is a correction, not a rewrite. The *Line items — what's actually being sold* passage
+  makes seven distinct claims and only three of them flipped. Still true and still on the
+  page: there is no **Add Product** *action* anywhere in the app — what landed is a
+  *picker*, which is the second of the exactly two ways a related list can carry a button,
+  and the page had already taught that distinction, so the correction is written from it;
+  `crm_opportunity_line_item` still has no list view of its own; permission was never the
+  constraint, since a rep's profile grants create on the object; and typing the **Amount**
+  by hand is still a supported route, not a workaround. Import and the API still write
+  these rows — they are simply no longer the only route.
+  
+  What the pages gain is what the picker actually does: it offers the product catalog
+  filtered to active products, so a retired product cannot be sold onto a new deal, and
+  the row it creates arrives complete and priced — quantity 1, the product's list price as
+  the unit price, no discount — for the rep to adjust from there.
+  
+  The button is not given a Chinese name. The picker deliberately authors no `add.label`,
+  so the button renders the platform's own localized "Add", a string that lives outside
+  this repo's translation packs and that has no Traditional Chinese rendering to source at
+  all. Rather than coin one, the Chinese pages name the button as the surrounding prose
+  already names *View all* and **Products** and say that its label follows the reader's
+  interface language.
+  
+  No timing claim is made about the opportunity **Amount** after a line lands.
+  `opportunity_amount_rollup` is `async: true` with `onError: 'log'`, so the roll-up is not
+  in the same transaction; that is pre-existing and deliberate, and describing the lag
+  would be a different card.
+  
+  Documentation only. No `src/` change, and no gate or test was added:
+  `test/docs-drift.test.ts` names these three files but pins the large-deal amount
+  condition, so nothing in `pnpm verify` reads this prose and a pin added here would be
+  guarding page metadata with prose, which is how a sibling check already went vacuous.
+- d24a6cb: Split **What an opportunity record stores** into the three things that actually
+  organise `crm_opportunity`'s fields, and stop calling the object's field groups
+  "the detail screen" — in all three locales.
+  
+  The section opened with "The detail screen has 7 sections:" above a seven-row
+  table. The seven are the object's **`fieldGroups`**, and the detail screen is not
+  where a reader meets them: the *Details* tab of `src/pages/opportunity_detail.page.ts`
+  declares **three** sections holding **seven** fields, and the form
+  (`src/views/opportunity.view.ts`) declares **four**. No two of the three agree.
+  
+  The mislabel is not cosmetic. `fieldGroups` never reaches an authored
+  `record:details` at all — the derivation lives in the console's page synthesizer,
+  the path that fabricates a page for an object that has none authored, and an
+  authored page opts out of it (`test/field-groups-coverage.test.ts`). So a reader
+  who opened a deal looking for the **Financials** section that table promised would
+  not find it on the Details tab, or anywhere else on the screen.
+  
+  The section now follows the shape `content/docs/service/cases.mdx` already carries:
+  one opening sentence naming all three schemes, then *The object's field groups*,
+  *The detail screen* and *The form*, each with its own table.
+  
+  Four of the seven field-group rows were also wrong, which is why they are restated
+  from the object rather than relabelled in place — relabelling the table as an
+  accurate description of `fieldGroups` while it misstated four rows would have
+  asserted the error more confidently than the original did. **Probability (%)** is
+  in *Sales Process*, not *Financials*; *Sales Process* also holds **Approval Status**
+  and **Approved Date**, and there is no *created date* field on an opportunity;
+  the campaign field's label is **Campaign**, not *Source campaign*; and
+  *Forecast & Metrics* holds **Days in Current Stage**, **Private** and
+  **Forecast Category** rather than *line item totals* (not a field on this object)
+  and **Approval Status** (one group further up). Every row is now read off
+  `src/objects/opportunity.object.ts`, by declared label.
+  
+  No `src/` metadata changed: the object, the page and the view are correct as
+  authored, and this is the documentation catching up with them. No gate or test was
+  added.
+- 17c107a: The Opportunities page describes the opportunity detail layout the app actually
+  ships: the header bullet is rewritten against the component, the highlights
+  strip gets the line it never had, and the sales path stops being counted twice
+  — in all three locales.
+  
+  The **Header** bullet promised "name, stage badge with the 7-stage path,
+  amount, close date, owner", and was wrong in both directions at once. The
+  `page:header` on `src/pages/opportunity_detail.page.ts` declares a title
+  (`{name}`), a subtitle (`{crm_account}`), a breadcrumb and five action ids —
+  `generate_quote`, `clone_opportunity`, `log_call`, `log_meeting` and
+  `schedule_meeting`. So the stage badge is not on the header: the path is a
+  separate `record:path`, which the same list already named on its own line as
+  **Sales Path**, and that is how one component came to be counted twice. The
+  amount, close date and owner are fields on the `record:highlights` strip — a
+  component the page description never mentioned at all. Meanwhile the subtitle,
+  the breadcrumb and all five buttons went unnamed, **Generate Quote** among
+  them, which the page placed on the *Quote* related list rather than on the
+  header where it actually sits.
+  
+  Each bullet in that list now describes one component. **Header** names what is
+  on the header and, just as plainly, what is not. A new **Key Information**
+  bullet names the strip's six fields — Amount, Close Date, Probability (%),
+  Expected Revenue, Opportunity Owner, Account — and points out that the account
+  is therefore on the screen twice. **Sales Path** describes the path once, and
+  the *Quote* related list says where the Generate Quote button really is.
+  
+  Two claims went with the rewrite, for one reason. "Click any stage on the path
+  to jump directly to it" and "one-click stage progression" both promise a
+  control that does not exist: `RecordPathProps` declares `statusField`, `stages`
+  and `aria` and nothing else, and the renderer shipped in `@objectstack/console`
+  17.3.0 draws the strip as `role="list"` / `role="listitem"` spans with no
+  `onClick`, no button and no link anywhere in the component. The path is a
+  read-only indicator. A deal moves when its **Stage** field changes, under the
+  transition rules this same page already documents.
+  
+  The Chinese faces are rewritten in their own register rather than translated
+  back from the English, and take the zh-CN language-pack wording for the UI
+  nouns they name. No `src/` metadata changed — the page is correct as authored,
+  and this is the documentation catching up with it — and no gate or test was
+  added.
+- d24a6cb: Name the opportunity detail layout's three structural components — the tab strip,
+  the *Details* body and the *Related* accordion — in all three locales.
+  
+  The main region of `src/pages/opportunity_detail.page.ts` declares a `page:tabs`
+  (`opp_main_tabs`, three tabs), a `record:details` (`opp_details`, three sections)
+  and a `page:accordion` (`opp_related_accordion`, three panels, the first open on
+  arrival). The detail-layout list introduced none of them. It described the things
+  that live *inside* those components — the Quote related list, the Line Items list,
+  the Activity timeline — flat, as if they sat side by side on the page, and its own
+  later bullets then referred to "the *Details* tab" and "**Open Tasks** on the
+  *Related* tab" as though the reader had already met a tab strip. A reader was told
+  what is in the tabs before being told there are tabs.
+  
+  The list now carries the shape `content/docs/service/cases.mdx` already uses: after
+  the Header / Key Information / Sales Path bullets, a single **Three tabs:** bullet
+  with one sub-bullet per tab. *Details* points at the section table rather than
+  repeating it, *Related* names the accordion and its three panels — **Quotes**,
+  **Products**, **Open Tasks** — and *Activity* keeps the timeline description it
+  already had, which was accurate and is unchanged apart from taking the tab's own
+  label.
+  
+  That completes the standard #1709 set for the header region across the whole
+  layout section: each bullet describes exactly one component, and each of the
+  eleven components the page declares is named exactly once. **Competitors & Notes**
+  stays where it is — it names no component, it records that there is no such panel.
+  
+  Documentation only. `src/pages/opportunity_detail.page.ts` is correct as authored,
+  and no gate or test was added.
+- d47e37a: Give the opportunity **Products** panel a route to add a line item. A rep can now
+  itemise a deal from the deal's own screen instead of typing the **Amount** by hand.
+  
+  `crm_opportunity_line_item` was declared live everywhere except where it counted.
+  Three profiles granted `allowCreate`; the Opportunities documentation described the
+  deal amount rolling up from line items; `billing-handoff.flow.ts`'s `load_line_items`
+  read them on every won deal and every activated contract. Nothing in the app could
+  create one — no action, no list view, no navigation entry, no seed, no flow write —
+  so that read returned the empty set for every deal in the product. This is the shape
+  ADR-0049 enforce-or-remove exists to eliminate, and the resolution here is to make
+  the capability reachable rather than to withdraw the declaration.
+  
+  The *Products* panel on the *Related* tab now carries an **Add** button that opens a
+  picker over the product catalog, restricted to active products, and links the chosen
+  product through the line item's own `crm_product` lookup. Purely authored metadata —
+  `RecordRelatedListProps.add`, which the platform already offered; no platform change,
+  no new object, no permission change, and the panel's columns, limit and label are
+  untouched.
+  
+  The part worth stating, because it is what makes a picker sufficient rather than a
+  half-measure: `add` writes a row carrying exactly two values, the parent deal and the
+  picked product. On this object that would leave `quantity` and `unit_price` unset, and
+  both are required and NOT NULL. The row is complete anyway, because
+  `quantity` defaults to `1` and `discount` to `0` on the fields themselves, and the
+  existing `beforeInsert` price fill stamps `list_price` from the chosen product and
+  defaults the negotiated `unit_price` to it — and a product's own `list_price` is
+  required, so that fill can never come up empty. A product picked from the dialog
+  therefore lands as a priced line of one, `total_price` computed, ready to be edited
+  into the real quantity and negotiated price. `test/opportunity-line-item-add-picker.test.ts`
+  measures that end to end on a real engine, with an ablation that unbinds the price
+  fill and shows the same insert refused, so the assertion cannot pass vacuously.
+  
+  Behaviour that does **not** change: the billing hand-off already degraded gracefully
+  on a deal with no lines — it delivers `line_items: []` rather than failing — so this
+  adds content to a payload that was always well-formed, and no receiver contract moves.
+  The typed **Amount** remains a supported route; nothing forces itemisation.
+  
+  ⚠️ Superseding, in this same release, part of the documentation shipped by the entry
+  above about the phantom **Add Product** button: the Opportunities page now says in two
+  places that nothing on this screen adds a line item and that a line item reaches a deal
+  only through an import or the API. That was accurate when it was written and is not any
+  more. Correcting those two passages, in all three locales, is deliberately not bundled
+  here — it is a documentation change against a page this change does not own, and is
+  reported for its own card rather than ridden in on a `src/` PR.
+- 4c6add4: Guard page component copy in every locale, and complete the `en` bundle.
+  
+  `test/i18n-references.test.ts` now walks `pages.<name>.components.<id>`, the
+  translation face `@objectstack/spec` 17.0.0-rc.6 added and this repo has been
+  filling in unguarded. The walk covers the surface the platform actually
+  honours — components reached through `regions[].components[]`, excluding
+  `page:header`, whose copy is addressed by the page name — measured in a browser
+  against a running server rather than read off the schema.
+  
+  `src/translations/en.ts` gains the `components` face for the six pages that
+  carry component copy; it was the only bundle with none.
+  
+  Nested component copy (the four `object-metric` KPI labels on the sales home
+  page) stays out of both the bundles and the guard: the resolver does not reach
+  it on the installed 17.1.0, so writing it would be inert. That half is fixed
+  upstream (objectstack#12961) but not in any published release yet.
+- f685136: **Sales Home's tab strip renders in the card style it was always asked for, and
+  seven other pieces of page configuration stopped pretending to do something.**
+  
+  Across the eight app pages, 24 authored component settings named keys the
+  component does not accept. A rejected key is *dropped, not refused* — the page
+  builds, the artifact writes, the component renders, minus whatever the key was
+  meant to configure — so none of them ever announced itself. They were only
+  visible as advisory build warnings, and the build prints at most 50 of those with
+  no "and N more", so nobody could see how many there were.
+  
+  One is visible on screen. **Sales Home's tabs** asked for the framed *card* style
+  and rendered as the default underline; they now render as cards. The **record
+  page tabs** (case, opportunity) also become properly linkable: their tabs were
+  addressable only as `tab-0`, `tab-1`, `tab-2` — positions that point at a
+  different tab as soon as a tab is added or reordered — and now carry the stable
+  names `details`, `related` and `activity`, so a link to a tab keeps working.
+  
+  The rest were settings that had never had any effect, removed so the source stops
+  claiming otherwise:
+  
+  - the **header icon** on six pages — no header has ever drawn one; the icons you
+    see beside header buttons come from the buttons themselves;
+  - the **ACCOUNT kicker** on the account header — a label with nowhere to render;
+  - three **discussion toggles** on the account page (comments, reactions,
+    mentions) — all three behaviours are already on by default, which is why the
+    panel looked right despite the settings doing nothing;
+  - an **activity filter list** on the opportunity page naming filters that do not
+    exist — the timeline's filter dropdown is already there and already opens
+    unfiltered;
+  - a **detail-body layout** switch on the lead page whose two settings both did
+    the same thing;
+  - **panel identifiers** on the related-record accordions, which the component
+    assigns itself.
+  
+  Nothing about your data changes, and no page loses a capability: every removed
+  setting was already being discarded before it reached the screen.
+  
+  A guard in `test/metadata-references.test.ts` now parses **every** page
+  component's settings against that component's own contract, so the next setting
+  that would be silently dropped fails in CI instead of shipping. Three known
+  exceptions are named, dated and owned by their own issues rather than hidden, and
+  the guard fails if one of them is ever fixed and its exemption left behind.
+- 6092413: Call `loss_details` by its declared label on the two pages `#1721` left out —
+  `sales/pipeline-management` and `ai-copilot/knowledge-bases`, in all three locales.
+  
+  `loss_details` is `Field.textarea({ label: 'Loss/Win Details' })` on `crm_opportunity`
+  and both language packs agree: `src/translations/en/objects.pipeline.ts` carries the
+  same English label, `src/translations/zh-CN/objects.pipeline.ts` carries 「赢/丢单详情」.
+  Six doc faces still wrote the coined short form — **Loss Details** / 「丢单详情」 /
+  「丟單詳情」 — which drops the win half of a field that holds the context behind
+  *either* outcome. `#1721` corrected exactly this wording on `sales/opportunities`;
+  its scope was that one page, so these six are the same defect on the pages it excluded.
+  
+  The correction is not only the noun. On *Tips for sales managers*,
+  `sales/pipeline-management` told managers to coach reps to fill the field in "on every
+  closed-lost deal" — a sentence that stays wrong after a pure rename, because it still
+  describes a loss-only box. The app says otherwise in three places: the pack's help text
+  is "Free-text context behind the win or loss reason", the *Win / Loss* form section
+  (`src/views/opportunity.view.ts`) offers `loss_details` beside **both** `win_reason` and
+  `loss_reason`, and `win_reason` is `requiredWhen` the stage is `closed_won` exactly as
+  `loss_reason` is `requiredWhen` it is `closed_lost`. That line now names all three
+  fields and which close each belongs to, matching the *Tips for sales reps* line
+  `#1721` already corrected on `sales/opportunities`. The `ai-copilot/knowledge-bases`
+  Competitive Intel row needed only the label, its claim being about competitor data
+  rather than about which close writes the field.
+  
+  The Chinese faces take the zh-CN pack wording under the `AGENTS.md` documentation-discipline
+  rule — a UI noun never gets a freshly coined translation — so 「丢单详情」 → 「赢/丢单详情」
+  and 「丟單詳情」 → 「贏/丟單詳情」.
+  
+  Documentation only. No `src/` metadata changed: the object, the packs and the form agree
+  with each other and only the prose disagreed.
+- 8223d0a: Three platform lint rule families cleared: the account map plots, row-spanning
+  form fields span at every width, and a dead case translation key is gone.
+  
+  `objectstack lint` reported 90 warnings on `main`, re-measured on this branch's
+  base with a fresh install (the 90/12 figure on the epic's census came from
+  another seat and had not been re-run since). 31 of them are fixed here, one
+  commit per rule id, by writing the metadata the rule prescribes — no rule is
+  suppressed, whitelisted or locally re-severitied.
+  
+  **`view/layout-without-binding` (1).** `crm_account`'s `account_map` list view
+  declared `type: 'map'` with no `map` block, so it was bound to nothing: the
+  renderer falls back to literal default field names and the view draws no marker
+  while authoring reports success. It now binds `locationField: 'office_location'`
+  — the object's one coordinate-carrying field — and titles each marker with
+  `name`. User-visible: the map view can plot.
+  
+  **`absolute-colspan-discouraged` (26).** A form's column count is derived per
+  surface (mobile 1 / modal 2 / page 3-4), so an absolute `colSpan` lines up only
+  at the width its author imagined and is clamped everywhere else. Twenty-four
+  `colSpan: 2` sites — every one of them in a `columns: 2` section, i.e. "the
+  whole row" — become the relative `span: 'full'`, which states that intent
+  independently of the surface. Two `colSpan: 1` sites lose the key rather than
+  gaining `span: 'auto'`: that is already the default, and materializing a default
+  rewrites "the author said nothing" into "the author asked for the default".
+  User-visible: fields meant to take a row now do so at every width, not only
+  where the derived column count happens to be 2.
+  
+  **`translation-target-unknown` (4).** `_sections.sla_overview` was translated in
+  all four locales and named nothing on `crm_case` — not a `fieldGroups[].key`
+  (the SLA group's key is `sla`), not a named form-view section, not a named
+  `record:details` section. Four entries that translated no heading are deleted.
+  Not user-visible: they rendered nowhere.
+  
+  The remaining 59 warnings are reported on the issue with a named reason each,
+  and are deliberately left in place rather than bent around.
+- 1670557: Delete the three `crm_product` capabilities `docs/feature-inventory.md` credited the
+  catalog with and the source does not declare. QUO-010 listed `计费类型`
+  (`billing_type`), `计量单位` (`unit_of_measure`) and `库存` (inventory); QUO-012 listed a
+  「低库存(≤10)标红视图」. Every identifier behind those claims — `billing_type`,
+  `unit_of_measure`, `quantity_on_hand`, `reorder_point` — and the `low_stock` view they
+  fed were removed, and survive only as tombstone comments **in the very files those two
+  rows name as their anchors**: `src/objects/product.object.ts:109` and `:154`, and
+  `src/views/product.view.ts:11-15` (*"could not outlive them"*). Each row pointed a reader
+  at a source file that says, in prose, that the capability the row claims is gone.
+  
+  Deleted rather than softened. The inventory *capability* was removed, not renamed — there
+  is no vaguer wording that would be true, and a row that keeps a capability class with no
+  implementation is the same defect one level up, harder to catch next time because it would
+  no longer name a specific missing field. The published product docs already say the same
+  thing outright: `content/docs/revenue/products.zh-Hans.mdx:52` is headed 「没有库存,也没有
+  计费周期」, so the internal inventory was contradicting the customer-facing page.
+  
+  The surviving capability list was derived from the two anchor files at `df549fef`, not
+  copied from the card that filed this — this file is exactly the kind of hand-copied roster
+  the defect is about. `crm_product` declares **13** fields (`product_code`, `name`,
+  `display_title`, `description`, `category`, `family`, `list_price`, `cost`, `sku`,
+  `is_active`, `product_manager`, `image`, `datasheet`); QUO-010's every surviving clause
+  was re-checked against one of them — `PRD-{0000}` (`product_code.format`), tenant-unique
+  SKU (`sku.unique`, whose composite `(organization_id, sku)` the field comment explains),
+  `category` / `family`, pricing (`list_price` / `cost`, now named as such rather than
+  bundled into a 「定价与库存」 that was half false), `image` + PDF `datasheet`, and
+  `全组织可读` (`sharingModel: 'public_read'`). `ProductViews` defines exactly two list
+  views — the category-grouped `all_products` grid and the `product_catalog` gallery
+  covered by `image` — which is what QUO-012 now says.
+  
+  Both rows stay. The file's own rule (line 10) keeps a numbered row and annotates it
+  「已移除」 when a *feature point* goes; neither feature point went — 产品目录对象 and
+  产品视图 both still exist, with fewer capabilities than the prose claimed — so no
+  annotation is due and the range reference 「产品:QUO-010~013」 at line 271 is untouched.
+  Nor is any count falsified: QUO-012 carries no numeral (unlike its LEA-014 / OPP-010 /
+  ACT-006 siblings, which do), and the overview's 「14 个视图文件」 counts *files*, of which
+  `src/views/product.view.ts` remains one.
+  
+  Nothing about `crm_product.tax_rate` is touched, and this file carries no tax-rate row.
+- 683c6fe: Products page: correct the two datasheet tips that contradicted the section
+  twenty lines above them.
+  
+  The body under *The product image and datasheet* says nothing reads the file's
+  contents and no skill opens an attachment, so a datasheet never reaches an
+  AI-drafted email or proposal. The product-manager tip said the opposite —
+  "keep the datasheet up to date — the AI assistant uses it to draft
+  customer-facing content" — and the page gave a reader no way to tell which of
+  the two had been measured.
+  
+  The body is the measured one, re-verified against the tree rather than
+  inherited: all six skills in `src/skills/*.skill.ts` were read, and the union
+  of their `tools` is `describe_object`, `list_objects`, `get_record`,
+  `query_records`, `aggregate_data`, `visualize_data`, `action_convert_lead`
+  and `action_schedule_followup`. Not one of them opens a file. `datasheet` is a
+  `Field.file` on `crm_product` (PDF, 20 MB) — a real field a person downloads,
+  but its bytes reach no skill. So the tip was the older marketing sentence the
+  body was written to correct; the correction had landed in the body and never
+  reached the tips list.
+  
+  The product-manager tip now says what the datasheet is for — the file a rep
+  sends the customer — and states plainly that anything the assistant should be
+  able to quote belongs in the product's own fields.
+  
+  The sales-rep tip ("check the datasheet before proposing") is **not** the same
+  case and is kept: it is good advice for a human opening the PDF, and it blurred
+  only because it sat under a heading whose neighbour promised AI drafting. It is
+  reworded to be unambiguously about a person opening and pasting from the file.
+  
+  All three locales, which track each other row for row.
+- 5986652: The 本季度待成交商机 empty state names `close_date` the way the same language
+  pack labels it.
+  
+  `src/translations/zh-CN/objects.pipeline.ts` declares
+  `close_date: { label: '预计成交日期' }`, and sixty-nine lines later its own empty
+  state for the `closing_this_quarter` view named that field twice by a coined
+  short form 成交日期. A rep who opened the tab with no matching records read a
+  message calling the field 成交日期, while the field on every opportunity record —
+  and in the very quarter filter the message describes — was labelled 预计成交日期.
+  Both strings are shipped Chinese UI, so the reader saw one field wearing two
+  names at the moment the app was explaining itself.
+  
+  `src/` is the source of truth for a label (#1329, AGENTS.md §Documentation
+  discipline rule 6), and here the contradiction was inside a single file, so the
+  declared label governs and the prose follows it. The message now reads
+  预计成交日期落在当前季度内 and 预计成交日期更晚的商机, leaving the label
+  declaration, the empty-state title 本季度暂无待成交商机 and the view label
+  untouched — none of those spell the field name.
+  
+  This is the site the docs point the reader to. #1733 aligned 56 coined doc sites
+  onto the pack wording across 16 pages, including `sales/opportunities`, which
+  documents this exact tab and its quarter filter; the split it closed in the docs
+  survived at the one screen those pages send the reader to.
+  
+  Measured in a UTF-8 locale, because `grep -P` matches bytes under `LC_ALL=POSIX`
+  and silently drops real hits on multibyte neighbours:
+  `LC_ALL=C.UTF-8 grep -rhoP "(?<![计計])成交日期" src/` reads 2 before and 0 after,
+  against `预计成交日期` at 1 before and 3 after — every occurrence rewritten in
+  place, none added and none lost. The other packs never carried the split:
+  `ja-JP` labels the field 完了予定日, `es-ES` `Fecha de Cierre` and `en`
+  `Close Date`, so no other locale spells it in Chinese characters at all.
+- 1a21aee: Retire `crm_lead.formViews.quick_create` (#1707).
+  
+  **It goes because it was the duplicate exhibit, not because it was unreachable.**
+  `src/views/lead.view.ts` declares itself a UI showcase and its `formViews` block
+  demonstrates one example per FormView layout type. `quick_create`'s own numbered
+  comment said what it demonstrated: the SIMPLE layout, "already shown as default
+  form above". In a one-example-per-layout set, that is the entry whose removal
+  costs the set nothing — every other named form is still the only example of its
+  own layout, and the showcase still covers all six.
+  
+  Unreachability is why the removal is free, not why it happens. No console path
+  resolves a named form view: both surfaces that open a lead create form take
+  `view.form ?? view.formViews.default`, and `crm_lead` declares `form`. So no
+  user-visible surface changes at all — no form, no field, no label, no route.
+  That is the whole difference between this and a retirement that costs a
+  capability, which is a maintainer's call rather than a cleanup.
+  
+  The eight fields it declared are not lost: the default `form` carries them and
+  more, and is what the app has always rendered. Its four-locale section heading
+  (`crm_lead._sections.lead_details`) goes with it — that key had no other source,
+  so keeping it would have left the dead-key shape this change exists to remove.
+- 22403e9: Round `quote_generation`'s two money expressions to the fields' declared
+  2-decimal scale, so `Generate Quote` stops failing for most non-zero discounts.
+  
+  The flow wrote `discount_amount` and `total_price` as bare IEEE-754 products of
+  a currency and a percentage:
+  
+  ```ts
+  discount_amount: '{oppRecord.amount * (discount / 100)}',
+  total_price:     '{oppRecord.amount * (1 - discount / 100)}',
+  ```
+  
+  `discount / 100` is inexact for every percentage whose hundredth is not a
+  dyadic rational, so the product carries a tail that `crm_quote`'s
+  `Field.currency({ scale: 2 })` money fields refuse. On the seed data's own
+  numbers — a 180,000 opportunity — 30% gives `125999.99999999999` and the insert
+  is rejected with `Total Price must have at most 2 decimal places (got 11)`;
+  at 70% the tail moves onto `discount_amount` and both fields are refused. So
+  whether a quote could be created at all was an **arithmetic accident of
+  `amount × discount`**: 20% of 180K worked, 30% of the same 180K did not, and
+  `0` always worked, which is why the happy path in the seed data never caught
+  it. The rejection is a fully-formed 400 that the console throws away (filed
+  separately, upstream), so from the seller's chair the action simply did nothing
+  — and doing nothing is what *success* looked like too.
+  
+  Both products are now rounded inside the expression, because the quote's own
+  money fields are the contract and the flow should meet it rather than hand the
+  engine an unrounded double:
+  
+  ```ts
+  discount_amount: '{round(oppRecord.amount * (discount / 100) * 100) / 100}',
+  total_price:     '{round(oppRecord.amount * (1 - discount / 100) * 100) / 100}',
+  ```
+  
+  `round()` is the CEL stdlib's, mirrored 1:1 into flow **value** expressions by
+  `@objectstack/service-automation` 17.3.0 — the capability this fix waited on,
+  and the reason it could not be written before. Read from the installed
+  `dist/index.js` rather than the release notes: the table is
+  `round`, `floor`, `ceil`, `abs`, `min`, `max`, and it is reachable from
+  `create_record` / `update_record` `config.fields`. `round()` is **integer-only
+  and single-argument**, so N-decimal rounding is spelled `round(x * 100) / 100`
+  — the pattern the platform's own arity diagnostic names verbatim. The same
+  release also made an unknown function fail **loudly**; before it, every
+  unbound identifier was rewritten to the literal `null` and the field was
+  written `undefined`.
+  
+  ⛔ No operator trick. `(x * 100 + 0.5 | 0) / 100` does evaluate, but `|0` is an
+  int32 coercion that **silently overflows above ~21.5M** — on a money field that
+  is worse than the defect it dodges. `round()` refuses loudly past
+  `Number.MAX_SAFE_INTEGER` instead.
+  
+  `subtotal` is unchanged and needs no rounding: it is a bare path pass-through
+  of `crm_opportunity.amount`, which is itself `Field.currency({ scale: 2 })` and
+  cannot arrive unrounded. The two fields keep their existing writability —
+  making them `readonly` or formula fields would be a schema redesign, and
+  `quote.object.ts` records deliberately that the line-item rollup writes them.
+  
+  The regression pin in `test/flow-quote.test.ts` asserts the **value**, not the
+  absence of an error. That harness's in-memory data engine does not enforce
+  field scale, so a pin asserting "the run did not fail" would have been green
+  both before and after and would have pinned nothing. It runs 30% and 70% on a
+  180,000 opportunity — between them covering both edited expressions — and
+  without the fix it fails with `expected 125999.99999999999 to be 126000`. The
+  two pre-existing cases (10% of 200,000 and 0%) use discounts that are exact
+  either way and stay green through the defect, which is exactly why they never
+  caught it.
+- 57ce720: Re-anchor the business-semantics token ratchet to 100,000 on a maintainer ruling,
+  and decouple the README banner from the ceiling.
+  
+  Maintainer ruling, 2026-09-05, quoted verbatim and untranslated as
+  `scripts/check-source-token-ratchet.mjs`'s own header requires of any PR that
+  raises a ceiling:
+  
+  > business-semantics 棘轮 提升到 100000
+  
+  and the shape it was given, from the same exchange, 选项 A:
+  
+  > 解耦:banner 钉实测,ceiling 独立
+  
+  **What moved.** `CEILINGS['business semantics']` 85,000 -> 100,000. The
+  interaction layer (40,000) and the authored total (140,000) are untouched — the
+  ruling names one layer. The README banner now states the measurement instead of a
+  figure that had drifted from it: business semantics ~81k -> **~85k** (measured
+  84,579), interaction layer ~39k -> **~37k** (measured 37,429). Both rows move,
+  because the rule that governs them is one rule.
+  
+  **Why it is not a constant change.** The banner and the ceiling used to be tied
+  together: `test/docs-readme-token-figures.test.ts` asserted that each layer's
+  banner band closed *above* its committed ceiling, and reasoned from that the
+  ratchet would fail first on growth. With that coupling intact, raising the
+  ceiling would not have created headroom — the banner band's upper edge would have
+  become the effective cap, and the assertion would simply have gone red. So the
+  two numbers are separated and each is given one job. The ceiling is the growth
+  budget, alone. The banner rule becomes a truthfulness rule: the README figure
+  must track the measured reading within the ruled 5% buffer. It caps nothing; it
+  stops the README advertising a size the app does not have. The case is re-aimed,
+  not deleted, and the case tying each row's restated ceiling to `CEILINGS` stays —
+  that is what stops the README quoting a ceiling the gate no longer commits.
+  
+  **A ceiling can now be RULED rather than anchored.** Every ceiling until now was
+  `anchor(reading)` — a reading the gate printed, plus the buffer, rounded up. A
+  maintainer grant is not derived from any reading, and on this layer none could
+  derive it: anchoring to 100,000 would need a reading between 94,286 and 95,238
+  and the tree measures 84,579. The header records it as a ruled ceiling and
+  deliberately writes no worked row for it, rather than reverse-engineering a
+  reading that would produce the constant.
+  
+  `test/source-token-ratchet.test.ts` learns that second kind. It modelled every
+  ceiling as `anchor()` of a measured reading, so a maintainer grant could not be
+  expressed in it at all. It now parses a ruled row as well as a worked one, still
+  asserts one row per committed ceiling in the committed order, and keeps every
+  anchored-row case exactly as it was. The kind is not a free choice: a ruled row
+  must restate the committed constant, and no reading recorded in the header may
+  anchor to it — which is what stops a ceiling being filed as "ruled" to dodge
+  arithmetic that did in fact apply. That is a new invariant, so the suite is
+  strictly more expressive than before, not weaker.
+  
+  Two consequences are recorded in the header rather than silently absorbed. The
+  gate's opportunistic-tightening advisory now fires on this layer every run,
+  suggesting a re-anchor down to ~89,000 — following it would hand back the
+  headroom the ruling created, so a ruled ceiling is not tightened on that line
+  alone. And the shrink-only "declined as a raise" line for business semantics is
+  retired: at a 100,000 ceiling its `anchor()` lands below, so the reasoning that
+  line recorded no longer describes the layer.
+- b64c204: Stop `docs/README.md` ordering the next maintainer to hand-copy object fields into
+  `docs/developers/api_reference.md`. Two statements about that page were left stranded when
+  PR #1495 replaced its transcript with a pointer at source, and one of them is the standing
+  order that manufactured the drift PR #1495 measured:
+  
+  - Step 3 of "Maintain The Docs" read `Update docs/developers/api_reference.md when object
+    fields change` — an instruction to perform the act 2026-08-31 ruling item 5 forbids by
+    name, aimed at a page that now states in its own words that field lists are deliberately
+    not restated on it. A reader following it faithfully re-creates the fifteen `Key fields:`
+    lists PR #1495 removed, and the count of copies starts over at one.
+  - The Start Here row was labelled `Object field reference`, which described the page as it
+    was rather than as it is. Post-#1488 the page states where object and field metadata is
+    declared and which command counts it; it reproduces neither list.
+  
+  Both lines are **reworded in place rather than deleted**, which is the same shape the same
+  ruling's earlier cleanups landed: `docs/ARCHITECTURE.md` kept its `engines.protocol`
+  sentence and repointed it at `objectstack.config.ts` (PR #1476), and `docs/MAINTENANCE.md`
+  kept step 2 of its own numbered per-PR loop and repointed it at `src/translations/`. Both
+  carry a `*Supersedes … — 2026-08-31 ruling, item 5.*` note, and this one follows them.
+  Deleting step 3 was the alternative and it is safe — nothing in the repo cross-references
+  "step 3" of this list, so the renumbering breaks nothing — but it answers the question the
+  step asked with silence. The step exists because someone wanted the field reference to stay
+  current; a checklist that simply drops the entry leaves the next maintainer facing an
+  `api_reference.md` row in the index with no maintenance rule attached, and re-adding a table
+  is the cheapest thing they can do about it. That is how one roster reached four files
+  (#610, #965, #977, #1228 record the same class). A negative instruction is enforceable by a
+  reader; an absent one is not.
+  
+  So step 3 now says what to do instead: leave the page alone, because the `fields:` block of
+  `src/objects/*.object.ts` is the reference — editing the object file *is* updating it.
+  Steps 1 and 5 of the same list already carry the two obligations an object-field change
+  really does have: the business-concept docs under `content/docs/` if user-facing behaviour
+  changed, and the checks in `docs/STATUS.md`, where `pnpm validate` is authoritative for
+  object and field counts.
+  
+  Measured rather than assumed: lines 20 and 63 are the only two places in `docs/README.md`
+  that describe `api_reference.md` as carrying field lists (the file's other two "reference"
+  hits, lines 6 and 28, describe the `docs/` tree as a whole), and `docs/README.md:63` is the
+  only standing instruction of this kind anywhere in `docs/`, `.github/`, `content/docs/`,
+  `AGENTS.md` or `CLAUDE.md`. No file quotes the old row label, and no guard keys on it.
+  
+  No guard is added or retired: 2026-08-31 ruling item 3 keeps gate-type mechanisms on the
+  platform. `test/docs-src-tree-paths.test.ts` lists `docs/README.md` in both `TREE_DOCS` and
+  `TREE_DIAGRAM_DOCS`; the guard is untouched and green either side of this change, and the
+  new step-3 text names `src/objects/` inline, so its inline membership has not gone vacuous.
+- 71763a6: Name records by their name, not their record id, everywhere a sentence is written for a person to read.
+  
+  Eight places still put a raw primary key into text a user sees. In a demo org that meant 15 of 31 tasks in **All Tasks** were titled by a 16-character opaque key, a freshly drafted contract explained its own origin as `Auto-drafted from accepted quote MvNopWgEDZwm2T5L`, and a rep blocked from saving a duplicate contact was told `Another contact (5B0nItHGRr768EfD) with email … already exists.` — a string that appears on no screen in the app and cannot be pasted into search.
+  
+  Each now names the record the way every other surface does:
+  
+  - **Follow-up task on a qualified lead** — `Follow up with qualified lead: Mira Costa - Atlas Construction` (was `Follow up with qualified lead (EMtmaScoa3I-uYFG)`).
+  - **Activation task on a won opportunity** — `Activate new customer for opportunity Skyline Media - Platform Renewal`.
+  - **Contract drafted from an accepted quote** — `Auto-drafted from accepted quote QTE-0006 - Skyline Media Renewal`.
+  - **Duplicate-email refusal** — names the contact that already holds the address.
+  - **Delete refusal on a referenced contact**, and the three record-freeze refusals on **closed opportunities**, **accepted quotes** and **converted leads** — all now identify the record by name instead of appending its id.
+  
+  The id is not lost: it stays in the relationship field that exists to carry it (`related_to_lead`, `related_to_opportunity`, …). Ids destined for a server log are unchanged — that is the right thing there.
+  
+  `pnpm hygiene` now fails the build when an id is interpolated into a template literal anywhere in `src/`, unless the string lands in a diagnostic sink, so the next instance of this is a red build rather than something a walkthrough finds.
+- e855562: A business refusal now reaches the person who caused it as the sentence its
+  author wrote, instead of as an internal wrapper naming the hook that threw.
+  
+  ### What a user reads today
+  
+  Every guard in this app refuses through the shared `refuse()` helper, which
+  declares an HTTP `code` and `status` so the platform files a deliberate refusal
+  as a refusal rather than as a server fault. What it did not declare was that the
+  sentence is addressed to a **person**. Hook bodies run inside the sandbox, and
+  the sandbox rewrites the thrown message on its way out, so the only prose
+  channel a REST consumer had carried the rewrite with it. Measured end to end
+  against the pinned platform — real `refuse()`, real QuickJS, real
+  `resolveThrownHttpError` — on all five refusal classes:
+  
+  ```
+  before  Cannot delete product: referenced by 1 opportunity(ies) and 0 quote(s).
+          Set is_active=false to retire instead.
+          …reaching the consumer as:
+          hook 'product_catalog' threw: Error: Cannot delete product: referenced …
+  ```
+  
+  Five classes out of five, the wrapper was the only thing on offer.
+  
+  ### What changes
+  
+  `refuse()` takes an optional fourth argument, `userMessage`, and **defaults it to
+  the message the author wrote**. Every refusal in the app therefore now arrives
+  marked as user-facing text, and a consumer renders that text verbatim:
+  
+  ```
+  after   Cannot delete product: referenced by 1 opportunity(ies) and 0 quote(s).
+          Set is_active=false to retire instead.
+  ```
+  
+  The diagnostic channel is untouched — `message` still carries the wrapper for
+  logs and developers, which is what it is for. Nothing about the refusal itself
+  moved: the same five classes land on the same `code`/`status` pairs they
+  declared, and not one of the 17 refusal sentences was reworded.
+  
+  The default is the decision here, and it was measured rather than assumed.
+  Marking text user-facing is a promise about who the sentence is written for, so
+  defaulting it would be wrong in an app whose refusal prose is written for a
+  developer reading a log. This app's is not: every call site carries a business
+  sentence naming a remedy the reader can act on, two existing guards already hold
+  refusal prose to naming records the way the product names them, and one of these
+  sentences is pinned against the documentation page a user follows. The fourth
+  argument is therefore the seam for the case where the diagnostic and the
+  user-facing sentence must genuinely differ — no site needs that today.
+  
+  **For consumers of the REST API:** refusals raised by this app's hooks now carry
+  a `userMessage` field alongside `message`. Nothing was removed and no existing
+  field changed, so a client reading `message` is unaffected.
+- f01e6f6: Retire the StackBlitz browser demo and the second lockfile it existed for.
+  
+  The "Try it in your browser (no install)" badge and its paragraph are gone from
+  the README, along with `.stackblitzrc`, `package-lock.json`, and the CI gate
+  that watched that lockfile (`scripts/check-stackblitz-lock.mjs`). HotCRM now has
+  exactly one lockfile — `pnpm-lock.yaml` — and one way to install it.
+  
+  Why: the repo carried two lockfiles derived from one `package.json`, and only
+  one of them had an owner. Dependabot updates `package.json` and
+  `pnpm-lock.yaml` and has no way to know about the npm one, so every npm-ecosystem
+  dependency PR opened with the second lockfile already stale, failed the lock
+  gate as the first step after install, and could never go green no matter how
+  often it was rebased. Five of them stalled that way, the oldest since
+  2026-08-01, and a security update would have sat in the same trap.
+  
+  The demo's install could not simply switch to pnpm. It ran `npm install
+  --omit=dev --omit=optional` because WebContainers cannot compile the native
+  `better-sqlite3` add-on, and the pnpm route is blocked in two measured places:
+  `package.json` declares `engines.pnpm: ">=10.0.0"` with `engine-strict=true` in
+  `.npmrc`, so any older pnpm is refused before the lockfile is even read, and
+  `pnpm-lock.yaml` is lockfileVersion 9.0, which pnpm 8 cannot parse at all.
+  pnpm's own remedy for the first is to install the required version globally,
+  which is the one operation the sandbox was already documented to forbid.
+  
+  Nothing else in the repo read `package-lock.json`. Local development,
+  `pnpm verify`, CI, and the marketplace one-click install are unchanged; the
+  seeded dev credentials the README paragraph carried are documented in
+  `AGENTS.md`.
+- 8324318: Stop four live comments from naming the retired `campaign_snapshot_metrics` as
+  the writer of the campaign metric block, and mark the mentions that are
+  deliberately historical as history.
+  
+  The hook was retired in #597 and the block is owned by four refresh hooks:
+  `campaign_metrics_refresh`, `campaign_attribution_refresh` and
+  `campaign_lead_conversion_refresh` in `campaign.hook.ts`, plus
+  `campaign_member_metrics_refresh` in `campaign_member.hook.ts`. A tree-wide grep
+  found nine occurrences of the retired name across seven source files and two
+  already-corrected sites; each was read on its own terms rather than renamed in
+  bulk, because several of them narrate what changed and are supposed to keep the
+  old name.
+  
+  Named the real writer where the comment claimed the hook was live:
+  
+  - `campaign-completion.flow.ts` said the nightly sweep's `→ completed` flip is
+    what "the existing `campaign_snapshot_metrics` afterUpdate hook then snapshots
+    into metrics". It is a `status` transition, so `campaign_metrics_refresh`
+    recomputes on it — and the block was already current before the sweep ran, so
+    the note now says refresh rather than snapshot.
+  - `sales.seed.ts` described the opportunity `crm_campaign` link as what the
+    retired hook "counts when a campaign completes". The writer that counts
+    attributed opportunities is `campaign_attribution_refresh`, on every
+    opportunity insert, update and delete.
+  - `seed-consistency.test.ts` listed the retired hook in its hook-to-field map and
+    named a `describe` block after it. Both now name the refresh, and the block
+    carries the four hook names. The `it` inside it that still explained the
+    assertion in terms of a completion-time snapshot was corrected too, since the
+    renamed block would otherwise have attributed completion-only firing to the
+    four refresh hooks.
+  
+  Marked as history where the mention is deliberate:
+  
+  - `campaign-member-lifecycle.test.ts` explains that the acceptance criterion
+    cannot be proved by a completion-time assertion, which needs the old name. It
+    now says "the RETIRED `campaign_snapshot_metrics` — gone since #597" instead
+    of opening the sentence with a bare hook name in the past tense.
+  
+  Left alone, because they already say the name is history: the notes in
+  `campaign.hook.ts` ("The old ..."), `campaign_member.hook.ts` ("the removed
+  ..."), `campaign.object.ts` ("the long-retired ...", corrected by #1670) and the
+  changeset that recorded that correction.
+  
+  No assertion was changed anywhere: this is comment, block-name and prose only.
+- 99a6c99: Bulk updates no longer corrupt the columns HotCRM's hooks derive, and the seeded
+  forecasts are owned again from the first boot.
+  
+  A predicate update — `update(object, payload, { multi: true, where })`, the shape
+  the platform's own seed-ownership claim uses — sends **one** `SET` clause for
+  every matched row, and hands each row's `beforeUpdate` handler that same payload
+  rather than a per-row copy (ADR-0058 Addendum II D3). Ten of this app's lifecycle
+  hooks decided a payload write from the row in front of them (`ctx.previous`), so
+  that write did not stay on the row it was decided on. Measured on the pinned
+  `@objectstack/* 17.4.0`, on a fresh `pnpm dev`, it landed two different ways:
+  
+  - **Refused, loudly.** `forecast_derive_period` stamped `period_end` /
+    `period_label` into the shared payload on the first row; the remaining six then
+    saw them already set and stamped nothing. Divergent key sets make the engine
+    refuse the whole batch, so all **7 seeded forecasts were left with no owner** —
+    and under a `private` sharing model an ownerless row is editable by nobody,
+    admin included. The app's own `demo_bootstrap` sweep repaired it within ten
+    minutes, by id; until it ran, the forecast module was read-only for everyone.
+  - **Accepted, silently.** Where every row wrote the *same key* nothing diverged,
+    the batch went through, and the **last row's value was stored for all of them**.
+    On a fresh install that left every closed-lost opportunity reading
+    `probability: 80` instead of `0` and every closed-won one `80` instead of
+    `100`, with `expected_revenue` flattened to a single figure across deals of
+    different size; `crm_task` reported `priority_rank: 2` for urgent, high and low
+    alike and `Is Completed: false` on completed tasks. Nothing in the product said
+    so, and re-running the sweep never corrected it.
+  
+  Those hooks now stand down on the predicate path: `ctx.previous` is there for a
+  guard to **refuse** a write, not to aim one, so derivation happens on the
+  per-record path instead — which is every writer this app actually has (all 19
+  `update_record` flow nodes, every action and hook write through `ctx.api`, and
+  the `demo_bootstrap` claim, every one of them by id). Refusals that read the row
+  in order to throw — the closed-opportunity and frozen-quote locks, the
+  do-not-call guards, the delete restrictions — are unchanged and still fire on a
+  bulk write, which is what D3 supplies `previous` for.
+  
+  After the change, on a fresh database: the boot banner carries no
+  `claimSeedOwnership` warning, `crm_forecast` is 7 rows with 0 unowned, and every
+  opportunity, task and case reads the value its own row earned.
+- 284806c: Record the clock-pinning boundary condition in the action-sandbox harness header.
+  Pinning a clock around an action or hook body the obvious way — a bare
+  `vi.useFakeTimers()` — deadlocks the harness, and the only symptom is a plain
+  test timeout that names nothing about the clock, so it reads exactly like a body
+  that hangs. Faking `setImmediate` is what does it, not `setTimeout`, and it is
+  not a cold-start effect. The working form is `vi.useFakeTimers({ toFake:
+  ['Date'] })`, whose pinned instant does reach inside the VM: a body sees the
+  process `TZ` with zone rules resolved for that instant, and the UTC date
+  accessors are available to it.
+- 9924ee1: Scheduled sweeps no longer abort on their first failing record.
+  
+  A `loop` body had no error handling of its own. The container iterates with a
+  bare `await` and carries no `try`/`catch` at all, so the first item whose node
+  fails ends the **whole** run: every later item goes unprocessed, and the work
+  already done is not even reported. Measured by the platform on the real engine
+  — a 5-item sweep failing at item 3 touched 3 items and reported `acted: 0`.
+  
+  That is a live behaviour defect, not a style one. One un-notifiable owner in
+  `task_due_reminder` silently dropped every later reminder that hour; one
+  un-claimable seeded row in `demo_bootstrap` stopped all twelve claim passes,
+  every ten minutes, for as long as that row existed.
+  
+  Ten flows and twenty-two loops now contain the failure per iteration: the body
+  is wrapped in a `try_catch` whose `catch` is a single no-op handler, so a
+  failing item is skipped and the sweep carries on with the next one. The failed
+  attempt's own steps stay in the run log ahead of the handler's, so a skipped
+  item is visible with its own failure step rather than silently absent. The
+  wrapper is one helper, `guarded()` in `src/flows/_guarded-iteration.ts`, called
+  at each loop site.
+  
+  Affected: `demo_bootstrap`, `forecast_snapshot`, `contract_renewal`,
+  `campaign_enrollment`, `case_sla_monitor`, `opportunity_stagnation`,
+  `contract_expiration`, `task_due_reminder`, `campaign_completion` and
+  `quote_expiration`. Nine are scheduled sweeps; `campaign_enrollment` is the
+  user-invoked bulk enrolment behind the Enroll Members action, and it gains the
+  same containment — a bulk enrolment that stops halfway leaves the operator with
+  no record of which members were added.
+  
+  No behaviour changes for a run in which nothing fails. `objectstack lint`'s
+  `flow-loop-body-uncontained` count goes from 42 to 0.
+- b660365: The Chinese security page uses one word for the second sign-in factor.
+  
+  `reference/security-and-compliance` ships three locales, and both Chinese faces
+  named the second sign-in factor two different ways, eight lines apart. The
+  anti-abuse correction at the top of the authentication section used the
+  platform's own term — 「两步验证」 / 「兩步驗證」 — while the MFA bullet below it
+  used a coined 「双因素」 / 「雙因素」. Both spellings were shipping, in the same
+  locale, on the same screen of the same page.
+  
+  `AGENTS.md` Documentation discipline rule 6 settles which one wins: UI nouns take
+  the zh-CN language-pack wording, and a fresh translation is never coined for
+  something the app already labels. Measured on the installed
+  `@objectstack/service-settings@17.2.0`, the pack calls it 「两步验证」 in both
+  places it names the factor:
+  
+  | pack key | text |
+  | --- | --- |
+  | `settings.auth.keys.lockout_threshold.help` | …0 表示关闭密码阶段的锁定;此时**两步验证**仍保留其内置限制(15 分钟内 10 次)… |
+  | `settings.auth.keys.mfa_required.help` | …启用此项也会开启**两步验证**功能,以便用户注册。 |
+  
+  「双因素」 does not occur anywhere in that pack. So the MFA bullet on each
+  Chinese face now reads 「两步验证默认关闭。」 / 「兩步驗證預設關閉。」, matching
+  both the console the reader is being sent to and the sentence eight lines above
+  it, which already said 「两步验证在这里默认关闭(见下方 MFA 一节)」 about the
+  very same fact.
+  
+  The Traditional form is the corpus's own, taken verbatim from line 46 of the
+  same file rather than glyph-converted: 「兩步驗證」 was already on the page.
+  
+  One bullet per locale — those two were the only occurrences of the coined
+  spelling anywhere under `content/docs`. Nothing else on the page refers to the
+  bullet by either term; the cross-reference into that section points at it by
+  acronym (「见下方 MFA 一节」), so no link or reference changes. The English face
+  needs no change: "two-factor" is unambiguous there. No behaviour, metadata or
+  setting changes — this is the page's wording only.
+- 3313c81: Flag one seeded account `churning` with its activity clock still running, so
+  the demo can actually show the **CSM-Flagged Accounts** panel of the *Customer
+  Churn Signals* report doing its job.
+  
+  `crm_account.health_score` ships four options and the seed book used two. The
+  most severe of them, `churning`, had no record behind it anywhere in `src/data/`
+  — so on a fresh install the worst state in the churn model was a picklist entry
+  a demo could describe but never point at.
+  
+  The consequence was worse than one unused option. `csm_flagged_accounts` is the
+  only panel on that report with **no time window**: its whole reason to exist is
+  the account a CSM is working *right now* and still expects to lose, which is
+  invisible to the three derived panels below it by construction. The seed book
+  contained no such account, so the panel rendered exactly one row — Initech
+  Solutions, which is also 72 days quiet and therefore appears in **At-Risk
+  Accounts** directly below. A reader of the demo saw a panel that restated its
+  neighbour, which is the opposite of the point.
+  
+  **Wayne Enterprises** now carries `health_score: 'churning'` with
+  `last_activity_date` left at `today()`. It is the strategic-tier customer whose
+  every *derived* signal reads healthy — an operations rollout closed four days
+  ago, a licence at 80% two weeks from signature, three meetings held this month
+  — and that is why it was chosen: the panel exists to carry human judgement that
+  the windows and the pipeline do not agree with. Because the tier is
+  `strategic`, the row is inside **Silent High-Value Accounts**' scope as well and
+  is excluded from it by the clock alone, so it is visible in the flagged panel
+  and in neither windowed panel.
+  
+  The demo split, stated as the set arithmetic the panels compute:
+  
+  ```
+                before                          after
+  FLAGGED       Initech                         Initech, Wayne
+  QUIET60       Apex, Initech                   Apex, Initech      (unchanged)
+  SILENT90      Apex                            Apex               (unchanged)
+  
+  FLAGGED \ QUIET60   (empty)                   Wayne
+  ```
+  
+  One record changed. The two windowed panels move by nothing, so the deliberate
+  territory partition (`billing_address` → territory) and the deliberate 41 / 72 /
+  104-day activity bands are both untouched — Initech stays the flagged-*and*-quiet
+  half of the split on purpose, and Wayne is now the flagged-*and*-active half.
+  
+  Seed data only. No report, panel criterion, object or test changed.
+- edf5083: Give the Service Manager persona the access its own escalation flow assumes. A
+  case escalated out of the agent queue is handed to a Service Manager, and a
+  sharing rule grants that person edit on open critical cases — and until now they
+  could not open a single record of any kind. Every CRM object answered
+  `403 PERMISSION_DENIED` for them, so the grants the app materialised were real
+  and unreachable, and `pnpm demo:staff` (the documented second step of the demo
+  boot procedure) exited 1 on a clean install.
+  
+  ### A declared position is not an enforced one
+  
+  `service_manager` was declared in `src/sharing/positions.ts`, named by
+  `case_escalation_sharing`, and routed to by `case_escalation_reassign`. All
+  three declarations were live, the suite was green, and nothing bound a
+  permission set to the position — so holding it granted nothing at all.
+  
+  The platform has no authorable "bind set X to position P" key: `PermissionSet`
+  rejects `profiles` / `roles` / `users`, `Position` rejects `permissionSets`, and
+  the binding is a runtime `sys_position_permission_set` row created in Setup or
+  by an app's own `kernel:ready` binder. A pure-metadata app ships neither. What
+  it can ship is a NAME: the security plugin resolves a caller's POSITION names
+  against declared permission-set names, so a set named for a position is bound to
+  it. Measured on a fresh 17.3.0 box, `sys_position_permission_set` held exactly
+  one row (`everyone` to `member_default`, which the platform binds itself) while
+  `POST /api/v1/security/explain` still credited the object grant to
+  `[service_agent] via position:service_agent`.
+  
+  So `service_manager` is now a declared permission set — the Service Agent's own
+  grant tables, carried by reference under the manager's name. Escalation handling
+  is the same object access as working a ticket, so the two personas share one
+  table and cannot drift apart; nothing about the agent's access changed.
+  
+  ### What this fixes, measured
+  
+  `service.manager@objectos.ai`, before and after, on the same box: `crm_account`
+  403 to 200, `crm_task` 403 to 200, `crm_event` 403 to 200, `crm_lead` 403 to
+  200, `crm_case` 403 to 200. Every case routed to them by escalation is now
+  readable by its assignee — none were before. `pnpm demo:staff` exits 0 on a
+  fresh box, where it exited 1 on `main`.
+  
+  `crm_opportunity` stays 403 for this persona, exactly as it is for a Service
+  Agent: that set holds no read on the pipeline, and widening it would be a
+  manager-specific grant nothing has asked for. A customer who needs one gets it
+  as its own change, with the reason named.
+  
+  ### A measured claim that had gone stale
+  
+  `src/sharing/demo-staffing.ts` recorded, from 17.0.0-rc.1, that the object-level
+  door on `crm_account` was opened for every org member by the platform's additive
+  `member_default` baseline. Re-measured on 17.3.0 and inverted: a user holding
+  only a territory position resolves to `member_default` alone and is refused —
+  `object_crud DENIES, No resolved permission set grants read on 'crm_account'`.
+  The door is opened by `sales_rep`, the set carrying the rep position's name; the
+  territory sharing rule still decides which rows. The note now says that, with
+  the layer stack it was measured from.
+- b66ee26: The admin setup checklist's **14. AI Copilot** section stops citing a `Setup → AI`
+  group that does not exist, and stops asking for two screens that do not ship.
+  
+  `administration/setup` line 136 read "Confirm the AI Copilot is enabled (Setup →
+  AI)" in all three faces — bare parenthesised prose, which is why it survived
+  every pass that cleared the navigation quarantine ledger: rule 2 of
+  `test/docs-setup-navigation-names.test.ts` matches a **bold** `**App → …**`
+  citation, and rule 1 cannot ban `AI`, a real *Studio* group label. The two
+  adjacent items were filed as suspected-but-unmeasured, and all three are
+  resolved here against the installed platform (`@objectstack/* 17.3.0`).
+  
+  **Setup ships no `AI` group.** Its nine are *Overview*, *Apps*, *People &
+  Organization*, *Access Control*, *Approvals*, *Configuration*, *Diagnostics*,
+  *Integrations*, *Advanced*; `AI` is a **Studio** group holding *Agents*,
+  *Tools* and *Skills*. Re-resolved the way the guard builds its roster —
+  `SETUP_APP.navigation` + `SETUP_NAV_CONTRIBUTIONS` + `SetupAppTranslations`
+  across the four shipped locales.
+  
+  **Nothing enables the Copilot.** The `ai` settings namespace behind
+  *Configuration → AI & Embedder* carries no master switch: its only toggles are
+  *Auto-summarize conversation titles*, *Record traces* and *Log full prompts*,
+  and its only gestures are *Test connection*, *Test embedder* and *Reset to
+  environment defaults*. The one control that looks like the switch — the beta
+  *AI Assistant* toggle in the `feature_flags` namespace (*Configuration →
+  Feature Flags*) — ships **off**, and the key `ai_enabled` occurs nowhere in the
+  installed platform except its own manifest and its four locale labels. What
+  does decide whether the Copilot can answer is the **provider**, which defaults
+  to *Memory (echo — testing only)*: an environment that never sets one has an
+  assistant that replays the question. So the item became that check plus a
+  denial, not a redirect to a plausible screen.
+  
+  **There is no per-skill enable surface in Setup.** No Setup entry names skills,
+  and none of the eleven settings namespaces carries a skill key. Skills are
+  metadata: `SkillSchema` carries `active` (default `true`), the six HotCRM
+  skills declare it nowhere and therefore all ship active, and the roster comes
+  from `allSkills` in `src/skills/index.ts` — an app change, documented under
+  Customization › AI Skills. The item now points at **Studio → AI → Skills** for
+  the roster and says the set is decided in the app.
+  
+  **There are no AI sensitivity or redaction rules to configure.** The only
+  `redactFields` the platform defines belongs to an object's `publicSharing`
+  block — "field names removed from records served via a share token", which
+  `crm_knowledge_article` uses for share links and which has nothing to do with
+  the Copilot. What limits what the Copilot may read is field-level security, as
+  `administration/sharing-and-security` already states in its own words: FLS is
+  enforced in list views, reports, the API and the AI Copilot alike, and the
+  Copilot reads as the signed-in user. The item now sends the reader there.
+  
+  Every surviving path is written in **bold**, the shape rule 2 of the guard
+  resolves live, rather than the parenthesised prose no rule could see. The
+  localized faces keep their conventions: zh-Hans uses the zh-CN language-pack
+  labels (**设置 → 配置 → AI 与 Embedder**, **Studio → AI → 技能**), zh-Hant
+  spells platform navigation in English because the console falls back to
+  Simplified.
+- 523eb0d: Scope the `field-group-shadowed` failure message to the pages it can actually
+  speak about, after measuring which those are.
+  
+  `test/field-groups-coverage.test.ts` pushes a message when a declared group is
+  entirely hoisted into the highlight strip, and it said the group "renders on
+  forms and never on detail pages" — unscoped, while the hoist it describes is
+  the page **synthesizer's** behaviour. The docblock 47 lines above it and
+  `src/objects/opportunity_line_item.object.ts` both scope the same sentence to a
+  *synthesized* detail page, so the message was the odd one out. #1674 left the
+  string alone rather than inserting "synthesized", because the correct wording
+  turns on a question nobody had measured: can this shadowing apply at all to an
+  object that authors its own `record:details`?
+  
+  It cannot, and that is now measured rather than argued. Headless Chromium
+  against a real `objectstack start` on a wiped database, `@objectstack/console`
+  17.3.0, four cold boots, each one gated on `GET /api/v1/meta/object/<name>`
+  serving the metadata the leg intended to test before any DOM was read:
+  
+  - **Baseline.** `crm_lead` (authors six sections) renders 6 sections / 17 field
+    rows; `crm_contact` (authors no record page, so its page is synthesized)
+    renders its three `fieldGroups`-derived sections.
+  - **Authored page, shadowed group.** With `crm_lead.highlightFields` set so that
+    `company_info` (`company`, `title`, `industry`) is entirely title-or-strip —
+    the assertion fires naming exactly that group — the detail page is
+    **unchanged**: all three fields still render. 6 sections / 17 rows.
+  - **Synthesized page, shadowed group.** With `crm_contact.highlightFields` set
+    so that `contact_info` (`email`, `phone`, `mobile`) is entirely
+    title-or-strip, the **whole section disappears** — 3 sections become 2. In the
+    same run `crm_account`, dropped from `highlightFields` by that edit,
+    *reappeared* as a rendered row, so the empty reading above is the page's and
+    not a dead instrument.
+  - **Restore.** Baseline reproduced exactly.
+  
+  The baseline run also shows *why*, as a double dissociation on one page:
+  `crm_lead`'s authored body drops precisely the six fields its own
+  `record:highlights` node lists (`status`, `rating`, `lead_source`, `owner_id`,
+  `email`, `phone`), while `company` — in the object's `highlightFields` but not
+  in that strip — renders. An authored page opts out of the synthesizer and reads
+  its own strip; the object's `highlightFields`, which this check computes from,
+  has no authority there. That confirms live at 17.3.0 the mechanism
+  `test/detail-section-dedup.test.ts` recorded statically at 17.1.0.
+  
+  So the message now says it means a **synthesized** detail page, and says
+  plainly that an object authoring its own `record:details` is outside the
+  check's reach and why — carrying the console version it was measured on, so it
+  does not become another undated reading. Only the message text changed; the
+  assertion, what it receives and what it expects are untouched.
+- 3e1b00b: Make the Executive dashboard's pipeline tile say what the shared factory says,
+  and add the guard that keeps it saying it.
+  
+  `src/dashboards/shared-widgets.ts` exists so that "what counts as open pipeline"
+  is stated once: #539 deleted the three source-side copies of the pipeline funnel
+  by moving the definition into a factory the CRM, Sales and Executive dashboards
+  each call. The i18n side was never deduplicated — every dashboard still carries
+  its own `dashboards.<dashboard>.widgets.<widget>.description` in every locale, so
+  one factory-owned sentence is stored as twelve independently editable strings,
+  which is the exact shape #539 removed, one layer down.
+  
+  It had already drifted, identically in all four bundles and in one direction:
+  the Executive entry read "by sales stage" where CRM and Sales read "at each sales
+  stage", and the same split existed in `zh-CN`, `es-ES` and `ja-JP`. Four bundles
+  drifting the same way is a translation lineage, not four typos — they were
+  rendered from one early copy. Four strings are aligned back to the factory's
+  wording, one per locale; `title` was already uniform and is untouched.
+  
+  **This ships, so it is a `patch`.** Four user-visible strings under
+  `src/translations/` change, in four locales, and the shipped artifact changes
+  with them: the locale bundles compile into `dist/objectstack.json`, which the
+  same `pnpm verify` run that gates this PR prints as
+  `Artifact: dist/objectstack.json (1969.8 KB)`.
+  
+  The change *is* a synonym, and that context is worth keeping — no user reads a
+  different meaning, and the Executive tile now reads exactly as the identical
+  tile already read on the CRM and Sales dashboards. But "synonym" is a statement
+  about severity, not about whether something shipped. The empty-frontmatter
+  exemption that `.github/workflows/changeset-check.yml` documents declares that a
+  PR publishes *nothing*, and every other empty-frontmatter changeset in this
+  directory earns that declaration the same way: test-only, prose-only, CI-only,
+  "no `src/` metadata changed". This one cannot borrow that sentence. Claiming it
+  anyway would put a false declaration in the release ledger, which is worse than
+  an over-counted patch.
+  
+  The guard is `test/i18n-shared-widget-parity.test.ts`, and its rule is stated
+  against the source rather than as "all entries for a shared widget must match":
+  
+    a locale must group dashboards by description exactly the way the source
+    groups them.
+  
+  The blunt form would have been red on landing for a legitimate reason.
+  `avgDealSizeMetricWidget` takes `overrides` and Sales uses them — its tile is
+  pinned to the quarter, so its description ends "this quarter" while CRM's does
+  not, and all four bundles already reflect that correctly. Stating the invariant
+  as a partition catches both failure directions with one rule: forking a
+  description the factory unifies, and merging one the source deliberately keeps
+  apart. A second assertion anchors the baseline itself — for a factory-owned
+  widget the `en` bundle is not a translation but the same sentence, so it must
+  reproduce the literal byte for byte, which is what stops a family of entries from
+  agreeing with each other while all disagreeing with the code that renders them.
+  
+  Nothing was watching this before: `pnpm lint --skip-i18n` skips the bundles, and
+  `test/i18n-references.test.ts` asserts key *coverage* — every authored surface
+  translated, every key resolving — never that two entries fed by one source string
+  still agree. Widget ids are discovered by invoking the factories the shared
+  module exports rather than being listed in the test, so a factory added later is
+  covered the day it lands.
+  
+  Deliberately not done: giving the three dashboards one shared i18n key. That
+  would change how i18n keys are organised, which is a platform-convention question
+  beyond the drift this fixes.
+- b63e0e7: Correct the "the platform drops writes to readonly fields" note on six object
+  fields, each against its own writers rather than with one replacement sentence.
+  
+  The blanket was measured false: the strip is one branch of the UPDATE path,
+  `if (!opCtx.context?.isSystem)`, over caller-supplied keys only. Whether a field
+  can be `readonly` therefore depends on its **least-privileged writer**, and the
+  six sites do not agree with each other. Re-confirmed on the pinned 17.3.0 — both
+  engine internals still read as quoted, and the measurement suite is green — with
+  two additions the earlier reading predates: `hookWrittenKeys` now states "hook
+  writes are not caller-supplied" in the engine instead of leaving it to emerge
+  from a value-identity check, and an opt-in `strictReadonlyWrites` refuses the
+  whole write instead of committing without the column. Nothing here passes it, so
+  drop-and-commit is still this repo's behaviour.
+  
+  What each note now says, and why it differs from its neighbour:
+  
+  - `crm_lead.is_converted` and the `converted_*` block — `lead_conversion`
+    declares no `runAs`, so it updates them as `'user'` and the keys are stripped.
+    The note now names that default instead of blaming the platform, and says the
+    guest-submission `beforeInsert` stamp is unaffected.
+  - `crm_quote.subtotal` / `discount_amount` / `total_price` — the note named the
+    create-time flow write, which an INSERT exemption would have let through
+    anyway. The writer that actually keeps the columns open is the line-item
+    rollup's cross-record `ctx.api` update.
+  - `crm_opportunity.approval_status` / `approved_date` — every writer is the
+    `runAs: 'system'` approval flow or an insert, so these could honestly be
+    declared `readonly`. Recorded as a finding rather than flipped.
+  - `crm_campaign_member.added_date` — written only by INSERTs, which the strip
+    never reaches. Same finding, same treatment.
+  - `crm_campaign.actual_revenue` and the `num_*` block — written by four refresh
+    hooks through `ctx.api` under the acting user, so they must stay open. The
+    notes also stop naming `campaign_snapshot_metrics`, a hook retired long ago.
+  
+  Three of the six scoped their claim to "16.x". That is a historical statement
+  this repo can no longer re-run, so the citation is dropped rather than restated:
+  a justification a reader cannot check is not one. Where the current mechanism
+  reaches a different verdict than the historical claim did, the note says so
+  instead of quietly keeping the old conclusion.
+- f8bf27b: Cut the AI layer table's Skills row in `docs/ARCHITECTURE.md` down to a genuine sample.
+  The row's "Examples" cell named `live_data`, `lead_qualification`, `email_drafting`,
+  `revenue_forecasting`, `case_triage` and `customer_360` — six names, and
+  `src/skills/*.skill.ts` registers exactly six skills. It was a complete hand-maintained
+  roster wearing the word "Examples". It now names three.
+  
+  Nothing in that cell was false, which is what made it worth changing rather than
+  leaving. The header was the defect: "Examples" tells a reader the list is illustrative,
+  so nobody checks it against the tree — while it was in fact exhaustive. A reader
+  counting skills from this page got the right answer today and would have got no warning
+  on the day a seventh skill landed. That is the same failure that put three objects out
+  of date in this file's own object roster, and it is the fourth site of one transcription
+  (`AGENTS.md`, `docs/DEPLOYMENT.md`, `docs/MAINTENANCE.md`, and now here).
+  
+  The list is **not** completed and not re-counted: a completed transcription is the same
+  defect one skill later — 2026-08-31 ruling item 5.
+  
+  Of the two available routes, this is the sample one rather than the pointer wording
+  `AGENTS.md` / `docs/ARCHITECTURE.md` / the API reference already carry, because in this
+  row the pointer is already present: the `Files` cell of the very same row reads
+  `src/skills/*.skill.ts`, so pointing the `Examples` cell at the source would restate its
+  neighbour verbatim and leave the table with a column that says nothing on one of its two
+  rows. The other row — *"lead conversion, case triage, alerts"* under Actions and flows —
+  is a real sample of a much larger set, so the skills row was the odd one out in its own
+  table and now matches it. The three kept names span the three domains the layer serves
+  (live schema inspection, sales, revenue) and avoid restating the neighbouring row's
+  examples.
+  
+  `test/docs-src-tree-paths.test.ts` resolves the `src/` paths this file quotes against the
+  real tree; the `Files` cell it reads is untouched, and the guard is unmoved. No guard is
+  added: the change is a truncation, and 2026-08-31 ruling item 3 keeps gate-type
+  mechanisms on the platform.
+- 27188b4: The **⏰ SLA at Risk** tab no longer lists cases that have already been
+  resolved.
+  
+  The tab selected on `is_closed == false`, but that flag is derived from
+  `status` as `status === 'closed'` and never flips on `resolved`. The flow that
+  owns SLA breach detection — `case_sla_monitor` — has always excluded both
+  statuses (`resolved` and `closed`). So the two surfaces disagreed about the
+  same case: the sweep would not flag a resolved case as breached, while the tab
+  still listed that case for a service agent to pick up. An agent working the
+  queue could be handed work the automation had already decided was finished, and
+  nothing on the screen said so.
+  
+  The view now selects on the same predicate the sweep uses — `status not_in
+  ['resolved', 'closed']` — so the surface a human reads and the surface that
+  acts answer this one question the same way. The priority half of the filter
+  (`high` / `critical`) is unchanged.
+  
+  **What changes for a user:** a resolved high-priority case disappears from the
+  ⏰ SLA at Risk tab. It was never actionable there — resolving a case is what
+  takes it out of SLA scope — so the tab now shows the work it claims to show.
+  Closed cases were already excluded and still are. Nothing else moves: the
+  **Cases by Status** kanban still has a `Resolved` column (that board's contract
+  is the lifecycle itself, and it is where a card lands when an agent drags one
+  across), and **My Open Cases** is unchanged.
+  
+  This is the same defect #1145 fixed on the triage tab and its sharing rule, in
+  a fifth place. `test/live-work-predicate-parity.test.ts` pins every consumer of
+  "no longer live work" by name against one declared set, and `sla_at_risk` moves
+  from that file's boundary roster into its consumer roster here — so this
+  spelling cannot grow back quietly. `test/sla-at-risk-live-work.test.ts` is the
+  behavioural half: it runs the shipped view filter through a real engine on both
+  drivers, over a resolved case that satisfies every other clause, and asserts the
+  row does not come back.
+- df549fe: The Chinese SLA page names the eight case views the way the Chinese console
+  labels them, matching the sibling Cases page.
+  
+  `content/docs/service/sla-and-escalation.zh-Hans.mdx` named every `crm_case`
+  list view in English across 14 lines, while `src/translations/zh-CN.ts` ships a
+  Chinese label for all eight and the console resolves a view's `label` through
+  that pack. The sibling `content/docs/service/cases.zh-Hans.mdx` had already been
+  rewritten to the pack wording, so the two Chinese pages of the same section
+  named the same eight views two different ways and a reader moving between them
+  shared no string with either the other page or their own console.
+  
+  | view (`src/views/case.view.ts`) | was | now (`zh-CN` pack) |
+  | --- | --- | --- |
+  | `all_cases` | All Cases | 全部工单 |
+  | `case_workflow` | Service Workflow | 服务流转 |
+  | `sla_calendar` | SLA Calendar | SLA 日历 |
+  | `case_timeline` | Case Timeline | 工单时间线 |
+  | `my_open_cases` | My Open Cases | 我的待处理工单 |
+  | `unassigned_triage` | Unassigned — triage | 未分派 — 待分诊 |
+  | `escalated_cases` | Escalated Cases | 已升级工单 |
+  | `sla_at_risk` | ⏰ SLA at Risk | ⏰ SLA 风险预警 |
+  
+  The emoji is carried in the one place the English face carries it — the
+  canonical eight-name enumeration — and dropped in running prose, so the two
+  faces stay line-for-line parallel.
+  
+  Three surfaces are named on this page and only one of them moves. **View names**
+  convert, because the pack carries all eight. **Dashboard tile names** keep their
+  spelling: the pack does carry `SLA Violations`, `Critical Cases` and the
+  `Customer Service` dashboard title, but the ruling this change executes was
+  carried out with those same pack entries already present and deliberately left
+  tiles in English, and the sibling page names them in English too — converting
+  them here would reopen the cross-page disagreement this change closes.
+  **Report names** keep theirs because there is nothing to take: no locale file
+  declares a `reports` surface at all, so `SLA Performance Report` has no pack
+  wording. Sharing-rule names (`Escalated Cases Sharing`) and the phantom names
+  the page exists to debunk (`Breached SLA`) are unchanged, as before.
+  
+  The `zh-Hant` face is deliberately untouched: a Traditional page labels platform
+  navigation in English on purpose, because the console falls back to Simplified
+  and mixed script is worse. The English face is unaffected.
+- 206a441: Name all eight case list views on the SLA & Escalation page. The page told a
+  service manager that `crm_case` ships **seven** views and then hand-copied the
+  roster behind that count, and the copy was one view short: **Unassigned —
+  triage** was missing from the list, in all three faces (`en`, `zh-Hans`,
+  `zh-Hant`) on the same line.
+  
+  The count and the roster are one sentence doing two jobs, and both went stale
+  together when the eighth view landed. Re-derived from the file the sentence
+  already cites, `src/views/case.view.ts`: the object declares a default `list:`
+  view (*All Cases*) plus seven `listViews` entries — *Service Workflow*, *SLA
+  Calendar*, *Case Timeline*, *My Open Cases*, *Unassigned — triage*, *Escalated
+  Cases*, *⏰ SLA at Risk* — which is eight. Two neighbours that look like views
+  in a grep are not: the `calendar:` block inside `list:` is that grid's calendar
+  visualization binding, and `web_to_case` is a `formViews` entry, not a list
+  view. The sibling Cases page already documented eight; this page is what
+  disagreed.
+  
+  The missing view is the one a manager most needs named here: **Unassigned —
+  triage** is where a web-to-case submission lands when nobody holds the Service
+  Agent position, so a page about SLA deadlines that omits it hides the queue
+  where unowned cases run their clock down.
+  
+  Nothing else in the paragraph moved. Its other claims were re-measured against
+  the same file and hold: no case list view filters on **SLA Violated**
+  (`is_sla_violated` appears in `case.view.ts` only as a column on *All Cases*),
+  so **Escalated Cases** is still the closest workable list, and the two surfaces
+  that do filter on a breach are still dashboard tiles rather than views.
+  
+  Prose only — no metadata changed, and no view was added, renamed or removed.
+- f0a0561: The hourly SLA sweep now gives an unowned breached case an owner, and alerts
+  that owner.
+  
+  Before this, a case with nobody on it that blew its SLA was flagged, escalated
+  — and then nothing. The alert was addressed to the case's owner, there wasn't
+  one, and the notification was skipped. So the worst square on the board (SLA
+  already missed, and nobody accountable) was the one square where no one was
+  told.
+  
+  What happens now, for a breached case with no owner:
+  
+  1. The breach is recorded on the case, as before — **SLA Violated**, status
+     *Escalated*, escalation reason stamped.
+  2. The escalation hands the case to the holder of the **Service Manager**
+     position with the fewest open cases — the same least-loaded hand-off every
+     other escalation in the app already uses. Nothing new decides "who": the
+     sweep escalates, and the escalation is what assigns.
+  3. That manager is alerted — inbox and email, carrying the case number and
+     priority, exactly like an owned breach.
+  
+  **When nobody holds the Service Manager position, the sweep does nothing about
+  ownership for that case and the run carries on.** The case stays unowned, the
+  breach still lands on the record and in the run summary's named gate, and every
+  other breached case is still swept. There is no fallback recipient and no hard
+  failure — an empty bench costs one alert, never the sweep.
+  
+  An already-owned breached case is untouched: its alert still goes to the agent
+  it came from.
+- d39d0f0: Case SLA Monitor: one unowned case no longer stops the whole hourly sweep
+  
+  The scheduled SLA sweep alerts a breached case's owner, and it addressed
+  exactly one recipient — the case owner. But `owner_id` is optional on a case,
+  and an unowned case is an ordinary thing to have (this app ships a
+  `pnpm backfill:owner` script precisely because unowned rows happen, and both
+  the REST API and an import can create one).
+  
+  When the sweep reached a breached case with no owner, the alert had nobody to
+  send to and failed — and the failure took the **entire run** with it, not just
+  that one case. Every breached case the sweep had not reached yet was silently
+  left unflagged until the next hour's run, which would die on the same case
+  again. Nothing retried, and the only trace was a terminal error in the flow's
+  run history. Measured: a sweep over five breached cases flagged two of them and
+  then stopped.
+  
+  The sweep now checks whether a case has a reachable owner before sending the
+  alert. Two things follow, and the second is the point:
+  
+  - An unowned breached case is **still flagged and escalated** exactly as
+    before — `is_sla_violated`, `is_escalated`, `status`, and the escalation
+    reason all still land on the record, so the breach shows up in views and
+    reports where a service manager will find it. Only the push alert is skipped,
+    and the flow's run summary now reports that skip against a named gate rather
+    than just sending fewer alerts than there were cases.
+  - Every other breached case in the same run is now processed. That is the
+    actual repair: the cost of one unowned case is one missing notification, not
+    a dead sweep.
+  
+  Who an unowned breach *should* alert — a service-manager role, say — is still
+  an open product question and is deliberately not answered here.
+- d9fad90: Extend the Chinese term guard from object names to `status.options.*` and field
+  `label`s, and correct the one live defect it found — `crm_quote.crm_contact`'s
+  `help` string told Chinese users a quote had to reach 「已呈现」, a status the
+  console has never shown. The pack's own `status.options.presented` says 已提交,
+  thirteen lines above the sentence that contradicted it.
+  
+  #837 built the mechanism and scoped it to object names. #802 was filed on four
+  defects one level down, all found by human eyes and none by a machine:
+  `presented` written 已呈现/已呈現 (#765 §3, six sites on two pages), `expired`
+  written 已到期 on two different pages (#793 and #801 甲), and `expiration_date`
+  written 过期日期 (#801 乙, four sites). The docs were swept clean at the time.
+  The pack was not: the sentence corrected here was introduced later, by a feature
+  PR (#1017/#1068), after #794 had declared the repository clean of 已呈现. That
+  is the whole argument for a standing gate over a careful grep — the grep was
+  right on the day it ran.
+  
+  A status term collides with prose in a way an object name does not, and the
+  card would not be dispatched until that was answered. It is answered by ledger
+  granularity rather than by syntactic position. The collision is always on the
+  ROOT — 到期, 呈现 — and never on the whole retired spelling: across the 134
+  Chinese pages, 71 lines carry 到期 and 14 carry 呈现, and zero carry 已到期,
+  过期日期 or 已呈现. So 到期日期 is guarded as a field label while 每日到期扫描,
+  自动到期, 报价单到期, 即将到期 and 到期日 are left alone, with no exemption
+  list and no narrowing of the scan.
+  
+  The alternative the card proposed — scan only status-table cells and `**bold**`
+  references — was measured against the three fix commits and rejected as the
+  weaker rule. Six of the nineteen historical defect sites carried no markup at
+  all, including `不要更改已呈现报价上的定价` and the bare field list in the cell
+  `报价日期、过期日期、付款条款`. Narrowing by position would have dropped about a
+  third of the defects the guard exists for, and #801 甲 is already on record that
+  this class is consumed across pages rather than within one.
+  
+  That boundary is now pinned instead of promised. A `SPARED` ledger names the
+  mechanism prose the `presented` and `expired` sweeps had to leave alone,
+  requires each phrase to still be in the corpus, and requires no retired spelling
+  to be a substring of any of them. Retire a bare root and the failure lands
+  there, on legitimate prose, rather than in CI across the whole corpus — the
+  noisy-gate-gets-silenced outcome #736 recorded and this card was held for.
+  
+  Two smaller mechanics came with the extension. A pin names the dotted path it
+  derives from (`fields.status.options.presented`), and the path is resolved
+  rather than trusted, so a typo cannot produce a pin that guards nothing.
+  `hant: null` declares a term identical in both scripts — 已提交 and 到期日期
+  share every character — and the declaration is verified by requiring the
+  Simplified spelling to appear on the Traditional pages. It is also the one value
+  the mistake that `hant !== hans` exists to catch cannot produce: filling the
+  column in wrongly yields a string, not `null`.
+  
+  `ALLOWED` stays empty after the extension, re-measured rather than assumed.
+- dba2fb7: Drop the `label` key from every `list.tabs[]` entry, because the console has
+  never rendered it. The object-view switcher builds its tab strip from the view
+  definitions — each tab is a *view* descriptor, so the string in the tab is that
+  view's own `label`. All 60 tab entries across the 12 view files carried a
+  `label` of their own, and 50 of them said something other than what the tab
+  actually reads: `{ name: 'map', label: 'Map', view: 'account_map' }` renders as
+  "Accounts by Location", and "Map" appears nowhere on the page.
+  
+  Nothing users see changes. What changes is what the next author can believe. A
+  maintained string that never reaches the screen is not cosmetic drift, it is a
+  trap: editing `label: 'Map'` to fix what a customer reads accomplishes nothing,
+  and the file gives no way to discover that. #760 is that failure caught in the
+  wild — it was filed to rename a tab believed to read "Closing Soon", the
+  authored string sitting beside `closing_this_quarter`. The tab reads "Closing
+  This Quarter", the view's own label, which was the correct string all along; the
+  user-facing defect the issue was filed for did not exist. Under ADR-0049 a
+  declared-but-unenforced key is enforced or removed, and removing it makes
+  "write a tab name that does nothing" structurally impossible rather than merely
+  discouraged.
+  
+  **To rename a tab, rename the label of the view it points at.** That string is
+  the one on screen, and it is the one the locale packs already translate — which
+  is also why no translation face is lost here: `tabs[].label` had no `_tabs` key
+  in the object translation schema, so it could only ever have been hardcoded
+  English, and it was never rendered in any language.
+  
+  `name`, `icon`, `view`, `isDefault` and `pinned` are left exactly as they were;
+  only `label` is removed. `test/view-tab-label-inert.test.ts` pins the absence so
+  the key cannot return one entry at a time — which is how it accumulated.
+  
+  This does not touch `userFilters.tabs[]`, a different key that reuses the same
+  `ViewTabSchema` on page lists (ADR-0047). Its `label` **is** read, and is
+  translated; nothing here should be read as a claim about it.
+- e4b8446: The contact form gains its **Mailing Address** block. Creating or editing a
+  contact in HotCRM now offers a fourth tab — Identity · Contact Info · Mailing
+  Address · Preferences — carrying mailing street, city, state/province, postal
+  code and country. Until now those five fields could be filled by the CSV
+  importer and read on the contact detail screen, but no form in the app could
+  enter or change them.
+  
+  ### What was actually broken
+  
+  `crm_contact` declares a `mailing_address` field group holding the five address
+  fields, and the contact **detail** screen renders it: that screen is
+  synthesized from the object's `fieldGroups`, because `crm_contact` authors no
+  detail page, and the section is on the record exactly as
+  `content/docs/sales/contacts.mdx` describes it.
+  
+  The **form** is authored, and an authored `sections` array wins outright over
+  the renderer's `fieldGroups` derivation — the same mechanism written up at
+  length in `src/views/case.view.ts`, re-measured here in a browser against
+  `@objectstack/console` 17.4.0. `src/views/contact.view.ts` listed three
+  sections and none of them named a `mailing_*` field, so the group never reached
+  the form. Because this platform resolves one form for both entry points, the
+  gap applied to the create dialog and the edit dialog alike.
+  
+  Meanwhile `src/mappings/contact_import.mapping.ts` maps all five as import
+  targets and `assets/import-templates/contacts.csv` ships the columns. So an
+  address could arrive by import and be read on the record, and a user who wanted
+  to type one in — or correct one that arrived wrong — had no field to type it
+  into. That is the defect this closes: address entry existed only on the import
+  path.
+  
+  ### The section reuses the group's key on purpose
+  
+  The new section is named `mailing_address`, the same key as the field group,
+  which is the opposite call from the two sections either side of it. Reusing a
+  group key makes a section's translated heading follow the group's wording;
+  `contact_details` and `comm_preferences` avoid the collision because they want
+  their own shorter headings. This section wants exactly the group's wording, and
+  every shipped locale already carries
+  `objects.crm_contact._sections.mailing_address` — so `en`, `es-ES`, `ja-JP` and
+  `zh-CN` all label the new tab correctly with no new translation row.
+  
+  `mailing_street` is a textarea and spans the full width; the four short fields
+  sit in the section's two-column grid.
+  
+  ### Nothing else moves
+  
+  The object, the field group, the import mapping, the CSV template, the detail
+  screen and the contact docs are all unchanged — the form now agrees with what
+  they already promised. Five `field-no-consumers` lint warnings clear as a
+  consequence, because a form section is a reader and an import mapping is not,
+  but the reason for the change is the missing surface, not the warning count.
+- f2b8ee3: Point `flow-conversion`, `flow-quote` and `flow-followup` at the shared flow
+  harness and delete the three private data engines they each carried.
+  
+  No behaviour of the app changes — this is the runtime evidence for lead
+  conversion, quote generation and follow-up scheduling, and it was measuring
+  against a store no install has.
+  
+  Each copy carried two defects the shared harness in `test/helpers/flow-harness.ts`
+  exists to close. The first is a **schemaless store**: `insert` did
+  `{ id, ...data }`, so a column nobody wrote was *absent* rather than `null`, and
+  an absent key is not a null one to a filter. Measured on the shared engine, a
+  seeded `crm_lead` fixture goes from the 11 columns it was written with to the 43
+  a materialising driver returns; a `crm_quote` created by the flow from 3 to 29.
+  The expensive direction of that gap is silent: a flow whose filter is wrong
+  against real rows passes here, because the fixture happens not to carry the
+  column the filter names.
+  
+  The second is **equality-only predicates** — `Object.entries(where).every(([k, v])
+  => r[k] === v)`. An operand like `{ $gt: 0 }` is an object compared with `===`
+  against a scalar, so it can never match: every `$in` / `$nin` / `$gt` / `$gte` /
+  `$lt` / `$lte` selected nothing, without throwing or warning. Measured over the
+  same three rows, `{ amount: { $gt: 10 } }` selects 2 on the shared engine and 0
+  on the copy just deleted; `{ status: { $in: ['qualified', 'new'] } }` selects 1
+  against 0. A sweep that selects nothing is indistinguishable from a sweep with
+  nothing to do, which is why this could sit in the repo's own runtime-coverage
+  evidence unnoticed.
+  
+  **No assertion moved.** Every one of the eight cases passes unchanged on the
+  shared engine, and that is a measurement rather than luck: instrumenting the
+  data service records that the three flows issue 8 predicates between them and
+  that **none** carries an operator — they filter on `id`, on `name_normalized`
+  and on `email`, all scalar equality. The equality-only defect was therefore
+  *latent* in these three suites, not active. It was live the moment any of them
+  grew a range filter, and it is now closed for all three.
+  
+  `test/runtime-coverage.test.ts` continues to name all three files as the runtime
+  evidence for those flows, and its bookkeeping needed no change: the flow names it
+  greps for (`lead_conversion`, `quote_generation`, `schedule_followup`) are still
+  present as executable code, now as the keys the flows are registered under.
+- a76b69f: The **Unassigned — triage** tab and the triage sharing rule now mean *live
+  work*, not *not-yet-closed*. Both move from `is_closed == false` to
+  `status not in ['resolved', 'closed']`.
+  
+  `is_closed` is derived from the status on every write, as
+  `effStatus === 'closed'` — so it never flips on **Resolved**. A case that was
+  resolved while still ownerless therefore satisfied both of the tab's filters
+  and stayed there indefinitely, in a queue whose own empty-state copy says the
+  rows are cases that "arrive with no owner" and whose purpose is "work waiting
+  for a human". A resolved case is neither. Two ordinary paths produced such
+  rows: an agent resolving an unowned case straight out of triage (finishing a
+  case is deliberately not claiming it, so no owner is recorded), and an imported
+  or seeded case that arrives already resolved.
+  
+  **Two user-visible changes.**
+  
+  *The tab is narrower.* Resolved ownerless cases no longer appear in
+  **Unassigned — triage**, so the tab's row count is the intake backlog again
+  rather than the backlog plus finished work nobody happened to close. **Closed**
+  ownerless cases were already excluded and still are; **Resolved** now joins
+  them.
+  
+  *⚠️ The sharing grant is narrower — this is a TIGHTENING of access.* The
+  `Unassigned Cases — Triage` rule gives every holder of the **Service Agent**
+  position `edit` on unowned cases so they can pull one out of the queue. Because
+  it keyed on the same flag, it was also handing every agent edit rights on every
+  resolved ownerless case, permanently. Those grants are withdrawn on the next
+  reconcile. What an agent loses is the ability to *reopen* an already-resolved
+  unowned case; reopening one is now an administrator's move, exactly as
+  reopening a closed unowned case already was. Nothing else changes: an agent can
+  still see, work, resolve and claim an unowned case that is still open — access
+  is resolved against the stored row, so a case that is open when the agent
+  resolves it is reachable at that moment. It simply leaves the queue afterwards
+  instead of staying in it.
+  
+  Four other consumers of this concept — the round-robin and escalation
+  load-balancing counts, and the hourly SLA sweep — already excluded both
+  statuses. This makes the app say it once. `Service Workflow`, `My Open Cases`,
+  `SLA at Risk` and the two critical-escalation sharing rules are deliberately
+  unchanged: the kanban groups *by* status, so **Resolved** is a column on that
+  board rather than stale backlog, and the rest are a separate question from this
+  one.
+- 4da9181: Say the won-deal alert reaches the deal owner on the two sales pages that still
+  named sales management. `opportunity_won_alert` notifies one person: its
+  `notify` node carries a `recipients` list whose single entry is
+  `{record.owner_id}`. Six lines across `sales/index` and `sales/opportunities`,
+  in all three locales, told readers the email goes to sales management instead.
+  The flow is correct as shipped and is unchanged here — only the prose moved.
+  
+  This is the leftover of two earlier corrections rather than fresh drift. The
+  same claim was fixed in `src/docs/crm_sales.md` and again in the
+  `administration/automation` flow table, which now reads *"notify the owner — the
+  owner alone, not their manager"*; these two pages were missed both times. The
+  new wording reuses that sentence rather than inventing a third phrasing, so all
+  five surfaces now say the same thing in the same words, and the zh-Hans and
+  zh-Hant pages reuse the corresponding landed clause
+  (「只通知负责人本人，不通知其经理」/「只通知負責人本人，不通知其經理」).
+  
+  It is the recipient, not a detail of it. `sales/index` is the section landing
+  page, so a sales manager reading it first expects an inbox signal on every big
+  win and never receives one. And `sales/opportunities` contradicted itself on one
+  page: line 78 said sales management while the admin tip further down already
+  described the `recipients` list as "the single entry `{record.owner_id}` — the
+  deal owner alone". Whichever line a reader believed, the page had misled them.
+  
+  Nothing mechanical guards these pages yet, which is how two prior corrections
+  passed them by; a gate over this tree is tracked separately and had not landed
+  when this shipped.
+- 05f867e: Spell platform navigation in English on the last three zh-Hant pages that still
+  named it in Chinese — `administration/state-machines`, `guides/import-and-export`
+  and `reference/faq`.
+  
+  The convention is not a style preference. The platform ships `en` / `zh-CN` /
+  `ja-JP` / `es-ES` and no Traditional-Chinese pack, so a zh-Hant reader's console
+  falls back to **Simplified**. A Traditional page therefore labels platform
+  navigation in English rather than mix Simplified glyphs into Traditional prose.
+  (An earlier statement of this convention gave a different reason — that the
+  reader sees an English UI — which was measured false and is not the reason here.)
+  
+  These three pages were missed by the sweep that converted the other eight
+  because none of their citations is a live path a reader is sent to. Each names a
+  screen in order to say it does not exist, and the shapes that carry the name are
+  all invisible to the bold-path rule in `test/docs-setup-navigation-names.test.ts`,
+  which extracts a citation only when the bold span *opens* with an app word:
+  
+  - a bold denial that opens with the denial, not the app word —
+    `**不存在「設定 → 資料」選單。**`
+  - a path inside inline code — `` `設定 → 資料` ``, `` `設定 → 隱私 → 資料主體請求` ``
+  - a path in plain prose with no bold at all — 「設定 → 營業時間」
+  - a group named with no arrow to parse — 「設定裡也沒有對應入口」
+  
+  So the prose was correct and the guard was right to stay silent; what was wrong
+  was the vocabulary. `reference/faq.zh-Hant.mdx` denied *Business Hours* in
+  Chinese three paragraphs after citing **Setup → Audit Logs** in English, and
+  `administration/setup.zh-Hant.mdx` denies that same screen as
+  「不存在「Setup → Business Hours」這個畫面」 — the product's own word, spelled two
+  ways for a reader comparing the two pages.
+  
+  Every replacement is the label its English twin already uses, taken verbatim
+  rather than translated back. The one that was wrong in a second way is
+  `guides/import-and-export.zh-Hant.mdx`, which listed the Setup app's nine
+  navigation groups in Traditional as a roster the reader is told to check against
+  their own sidebar — a sidebar that renders none of those nine that way. It now
+  reads *Overview*, *Apps*, *People & Organization*, *Access Control*, *Approvals*,
+  *Configuration*, *Diagnostics*, *Integrations*, *Advanced*, matching both the
+  English page and the landed roster on `administration/sandbox-and-releases.zh-Hant.mdx`.
+  Note the sixth: the Traditional text spelled it 設定, which reads as *Setup* but
+  names the **Configuration** group.
+  
+  Prose only — no navigation path changes, no source change, and no guard change.
+  Widening the citation rule to see denials was considered and rejected: those
+  sentences are deliberate, and a rule that flagged them would go red on correct
+  documentation the last three PRs wrote on purpose.
+- 637fc4f: Every Traditional Chinese documentation page now says, in one identical sentence
+  at the top, that the application ships no Traditional language pack — and what
+  that means for the interface names the page spells.
+  
+  ## Why the pages needed it
+  
+  The zh-Hant documentation face has no application locale behind it.
+  `src/translations/` and `supportedLocales` carry `en`, `zh-CN`, `es-ES` and
+  `ja-JP`, and no Traditional pack. So a Traditional page naming a button, a view
+  or a navigation path has no Traditional source to take the wording from, and
+  until now each page answered that on its own: seven pages explained the
+  convention in a parenthetical, and the rest simply followed it in silence.
+  
+  A reader met the result as an inconsistency. `reference/security-and-compliance`
+  spells more English navigation paths than any page that explains why it does.
+  
+  ## What a reader sees now
+  
+  One sentence, identical on all 67 pages, immediately under the page title:
+  interface nouns take the zh-CN pack wording written in Traditional characters
+  where the pack carries them, and otherwise keep the English label exactly as the
+  product ships it — never an invented Traditional translation.
+  
+  The seven existing parentheticals are untouched. They explain something
+  narrower and page-specific (why *that page's* navigation paths are in English),
+  they were corrected once already, and rewriting them was the drift this repo has
+  paid for before.
+  
+  ## The rule behind it
+  
+  `AGENTS.md` §Documentation discipline now states the sourcing order itself,
+  rather than leaving each page to improvise one. The reason it gives is the
+  measured one, as a single chain: no Traditional pack exists, which is *why* the
+  console falls back to Simplified, which is why a Traditional page labels
+  platform navigation in English instead of mixing scripts. Those had been two
+  separate explanations of the same fact; they are now one.
+- 1efcaaa: Correct the reason seven zh-Hant pages give for labelling platform navigation in
+  English. The parenthetical asserted 「主控台介面顯示英文」 — *the console UI
+  displays English* — which is false. The console falls back to **Simplified**.
+  
+  The convention itself is unchanged: English navigation labels on Traditional
+  pages stay exactly as they are. Only the stated reason moves, to the one
+  `AGENTS.md` already carries — the console falls back to Simplified, so a
+  Traditional page labels platform navigation in English rather than mix
+  Simplified glyphs into Traditional prose.
+  
+  ## The measurement
+  
+  Not a rulebook transcription. Probed against the installed platform
+  (`@objectstack/console@17.2.0`) served by `objectstack start`, driving Chromium
+  with a Traditional browser locale and reading what the console rendered:
+  
+  | `navigator.language` | `document.documentElement.lang` | Setup sidebar renders |
+  | --- | --- | --- |
+  | `zh-Hant-TW` | `zh` | 仪表盘 · 系统概览 · 软件包 · 用户 · 组织 · 权限集 · 审批中心 · 审计日志 |
+  | `zh-TW` | `zh` | same (Simplified) |
+  | `zh-HK` | `zh` | same (Simplified) |
+  | `en-US` | `en` | Dashboards · System Overview · Packages · Users · Organization |
+  | `ja-JP` | `ja` | Japanese |
+  
+  A strict Simplified/Traditional character fingerprint over the rendered console
+  home returned **12 Simplified-only characters and 0 Traditional-only** under
+  `zh-Hant-TW`. The `en-US` and `ja-JP` rows are the negative control: the probe
+  does read the locale rather than return a constant, and the same fingerprint
+  does fire on traditional-form glyphs when they are present (the `ja-JP` row).
+  
+  The mechanism agrees. The console ships one Chinese bundle — its built-in locale
+  keys are `en · zh · ja · ko · de · fr · es · pt · ru · ar`, with no `zh-Hant`
+  and no `zh-TW` — and it selects it by primary subtag, so every `zh-*` tag
+  resolves to the single Simplified `zh` bundle. There is no configuration in
+  which a Traditional locale lands on English by fallback; English is what an
+  explicitly English console shows, which is not what these pages claimed.
+  
+  ## Three variants, three surgeries
+  
+  The seven sites are not one string. Six carry the full form and differ in
+  whether the full stop sits inside the parenthesis; the glossary carries a short
+  form with no trailing clause, which needed its reason restored rather than
+  merely corrected:
+  
+  - three mid-sentence asides, sentence continues outside the parenthesis —
+    `administration/profiles:96`, `administration/setup:14`, `guides/integrations:8`
+  - three standalone notes, full stop inside —
+    `administration/sharing-and-security:71`, `administration/automation:32`,
+    `administration/sandbox-and-releases:10`
+  - one short form, no `因此` clause — `reference/glossary:200`
+  
+  ## The repo already tabulated the refutation
+  
+  Six zh-Hant pages state the Simplified fallback correctly, `revenue/approvals`
+  in three tables that enumerate the actual Simplified strings (待我审批 / 我发起的
+  / 全部 / 我提交的 / 已完成 / 状态). Those pages are untouched: they were right,
+  and they are what made the contradiction provable before anything was measured.
+- 0edd303: Name the Setup app in English on the seven zh-Hant sites that still spelled it
+  設定 with no arrow — `administration/sandbox-and-releases`,
+  `administration/setup`, `reference/performance-and-limits`,
+  `reference/security-and-compliance` and `service/sla-and-escalation`.
+  
+  The convention is not a style preference. The platform ships `en` / `zh-CN` /
+  `ja-JP` / `es-ES` and no Traditional-Chinese pack, so a zh-Hant reader's console
+  falls back to **Simplified**. A Traditional page therefore labels platform
+  navigation in English rather than mix Simplified glyphs into Traditional prose.
+  (It is not because the reader sees an English UI — that reason was measured
+  false and is retired.)
+  
+  Three of the seven were self-contradicting inside a single sentence: they spelled
+  the app 設定 and then cited a path through it in English on the same line.
+  
+  - 「不是本租戶設定裡的某一頁；設定裡唯一與雲相關的入口是 **Setup → Cloud Connection**」
+  - 「設定裡真正提供的是 **Setup → System Overview**」
+  - 「**設定裡沒有 SCIM 頁面。**」 … 「位置是 **Setup → SSO Providers**」
+  
+  Every replacement is the label its English twin already uses, taken verbatim
+  rather than translated back: "not a page inside this tenant's **Setup**", "what
+  **Setup** does ship", "**Setup** ships no SCIM screen", "point your team at the
+  repository, not at **Setup**", and "not on a **Setup** screen" for the three
+  denial lines in `administration/setup` and `service/sla-and-escalation`. Those
+  last three read as generic ("any settings screen") until the twin is opened;
+  the twin capitalises Setup as the app in all three, so all three are the same
+  defect and are converted. A denial stays a denial — only the app name changes.
+  
+  ⚠️ 設定 is also the ordinary Chinese word for *configure*, and most of its 297
+  occurrences across the 67 zh-Hant pages are that: 權限設定檔 (Profile, 87
+  occurrences), 設定變更 / 設定項 (a config change, a setting), 偏好設定, and the
+  verb itself. All 297 were graded; the seven above are the whole defect class.
+  Deliberately untouched: `guides/email-and-calendar`'s three 設定頁, which describe
+  a **Settings** page the twin itself marks *(not shipped)*; the docs-site's own
+  page titles and cross-links (設定清單 = *Setup Checklist*, 「管理 › 設定」), which are
+  documentation navigation and are translated in every locale by design; and the
+  audit-category row 「**設定**」, which renders the twin's **Configuration**.
+  
+  The guard cannot see this shape, and no rule was added here. All three rules of
+  `test/docs-setup-navigation-names.test.ts` are structurally blind to it: rule 1
+  bans only names the platform ships *nowhere*, and 設定 is both a live `zh-CN`
+  label and an ordinary word, so it can never be listed there; rules 2 and 3 need
+  a bold `**App → …**` path, and this shape has no arrow. The guard is green
+  before and after this change — 18 tests, unmoved — which is the expected
+  result, not a passing grade for the prose.
+  
+  Prose only — no navigation path changes, no source change, no guard change.
+- 7736bd4: Name the Setup app in English on the last two zh-Hant sites that still spelled
+  it in Chinese without an arrow — `administration/index`'s 「**設定 UI**」 and
+  `guides/integrations`'s roster of the Setup app's nine navigation groups.
+  
+  The convention is not a style preference. The platform ships `en` / `zh-CN` /
+  `ja-JP` / `es-ES` and no Traditional-Chinese pack, so a zh-Hant reader's console
+  falls back to **Simplified**. A Traditional page therefore labels platform
+  navigation in English rather than mix Simplified glyphs into Traditional prose.
+  (It is not because the reader sees an English UI — that reason was measured
+  false and is retired.)
+  
+  Site 1 is an apposition, `- **設定 UI** ——` against the twin's `- **Setup UI**
+  —`: the app named in Chinese and then qualified by an English noun, with no
+  place noun and no arrow.
+  
+  ⚠️ Site 2 carries a trap this repo has already paid for once. The roster read
+  「另外八個是*概覽*、*應用*、*人員與組織*、*存取控制*、*簽核*、*設定*、*診斷*與
+  *進階*」, and its sixth entry renders **Configuration**, not *Setup*. Mapping
+  設定 → `Setup` across that line would have been wrong twice — a mistranslated
+  group, plus a silent assertion that the app is one of its own navigation groups.
+  So all eight labels were taken **verbatim from the English twin as one block**,
+  not translated individually and not mapped entry by entry from the Traditional.
+  
+  The nine names were checked against three independent sources beyond the twin,
+  and all four agree on the same names in the same order — Overview, Apps, People
+  & Organization, Access Control, Approvals, Configuration, Diagnostics,
+  Integrations, Advanced:
+  
+  - the platform itself, `SETUP_APP` in `@objectstack/platform-objects/apps`,
+    which declares exactly these nine groups;
+  - `guides/import-and-export.zh-Hant.mdx`, whose copy of this roster is already
+    in English;
+  - `administration/sandbox-and-releases.zh-Hant.mdx`, likewise.
+  
+  Site 2 was self-evidencing before the twin was opened: the same sentence already
+  writes **`Setup → Integrations`** and 「平台 Setup 應用」 in English while listing
+  that app's own groups in Traditional.
+  
+  ⚠️ 設定 is also the ordinary Chinese word for *configure*, so a sweep here has
+  to grade, not match. All 289 occurrences across the 68 zh-Hant pages were graded
+  on today's tree: 87 are 權限設定檔 (*Profile*), 8 are the docs site's own page
+  titles and cross-links (設定清單 = *Setup Checklist*, 「管理 › 設定」), and the
+  remaining 192 are the verb or the common noun (設定變更, 設定項, 部署設定, 可設定).
+  Two were the app. Deliberately untouched, as in the twin: 「這張表原先印出的那些
+  設定路徑」, which glosses the twin's lowercase *setup paths*, and the neighbouring
+  「每一次設定變更」 / 「測試設定變更」, which gloss *config change*.
+  
+  Prose only. No guard change: `test/docs-setup-navigation-names.test.ts` is
+  18/18 green before and after, and its rule-2 citation count is unchanged at 142
+  (Setup 86, Studio 42, 设置 14, 設定 0) — neither site has the bold `**App → …**`
+  shape any rule can see, which is why both survived the sweeps that produced them.
+
 ## 3.0.0
 
 ### Major Changes
@@ -9061,7 +18292,7 @@ Patch before the ObjectStack 16 marketplace release. Fixes [#459](https://github
 
 ### Fixed
 
-- **Opportunity/quote freeze-guards no longer reject system/seed writes → 23 boot errors gone + closed-won probability corrected.** The `opportunity_lifecycle` and quote freeze-guards ran on **every** write to a closed/accepted record, so the seed re-applying rows on reboot (its `close_date: daysAgo(15)` / `quote_date` re-evaluate to a _new_ date each boot) was rejected — logging 23 `BodyRunner` errors per boot and blocking the seed from setting closed-won `probability` to 100 (it fell back to the field default `10`). Both guards now fire **only for genuine user edits** (`ctx.user?.id` present); system/seed/backfill writes (no user) pass — matching this repo's system-write convention (`case`/`lead` hooks) and the guards' own stated intent. A user editing a closed opportunity or accepted quote through the UI is still blocked. Fixes [opportunity.hook.ts](src/objects/opportunity.hook.ts) + [quote.hook.ts](src/objects/quote.hook.ts).
+- **Opportunity/quote freeze-guards no longer reject system/seed writes → 23 boot errors gone + closed-won probability corrected.** The `opportunity_lifecycle` and quote freeze-guards ran on **every** write to a closed/accepted record, so the seed re-applying rows on reboot (its `close_date: daysAgo(15)` / `quote_date` re-evaluate to a _new_ date each boot) was rejected — logging 23 `BodyRunner` errors per boot and blocking the seed from setting closed-won `probability` to 100 (it fell back to the field default `10`). Both guards now fire **only for genuine user edits** (`ctx.user?.id` present); system/seed/backfill writes (no user) pass — matching this repo's system-write convention (`case`/`lead` hooks) and the guards' own stated intent. A user editing a closed opportunity or accepted quote through the UI is still blocked. Fixes [opportunity.hook.ts](src/sales/objects/opportunity.hook.ts) + [quote.hook.ts](src/revenue/objects/quote.hook.ts).
 
 ## [2.2.1] — 2026-07-20
 
@@ -9069,8 +18300,8 @@ Follow-up patch to 2.2.0. The dashboard-filter fix in 2.2.0 only covered the bui
 
 ### Fixed
 
-- **Selecting the Executive dashboard's `Lead Source` filter crashed every account widget.** The `lead_source` global filter was injected into each widget's query; `crm_account` has no `lead_source` column, so `total_accounts`, `new_accounts_by_month`, and `accounts_by_industry` failed with `SqliteError: no such column: lead_source`. Added `lead_source: false` to those three widgets' [`filterBindings`](src/dashboards/executive.dashboard.ts) (they keep `dateRange: false` too). `crm_contact` and `crm_lead` _do_ have `lead_source`, so `total_contacts` / `open_leads` correctly keep filtering. Verified in the browser: selecting `Lead Source = Web` now returns filtered/empty results with zero analytics errors.
-- **CRM dashboard's `Owner` filter would crash `top_products`.** `crm_product` has no `owner` column, so the `owner` global filter would fail the product-category widget the same way. Added `owner: false` to its [`filterBindings`](src/dashboards/crm.dashboard.ts) (alongside the existing `dateRange: false`).
+- **Selecting the Executive dashboard's `Lead Source` filter crashed every account widget.** The `lead_source` global filter was injected into each widget's query; `crm_account` has no `lead_source` column, so `total_accounts`, `new_accounts_by_month`, and `accounts_by_industry` failed with `SqliteError: no such column: lead_source`. Added `lead_source: false` to those three widgets' [`filterBindings`](src/sales/dashboards/executive.dashboard.ts) (they keep `dateRange: false` too). `crm_contact` and `crm_lead` _do_ have `lead_source`, so `total_contacts` / `open_leads` correctly keep filtering. Verified in the browser: selecting `Lead Source = Web` now returns filtered/empty results with zero analytics errors.
+- **CRM dashboard's `Owner` filter would crash `top_products`.** `crm_product` has no `owner` column, so the `owner` global filter would fail the product-category widget the same way. Added `owner: false` to its [`filterBindings`](src/sales/dashboards/crm.dashboard.ts) (alongside the existing `dateRange: false`).
 - Full field-vs-filter matrix audited across all four dashboards: Sales (all `opportunity_metrics`, which has `owner`/`type`/`close_date`) and Service (`created_date`/`owner`/`priority` all on `crm_case`) needed no change.
 
 ## [2.2.0] — 2026-07-20
@@ -9089,11 +18320,11 @@ Upgrade migration was driven from the official release notes at <https://objects
 
 ### Fixed
 
-- **Dashboard date-range picker no longer crashes widgets on objects without the date field.** ObjectStack 15 (framework#2501, `GlobalFilterSchema.name` + `DashboardWidgetSchema.filterBindings`) wired dashboard-level filters — including the built-in `dateRange` picker (reserved filter name `dateRange`) — into **every widget's analytics query**. At 14.7 the picker didn't propagate; under 16 it injects its `field` into each widget's SQL. The Executive and CRM dashboards bind `dateRange` to `close_date`, which only exists on `crm_opportunity` — so every widget on `crm_account` / `crm_contact` / `crm_lead` / `crm_product` failed with `SqliteError: no such column: close_date` and rendered as an error card. Each affected widget now declares `filterBindings: { dateRange: false }` to opt out of the picker (they carry their own `created_at` / count semantics): 5 widgets on [executive.dashboard.ts](src/dashboards/executive.dashboard.ts) (`total_accounts`, `total_contacts`, `open_leads`, `new_accounts_by_month`, `accounts_by_industry`) and 1 on [crm.dashboard.ts](src/dashboards/crm.dashboard.ts) (`top_products`). The Sales dashboard (all-`opportunity_metrics`) and Service dashboard (`dateRange` bound to `created_date`, which `crm_case` has) needed no change. Browser-verified: all four dashboards load with live data and zero analytics/SQL errors. (This surfaces only when the dashboards are actually rendered against seeded data — `verify` builds the artifact but never queries it.)
+- **Dashboard date-range picker no longer crashes widgets on objects without the date field.** ObjectStack 15 (framework#2501, `GlobalFilterSchema.name` + `DashboardWidgetSchema.filterBindings`) wired dashboard-level filters — including the built-in `dateRange` picker (reserved filter name `dateRange`) — into **every widget's analytics query**. At 14.7 the picker didn't propagate; under 16 it injects its `field` into each widget's SQL. The Executive and CRM dashboards bind `dateRange` to `close_date`, which only exists on `crm_opportunity` — so every widget on `crm_account` / `crm_contact` / `crm_lead` / `crm_product` failed with `SqliteError: no such column: close_date` and rendered as an error card. Each affected widget now declares `filterBindings: { dateRange: false }` to opt out of the picker (they carry their own `created_at` / count semantics): 5 widgets on [executive.dashboard.ts](src/sales/dashboards/executive.dashboard.ts) (`total_accounts`, `total_contacts`, `open_leads`, `new_accounts_by_month`, `accounts_by_industry`) and 1 on [crm.dashboard.ts](src/sales/dashboards/crm.dashboard.ts) (`top_products`). The Sales dashboard (all-`opportunity_metrics`) and Service dashboard (`dateRange` bound to `created_date`, which `crm_case` has) needed no change. Browser-verified: all four dashboards load with live data and zero analytics/SQL errors. (This surfaces only when the dashboards are actually rendered against seeded data — `verify` builds the artifact but never queries it.)
 
 ### Removed
 
-- **Dead dashboard header action buttons.** All four dashboards declared header `actions` (Export PDF, Schedule Email, Customize, New Opportunity/Deal/Lead/Case, Forecast, Reports, My Queue, SLA Report) that pointed at actions or routes which were never implemented — `export_dashboard_pdf` / `schedule_dashboard_email` / `customize_dashboard` / `create_opportunity` / `create_lead` / `create_case` are not defined actions, and the `url` targets (`/reports/forecast`, `/reports/sla`, `/reports`, `/objects/case?owner=current_user`) match no in-app view route. They rendered as buttons that did nothing when clicked. Removed the `header.actions` block from [executive](src/dashboards/executive.dashboard.ts), [sales](src/dashboards/sales.dashboard.ts), [crm](src/dashboards/crm.dashboard.ts), and [service](src/dashboards/service.dashboard.ts) dashboards (titles/descriptions kept), plus the now-orphaned action-label translations from all four locale bundles (`en`, `zh-CN`, `ja-JP`, `es-ES`). Pre-existing dead affordance, unrelated to the upgrade; re-add real, wired-up actions when those features exist.
+- **Dead dashboard header action buttons.** All four dashboards declared header `actions` (Export PDF, Schedule Email, Customize, New Opportunity/Deal/Lead/Case, Forecast, Reports, My Queue, SLA Report) that pointed at actions or routes which were never implemented — `export_dashboard_pdf` / `schedule_dashboard_email` / `customize_dashboard` / `create_opportunity` / `create_lead` / `create_case` are not defined actions, and the `url` targets (`/reports/forecast`, `/reports/sla`, `/reports`, `/objects/case?owner=current_user`) match no in-app view route. They rendered as buttons that did nothing when clicked. Removed the `header.actions` block from [executive](src/sales/dashboards/executive.dashboard.ts), [sales](src/sales/dashboards/sales.dashboard.ts), [crm](src/sales/dashboards/crm.dashboard.ts), and [service](src/service/dashboards/service.dashboard.ts) dashboards (titles/descriptions kept), plus the now-orphaned action-label translations from all four locale bundles (`en`, `zh-CN`, `ja-JP`, `es-ES`). Pre-existing dead affordance, unrelated to the upgrade; re-add real, wired-up actions when those features exist.
 
 ### Verified clean (no change needed)
 
@@ -9114,7 +18345,7 @@ Upgrade migration was driven from the official release notes at <https://docs.ob
 ### Changed
 
 - **ObjectStack platform → 14.7** across all `@objectstack/*` packages (from `12`/`13`).
-- **Approval approvers use `type: 'position'` instead of `type: 'role'` (ADR-0090 D3, spec 14.0).** In 14 the `role` approver type resolves against the better-auth org-membership tier (`sys_member.role`: owner/admin/member) — the CRM's `sales_manager` / `sales_director` are org **positions**, not membership tiers, so under the old spelling the opportunity-approval flow routed to nobody and stalled. Both approval nodes in [`src/flows/opportunity-approval.flow.ts`](src/flows/opportunity-approval.flow.ts) now target the declared positions via `type: 'position'`.
+- **Approval approvers use `type: 'position'` instead of `type: 'role'` (ADR-0090 D3, spec 14.0).** In 14 the `role` approver type resolves against the better-auth org-membership tier (`sys_member.role`: owner/admin/member) — the CRM's `sales_manager` / `sales_director` are org **positions**, not membership tiers, so under the old spelling the opportunity-approval flow routed to nobody and stalled. Both approval nodes in [`src/flows/opportunity-approval.flow.ts`](src/sales/flows/opportunity-approval.flow.ts) now target the declared positions via `type: 'position'`.
 - **FLS keys are object-qualified (spec 14.4, `security-fls-unqualified-key`).** The runtime evaluator matches field-permission keys by `<object>.<field>` prefix; the bare keys in the `sales_rep` and `service_agent` permission sets (`account.*`, `opportunity.*`, `case.*`) matched nothing and their declared masking never enforced. Requalified to `crm_account.*` / `crm_opportunity.*` / `crm_case.*` so the FLS actually applies.
 - **`fieldGroups` are now referenced by their fields.** Spec 14's lint flagged `crm_case`, `crm_contract`, `crm_product` and `crm_quote` declaring field groups that no field pointed at — the groups never rendered. Every field on those four objects now carries a `group:` assignment, so record detail pages render the intended grouped sections (verified in the browser on the account/case detail layout).
 - **`crm_campaign_member` declares a resolvable record title (ADR-0079).** The junction object had no title-eligible stored field, so records displayed as raw IDs. Added a `member_number` autonumber and pointed `nameField` at it explicitly.
@@ -9147,7 +18378,7 @@ Platform upgrade to ObjectStack **10.0** — the first major line bump. Manifest
 
 ### Fixed
 
-- **Territory sharing rules referenced a non-existent `billing_country` field.** 10.0's build-time expression validator (ADR-0032) now also checks **sharing-rule** CEL conditions against the object schema, which surfaced this latent dangling reference — `crm_account` has no `billing_country`; the country lives inside the structured `billing_address` field. The `north_america_territory` and `europe_territory` rules in [`src/sharing/account.sharing.ts`](src/sharing/account.sharing.ts) now read `record.billing_address.country`. No behavioral change (the dangling field matched nothing before; the seed does not populate `billing_address`), but the metadata is now valid and the rule expresses its stated "by billing country" intent against a real field.
+- **Territory sharing rules referenced a non-existent `billing_country` field.** 10.0's build-time expression validator (ADR-0032) now also checks **sharing-rule** CEL conditions against the object schema, which surfaced this latent dangling reference — `crm_account` has no `billing_country`; the country lives inside the structured `billing_address` field. The `north_america_territory` and `europe_territory` rules in [`src/sharing/account.sharing.ts`](src/sales/sharing/account.sharing.ts) now read `record.billing_address.country`. No behavioral change (the dangling field matched nothing before; the seed does not populate `billing_address`), but the metadata is now valid and the rule expresses its stated "by billing country" intent against a real field.
 
 ## [1.2.0] — 2026-06-20
 

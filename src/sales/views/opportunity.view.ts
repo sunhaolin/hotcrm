@@ -1,0 +1,546 @@
+// Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
+
+import { P } from '@objectstack/spec';
+import { defineView } from '@objectstack/spec/ui';
+
+/**
+ * Opportunity Views
+ *
+ * Sales pipeline benefits from multiple visualisations:
+ *   • grid     — full pipeline browsing & inline edits
+ *   • kanban   — drag-and-drop pipeline stage management (group by stage)
+ *   • calendar — close-date forecasting on a monthly view
+ *   • timeline — chronological deal flow grouped by owner
+ *   • gallery  — pinboard / executive review cards
+ */
+/**
+ * The selection bar of every grid list of the object: Update Stage and Delete
+ * (#2338 item 4). The full note on the Update Stage dispatch contract is on
+ * `list` below.
+ *
+ * A named list view does NOT inherit the `list` view's `bulkActionDefs`
+ * (measured on 18.2.0: All Opportunities' bar offered only Delete). While
+ * `mass_update_stage` was also drawn in the list header, every view showed an
+ * Update Stage button, but that copy failed on any selection (see `locations`
+ * on the action), so it was dropped, and each grid list declares the bar entry
+ * instead. Kanban, calendar, timeline and gallery lists have no row selection.
+ *
+ * Delete is declared here because any authored bulk entry hides the console's
+ * default bulk Delete on that list, so a list naming Update Stage alone loses
+ * Delete (Open Deals had, before #2338). The def mirrors `all_accounts`; the
+ * grid offers it only to a user who may delete opportunities, and its labels
+ * are in the locale packs under each view's `bulkActions`.
+ */
+const GRID_BAR = [
+  { name: 'mass_update_stage', operation: 'custom', execution: 'aggregate' },
+  {
+    name: 'delete',
+    label: 'Delete',
+    icon: 'trash-2',
+    variant: 'danger',
+    operation: 'delete',
+    confirmText: 'Permanently delete {{count}} opportunity(ies)? This cannot be undone.',
+    confirmLabel: 'Delete',
+  },
+] as const;
+
+export const OpportunityViews = defineView({
+  // The landing view is OPEN deals, not every deal ever recorded.
+  //
+  // Sorted by close_date ascending and unfiltered, "All Opportunities" opened
+  // on settled history: the first screen was 7 closed-won and 4 closed-lost
+  // records, and a rep had to scroll past months of finished business to reach
+  // anything they could still act on. The full unfiltered list is still one
+  // click away on the "All Opportunities" tab.
+  list: {
+    type: 'grid',
+    name: 'open_opportunities',
+    label: 'Open Deals',
+    userActions: { editInline: true, hideFields: true },
+    data: { provider: 'object', object: 'crm_opportunity' },
+    filter: [
+      { field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] },
+    ],
+    columns: [
+      { field: 'name', width: 220, sortable: true, link: true },
+      { field: 'crm_account', width: 180 },
+      { field: 'stage', width: 140, sortable: true },
+      { field: 'amount', width: 140, align: 'right', sortable: true, summary: 'sum' },
+      { field: 'probability', width: 110, align: 'right' },
+      { field: 'expected_revenue', width: 160, align: 'right', summary: 'sum' },
+      { field: 'close_date', width: 140, sortable: true },
+    ],
+    sort: [{ field: 'close_date', order: 'asc' }],
+    pagination: { pageSize: 25, pageSizeOptions: [25, 50, 100] },
+    selection: { type: 'multiple' },
+    showRecordCount: true,
+    exportOptions: { formats: ['csv', 'xlsx'] },
+    appearance: {
+      showDescription: true,
+      allowedVisualizations: ['grid', 'kanban', 'calendar', 'timeline', 'gallery'],
+    },
+    // Binds the 'calendar' entry above: the same forecast dates the dedicated
+    // `close_date_calendar` view shows, on the field this list sorts by.
+    // `close_date` is required + notNull on crm_opportunity.
+    calendar: {
+      startDateField: 'close_date',
+      titleField: 'name',
+      colorField: 'stage',
+    },
+    // List-level entry points: generate_quote reaches the row menu via its
+    // own `locations: ['list_item']`. Built-in `exportOptions` covers CSV
+    // export.
+    //
+    // `mass_update_stage` is wired as an AGGREGATE bulk def, not as a bare
+    // `bulkActions: ['mass_update_stage']` string (#508). The two forms are
+    // different dispatch contracts, and only this one moves a whole selection:
+    //
+    //   - bare string  → per-record fan-out: the action is dispatched ONCE PER
+    //     selected row with `recordId` set. N requests, N stage moves.
+    //   - aggregate def → ONE dispatch for the whole selection, carrying every
+    //     id in the builtin `params._selectedIds` and no `recordId`. One
+    //     request, N stage moves, one audit entry.
+    //
+    // Aggregate is the right shape here because the body already loops over the
+    // selection itself, and because the run is all-or-nothing: a partial result
+    // rejects instead of leaving the bar reporting per-row success it cannot
+    // honour (see the body in `src/sales/actions/opportunity.actions.ts`).
+    //
+    // `execution: 'aggregate'` is REQUIRED on an `operation: 'custom'` def and
+    // is not boilerplate: a custom def without it has no dispatcher, so the
+    // button ticks green once per row and does nothing at all. The spec refuses
+    // that shape at parse time (#4457) — which is also what makes this
+    // declaration safe to trust rather than merely present.
+    //
+    // History: this list carried the bare-string form until #588 removed it as
+    // a silent no-op, and the removal was read as "the platform cannot deliver
+    // a selection" for two release candidates. It could: the channel is
+    // `params._selectedIds`, the underscore is load-bearing, and nothing was
+    // injecting it precisely BECAUSE this declaration was gone
+    // (objectstack-ai/objectstack#5568, closed works-as-declared).
+    //
+    // The def deliberately carries only the three keys that choose the dispatch
+    // contract. Label, icon, params (the New Stage picker) and `visible` are
+    // promoted from the action itself by the renderer, so the dialog and the
+    // toolbar button cannot drift apart — and the label stays i18n-resolved,
+    // which an inline `label:` here would not be.
+    bulkActionDefs: [...GRID_BAR],
+  },
+
+  listViews: {
+    /** Personal pipeline */
+    // My Open Deals comes straight after Open Deals, the primary list (#2367
+    // row 2): declaration order IS tab order, and behind the board, the
+    // calendar, the timeline and the cards a rep's own queue sat in the
+    // overflow menu at 1280px.
+    my_open_deals: {
+      name: 'my_open_deals',
+      bulkActionDefs: [...GRID_BAR],
+      type: 'grid',
+      label: 'My Open Deals',
+      userActions: { editInline: true, hideFields: true },
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'stage', 'amount', 'close_date'],
+      // "Open" has to exclude BOTH closed stages. Excluding only closed_won
+      // meant a rep's own queue opened on their lost deals, sorted to the top
+      // by close_date — the least actionable rows in the system.
+      filter: [
+        { field: 'owner_id', operator: 'equals', value: '{current_user_id}' },
+        { field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] },
+      ],
+      sort: [{ field: 'close_date', order: 'asc' }],
+    },
+
+    /**
+     * All Opportunities — the unfiltered book, including closed business.
+     *
+     * Demoted from the landing view (see the note on `list` above) but kept
+     * whole: reporting, audits and win/loss reviews all need the closed rows,
+     * and a manager reaches this in one click.
+     */
+    all_opportunities: {
+      name: 'all_opportunities',
+      bulkActionDefs: [...GRID_BAR],
+      type: 'grid',
+      label: 'All Opportunities',
+      userActions: { editInline: true, hideFields: true },
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: [
+        { field: 'name', width: 220, sortable: true, link: true },
+        { field: 'crm_account', width: 180 },
+        { field: 'stage', width: 140, sortable: true },
+        { field: 'amount', width: 140, align: 'right', sortable: true, summary: 'sum' },
+        { field: 'probability', width: 110, align: 'right' },
+        { field: 'expected_revenue', width: 160, align: 'right', summary: 'sum' },
+        { field: 'close_date', width: 140, sortable: true },
+        { field: 'owner_id', width: 150 },
+      ],
+      sort: [{ field: 'close_date', order: 'desc' }],
+      showRecordCount: true,
+    },
+
+    /** Drag-and-drop sales pipeline */
+    pipeline_kanban: {
+      name: 'pipeline_kanban',
+      type: 'kanban',
+      label: 'Sales Pipeline',
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'amount', 'close_date', 'owner_id'],
+      kanban: {
+        groupByField: 'stage',
+        summarizeField: 'amount',
+        columns: ['name', 'crm_account', 'amount', 'close_date'],
+      },
+      // The board is the active working pipeline. Closed business remains in
+      // the full book and the dashboard, while excluding it here keeps all
+      // five active stages visible at a presentation-friendly width.
+      filter: [{ field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] }],
+      sort: [{ field: 'close_date', order: 'asc' }],
+      navigation: { mode: 'drawer', width: '640px' },
+    },
+
+    /** Close-date forecasting calendar */
+    close_date_calendar: {
+      name: 'close_date_calendar',
+      type: 'calendar',
+      label: 'Forecast Calendar',
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'amount', 'stage', 'owner_id'],
+      calendar: {
+        startDateField: 'close_date',
+        titleField: 'name',
+        colorField: 'stage',
+      },
+    },
+
+    /** Chronological deal flow */
+    deal_timeline: {
+      name: 'deal_timeline',
+      type: 'timeline',
+      label: 'Deal Timeline',
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'amount'],
+      timeline: {
+        // One mark per deal, on its close date, and no end field (#2338
+        // item 7). It used to run each deal from `created_at` to `close_date`,
+        // and nothing orders those two: `close_date` is the date a rep TYPES
+        // (the expected close, or the real one once the deal is closed), so a
+        // deal entered after it closed, a backdated close, or an overdue open
+        // deal drew its bar backwards — measured on the seeded book as
+        // "10/27/2026 → 9/7/2026". No stored date is earlier than `close_date`
+        // on every deal (`stage_entry_date` moves with each stage), so a range
+        // could not be made safe. `close_date` is required and NOT NULL, so
+        // every deal has its mark.
+        startDateField: 'close_date',
+        titleField: 'name',
+        groupByField: 'owner_id',
+        colorField: 'stage',
+        scale: 'month',
+      },
+    },
+
+    /** Executive review cards */
+    deal_gallery: {
+      name: 'deal_gallery',
+      type: 'gallery',
+      label: 'Deal Cards',
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'amount', 'stage', 'close_date'],
+      gallery: {
+        cardSize: 'medium',
+        titleField: 'name',
+        visibleFields: ['crm_account', 'amount', 'stage', 'probability', 'close_date', 'owner_id'],
+      },
+    },
+
+    /** Stale Opportunities — still-open deals, longest-parked first */
+    stale_opportunities: {
+      name: 'stale_opportunities',
+      bulkActionDefs: [...GRID_BAR],
+      type: 'grid',
+      // Honest label: this view does not apply the 14-day cut its automation
+      // twin (`opportunity_stagnation`, STALE_THRESHOLD_DAYS = 14) uses, and
+      // does not claim to. Two independent reasons were recorded for that; one
+      // still holds and one has expired, so they are separated here.
+      //
+      // STILL TRUE — `days_in_stage` is a FORMULA (#489), evaluated in JS after
+      // the query, so the data engine can neither filter nor sort on it. Any
+      // filter phrased in terms of `days_in_stage` remains impossible.
+      //
+      // EXPIRED (#744) — the second reason said the list data path resolves no
+      // date macros, so `stage_entry_date < {14_days_ago}` would ship the token
+      // as a literal and invert the comparison lexicographically ('2026-…' sorts
+      // below '{', so every row matched). That was measured on @objectstack
+      // 16.1.0 and stopped being true at 17.0.0-rc.0, when `resolveFilterTokens()`
+      // was wired into the ObjectQL read path (objectql #3582). `{14_days_ago}`
+      // is a first-class vocabulary member — it matches the parameterised
+      // grammar `DATE_MACRO_PARAM_RE`, `{N_(minutes|hours|days|weeks|months|
+      // years)_(ago|from_now)}` — and it reaches the driver already substituted
+      // for an ISO date. Measured on 17.0.0-rc.2, RE-MEASURED 2026-09-03 on
+      // 17.2.0 (#1467), RE-RUN on 17.3.0 (#1676, after the PR #1577 bump) and
+      // RE-RUN again on 17.4.0 (#1883, after the PR #1814 bump; not yet on
+      // 17.5.0), unchanged at every taking: over four rows parked
+      // 30d / 15d / 13d / 1d, `stage_entry_date < {14_days_ago}` returned the
+      // 30d and 15d rows — the same two the equivalent day-start literal
+      // returns, and not all four, which is what an unsubstituted token would
+      // have matched. It is the same seam
+      // `closing_this_quarter` — the very next view in this file — relies on,
+      // pinned against a real engine in
+      // `test/forecast-current-quarter-view.test.ts`.
+      //
+      // Correcting that half of the comment does not decide anything about the
+      // filter, and is deliberately not a licence to change it: expressing the
+      // cut as `stage_entry_date <= {14_days_ago}` would drop `days_in_stage`
+      // from the question entirely and change which rows this view returns —
+      // hiding today's 13-day-old deals from a manager's queue. That is a
+      // BEHAVIOUR change with its own issue (#770), where the open question is
+      // whether this queue should be a cut or a ranking at all — this label
+      // promises a ranking and honours it. `stale_articles` in
+      // `src/views/knowledge_article.view.ts` carried the same expired premise
+      // and was corrected in the same pass (#769); that tab was then DELETED
+      // outright (#781, the review queue ruled out of the product), so it is no
+      // longer a comparison available in this tree — the surviving precedent
+      // for "ranking, not cut" is this view. Nothing below was touched.
+      //
+      // As shipped: operator-only filter, ordered by the stored
+      // `stage_entry_date` ascending — longest-parked on top, which is the
+      // queue a manager works. The `days_in_stage` column puts the
+      // `opportunity_stagnation` threshold in plain sight on every row.
+      label: '⚠️ Stale Opportunities · Longest in Stage First',
+      userActions: { editInline: true, hideFields: true },
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'stage', 'amount', 'stage_entry_date', 'days_in_stage', 'close_date', 'owner_id'],
+      filter: [
+        { field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] },
+      ],
+      sort: [{ field: 'stage_entry_date', order: 'asc' }, { field: 'close_date', order: 'asc' }],
+    },
+
+    /**
+     * Tender expected this quarter — REQ-0006 acceptance 2 in one view.
+     *
+     * The point of the view is the predicate: it windows
+     * `expected_tender_date`, the CUSTOMER's procurement calendar, and touches
+     * `close_date` nowhere — which is what "reportable independently of
+     * `close_date`" means and what a single forecast date could never express.
+     *
+     * Same inclusive `{current_quarter_*}` bounds as `closing_this_quarter`
+     * below, exact for the same measured reason: both bounds are date macros
+     * resolved server-side, and `expected_tender_date` is a `Field.date()`
+     * stored as `YYYY-MM-DD` TEXT, so the inclusive upper bound drops no rows.
+     */
+    tender_this_quarter: {
+      name: 'tender_this_quarter',
+      bulkActionDefs: [...GRID_BAR],
+      type: 'grid',
+      label: 'Tender This Quarter',
+      userActions: { editInline: true, hideFields: true },
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'expected_tender_date', 'expected_tender_amount', 'expected_signing_date', 'stage', 'owner_id'],
+      filter: [
+        { field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] },
+        { field: 'expected_tender_date', operator: 'greater_than_or_equal', value: '{current_quarter_start}' },
+        { field: 'expected_tender_date', operator: 'less_than_or_equal', value: '{current_quarter_end}' },
+      ],
+      sort: [{ field: 'expected_tender_date', order: 'asc' }],
+      // Empty is the legitimate state on a fresh install: no seed row carries
+      // a customer-side tender date, so this tab opens on nothing until a rep
+      // records one. Unexplained, that reads as broken.
+      emptyState: {
+        title: 'No Tenders Expected This Quarter',
+        message: 'This tab lists open deals whose customer-side tender date falls inside the current quarter. Record Expected Tender Date on a deal to see it here.',
+        icon: 'calendar-clock',
+      },
+    },
+
+    /** Closing this quarter (commit + best_case) — sales-manager forecast */
+    closing_this_quarter: {
+      name: 'closing_this_quarter',
+      bulkActionDefs: [...GRID_BAR],
+      type: 'grid',
+      label: 'Closing This Quarter',
+      userActions: { editInline: true, hideFields: true },
+      data: { provider: 'object', object: 'crm_opportunity' },
+      columns: ['name', 'crm_account', 'amount', 'forecast_category', 'probability', 'close_date', 'owner_id'],
+      // The `close_date` window is what makes the label true (#743). Without
+      // it this view returned EVERY open commit/best-case deal whenever it
+      // closed — a deal slated for next March sat under a heading that said
+      // "Closing This Quarter", and summing the Amount column gave a number
+      // that was not this quarter's commit.
+      //
+      // Both bounds are date macros resolved server-side: `resolveFilterTokens()`
+      // was wired into the ObjectQL read path in 17.0.0-rc.0 (objectql #3582,
+      // covering find/findOne/count/aggregate ahead of the middleware chain),
+      // so a saved-view filter value reaches the driver already substituted.
+      // Measured on 17.0.0-rc.2, RE-MEASURED 2026-09-03 on 17.2.0 (#1467),
+      // RE-RUN on 17.3.0 (#1676, after the PR #1577 bump) and RE-RUN again on
+      // 17.4.0 (#1883, after the PR #1814 bump), unchanged at
+      // every taking — see the runtime block in
+      // `test/forecast-current-quarter-view.test.ts`, which is that
+      // re-measurement (not yet re-run on 17.5.0).
+      //
+      // The upper bound is INCLUSIVE against `{current_quarter_end}` rather
+      // than half-open against `{next_quarter_start}`, and that choice is
+      // deliberate: a `*_end` token resolves to the period's last calendar DAY
+      // (2026-09-30), which on a `datetime` column would stop at midnight and
+      // silently drop that day's rows — the spec says to use the half-open
+      // form there. `close_date` is `Field.date()`, stored as `YYYY-MM-DD`
+      // TEXT on both sides of the comparison, so the inclusive bound is exact.
+      // That is the same field-type property `metadata-references.test.ts`
+      // relies on for why the CRM/Sales/Executive dashboards may window
+      // `close_date` at all (#460). Both forms were measured to return the
+      // identical row set here; the inclusive one reads as what it means.
+      filter: [
+        { field: 'forecast_category', operator: 'in', value: ['commit', 'best_case'] },
+        { field: 'stage', operator: 'not_in', value: ['closed_won', 'closed_lost'] },
+        { field: 'close_date', operator: 'greater_than_or_equal', value: '{current_quarter_start}' },
+        { field: 'close_date', operator: 'less_than_or_equal', value: '{current_quarter_end}' },
+      ],
+      sort: [{ field: 'close_date', order: 'asc' }],
+      // Scoping the list makes "empty" a state a real user meets, so it needs
+      // copy. Unlike the forecast view's (#745, where the sweep owns the
+      // window and a fresh install is ALWAYS empty until it runs), the seeds
+      // here do produce rows for most of a quarter — six seeded deals qualify
+      // on forecast_category + stage, at `daysFromNow` offsets 11/14/24/30/38/45.
+      // But every one of those offsets is relative to the INSTALL day, so once
+      // fewer than 11 days remain in the quarter all six land in the next one
+      // and a freshly seeded demo opens this tab on nothing. A real org meets
+      // the same state whenever a quarter's commit slips out. Empty is
+      // legitimate here; unexplained, it reads as broken.
+      emptyState: {
+        title: 'No Deals Closing This Quarter',
+        message: 'This tab lists open commit and best-case deals with a close date inside the current quarter. Nothing matches right now — deals closing later are on the Open Deals tab.',
+        icon: 'calendar-check',
+      },
+    },
+  },
+
+  form: {
+    type: 'tabbed',
+    sections: [
+      {
+        name: 'overview',
+        label: 'Overview',
+        columns: 2,
+        fields: [
+          { field: 'name', required: true, span: 'full' },
+          // Demo (epic #2 / T1): added to the object with a `group`, but this
+          // form enumerates its fields, so none reached 新建 / 编辑.
+          // `opportunity_number` is assigned on save; `initiated_date` is
+          // readonly and stamped by the initiation approval flow.
+          'opportunity_number',
+          { field: 'crm_account', required: true },
+          'primary_contact',
+          { field: 'stage', required: true },
+          // The close reason sits in the cell beside Stage, shown only once
+          // its closed stage is picked (#2238). The object's `requiredWhen`
+          // demands it on that stage; while it lived on the last tab, every
+          // Closed Won save failed once and jumped there to show the field.
+          // Each predicate is TOTAL (`has()`-guarded), per AGENTS.md: an
+          // unevaluable `visibleWhen` fails OPEN and would show both at once.
+          {
+            field: 'win_reason',
+            visibleWhen: P`has(record.stage) && record.stage == "closed_won"`,
+          },
+          {
+            field: 'loss_reason',
+            visibleWhen: P`has(record.stage) && record.stage == "closed_lost"`,
+          },
+          { field: 'amount', required: true },
+          'probability',
+          'close_date',
+          'owner_id',
+          'level',
+          'priority',
+          'is_bid',
+          'initiation_status',
+          'initiated_date',
+        ],
+      },
+      {
+        // 铁三角 (epic #2 / T1) — the object's `team` group.
+        name: 'team',
+        label: 'Deal Team',
+        columns: 2,
+        fields: ['account_manager', 'solution_manager', 'delivery_manager'],
+      },
+      {
+        // Round 2 (steps 8 / 9): bid facts and the contracting entity.
+        name: 'bid',
+        label: 'Bid & Contracting Entity',
+        columns: 2,
+        fields: ['controllability', 'customer_initiation_date', 'expected_bid_date', 'crm_legal_entity', 'business_category', 'revenue_recognition_type', { field: 'subcontract_info', span: 'full' }],
+      },
+      {
+        name: 'forecast',
+        label: 'Forecast',
+        columns: 2,
+        fields: [
+          'expected_revenue',
+          'forecast_category',
+          'type',
+          'lead_source',
+          'crm_campaign',
+          'stage_entry_date',
+          'days_in_stage',
+          'is_private',
+          // REQ-0006 step 8 — the customer's own procurement calendar. Named
+          // here (AGENTS.md ladder rung 3), and the reason in writing:
+          // `tender_this_quarter` filters on `expected_tender_date`, and a
+          // filtered field no form offers is a view that can never match a
+          // deal a rep created through the UI (`test/metadata-references
+          // .test.ts`). The fields declare `group: 'sales_process'`, so every
+          // DERIVED surface — the record page's Details tab — already carries
+          // them; this form authors `sections`, which win outright over
+          // derivation. A `{ group: 'sales_process' }` reference cannot stand
+          // in: it would render `stage`, `probability` and `close_date`
+          // (curated in Overview, `stage` `required`) and `stage_entry_date`
+          // (above) a second time, and pull the approval verdict columns and
+          // the inert-by-default `requested_status` into the create dialog.
+          'customer_initiation_date',
+          'expected_tender_date',
+          'expected_tender_amount',
+          'expected_signing_date',
+          'expected_signing_amount',
+        ],
+      },
+      // REQ-0006 acceptance 1, FROM `fieldGroups` (AGENTS.md ladder rung 2),
+      // the way `contact.view.ts` references REQ-0004's buying centre: this
+      // form authors `sections`, which win outright over the renderer's
+      // `fieldGroups` derivation, so a group declared on the object alone
+      // never reaches this form — the Edit and New dialog. A group reference
+      // enumerates nothing; members, label and icon come from the object.
+      //
+      // ⚠️ Measured on the 17.6.0 console: the tabbed dialog renders NO tab
+      // for a `{ group }` section — this one, and the contact form's buying
+      // centre on `main` alike. That is the platform's to fix, and these two
+      // lines are the contract-correct form waiting for it (AGENTS.md: a
+      // platform defect is waited for, never routed around). Until then every
+      // REQ-0006 field is edited through the Details tab's edit mode — which
+      // offers no markdown editor, the reason the narrative fields are
+      // textareas (see the note above `customer_background`).
+      { group: 'qualification', columns: 2 },
+      { group: 'narrative', columns: 1 },
+      {
+        name: 'sales_strategy',
+        label: 'Sales Strategy',
+        columns: 1,
+        // `competitors` sat here until #1061 retired it — this form section was
+        // the field's ONLY surface anywhere in the app (nothing read it back).
+        fields: ['next_step'],
+      },
+      {
+        // Win/loss capture at close time. The fields existed on the object for
+        // reporting but no form offered them, so every closed deal lost its
+        // why-we-won / why-we-lost data. The two reason picklists moved to
+        // Overview beside Stage (#2238); the free-text context stays here.
+        name: 'win_loss',
+        label: 'Win / Loss',
+        collapsible: true,
+        collapsed: true,
+        columns: 2,
+        fields: [{ field: 'loss_details', span: 'full' }],
+      },
+    ],
+  },
+});

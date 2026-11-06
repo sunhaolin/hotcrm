@@ -7,7 +7,7 @@ description: Make configuration changes safely — what release management for H
 
 Never make config changes directly in production. This page covers the safe workflow: build in a sandbox, test, package, promote to production, rollback if needed.
 
-**None of the screens named below exist.** Setup ships no *Sandbox Management*, no *Change Packages* and no *Git Sync* entry — its navigation is Overview, Apps, People & Organization, Access Control, Approvals, Configuration, Diagnostics, Integrations and Advanced, and nothing under them provisions a tenant or assembles a change set. What follows is the intended shape of release management, kept because the discipline it teaches is the right one. What HotCRM does today: its metadata is TypeScript under `src/`, reviewed in git and shipped with the app; installed packages are listed at **Setup → Packages**.
+**None of the screens named below exist.** Setup ships no *Sandbox Management*, no *Change Packages* and no *Git Sync* entry — its navigation is Overview, Apps, People & Organization, Access Control, Approvals, Configuration, Diagnostics, Integrations and Advanced, and nothing under them provisions a tenant or assembles a change set. What follows is the intended shape of release management, kept because the discipline it teaches is the right one. What HotCRM does today: its metadata is TypeScript under `src/`, reviewed in git and shipped with the app; installed packages are listed at **Setup → Installed Apps** (choose *Show all*).
 
 > **Every claim below was measured, and most did not survive.** The page was checked
 > claim by claim against the app's own metadata (`src/`, `objectstack.config.ts`) and the
@@ -45,7 +45,7 @@ The intended flow: a *Sandbox Management* screen where you pick a **type** (conf
 
 There is no such screen. Provisioning an environment is a control-plane concern of ObjectStack Cloud, not a page inside this tenant's Setup; the only cloud entry Setup ships is **Setup → Cloud Connection**.
 
-Worth knowing, because it is the one environment axis this app really can express: seed data declared in `objectstack.config.ts` is **per-environment**. Each `data[]` entry takes an `env` list, and the vocabulary is exactly three values:
+Worth knowing, because it is the one environment axis this app really can express: the seed data the app's packages register is **per-environment**. Each `data[]` entry takes an `env` list, and the vocabulary is exactly three values:
 
 ```
 data: [{ object: 'crm_account', env: ['prod', 'dev', 'test'], records: [...] }]
@@ -102,7 +102,7 @@ That artefact is real, and this is the one place the page's mental model is clos
 
 The intended flow: a *Change Packages → New* screen taking a name and description, components added by hand / by tag / automatically since the last package, then **Validate** for consistency and **Save**.
 
-There is no such screen. A package here is the platform's own unit — listed at **Setup → Packages** and **Studio → Packages** — and HotCRM's own metadata is packaged from source at build time, never assembled in the UI.
+There is no such screen. A package here is the platform's own unit — listed at **Setup → Installed Apps** and **Studio → Packages** — and HotCRM's own metadata is packaged from source at build time, never assembled in the UI.
 
 ### Deploying a package
 
@@ -139,7 +139,7 @@ Measured against the old table, row by row:
 | AI skills, knowledge base configs | ⚠️ `skills` is a key; **there is no knowledge-base-config key** — knowledge articles are ordinary records |
 | Approval processes | ⚠️ **No such key.** The standalone `approvals` stack field was removed in ObjectStack 7.4; approvals are `flows` carrying `approval` nodes (ADR-0019), so they package as flows |
 | Email templates | ✅ `emailTemplates` is a key — though this app authors none |
-| **Data records** | ❌ → **✅ WRONG, and this one is worth correcting.** `data` is a top-level artifact key, and HotCRM ships 21 seed families through it. Records package fine, per environment (`env: ['prod','dev','test']`) and with an upsert `mode` and `externalId` |
+| **Data records** | ❌ → **✅ WRONG, and this one is worth correcting.** `data` is a top-level artifact key, and HotCRM ships 20 seed families through it. Records package fine, per environment (`env: ['prod','dev','test']`) and with a replay `mode` and an `externalId`: nineteen of the twenty insert once (`ignore`), and the forecast snapshots `upsert` |
 | **Files** | ✅ ❌ correct — no file key, and **no file sync API exists** to use instead; the suggestion points at nothing |
 | **User accounts** | ✅ ❌ correct — no user key. SCIM is real as a platform surface (`sys_scim_provider`), but ships no screen in this tenant |
 

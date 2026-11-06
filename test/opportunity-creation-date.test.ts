@@ -1,7 +1,7 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 
 /**
  * `crm_opportunity` has one creation stamp, and the platform owns it (#575 B2).
@@ -17,9 +17,11 @@ import stack from '../objectstack.config';
  * exists and is the platform's. `crm_lead`'s activity calendar had already
  * settled the spelling: `startDateField: 'created_at'`.
  *
- * `crm_case.created_date` is a different field with the same name and is NOT
- * affected — the case seeds write it deliberately (see the seed note in
- * `src/data/index.ts`) and the Service dashboard windows on it.
+ * `crm_case.created_date` was a different field with the same name and was
+ * left alone here, because the case seeds wrote it and the Service dashboard
+ * windowed on it. It had the same defect on every case a user created, and
+ * #1992 retired it the same way once the platform kept a seed row's authored
+ * `created_at` (objectstack#21646) — pinned in `test/case-creation-date.test.ts`.
  */
 
 type AnyRec = Record<string, any>;
@@ -55,11 +57,6 @@ describe('the duplicate creation field is gone', () => {
     expect(Object.keys(opportunity?.fields ?? {})).not.toContain('created_date');
   });
 
-  it('crm_case keeps its own created_date — this was not a global rename', () => {
-    const crmCase = objects.find((o) => o.name === 'crm_case') as AnyRec | undefined;
-    expect(crmCase?.fields?.created_date, 'crm_case.created_date was collateral damage').toBeTruthy();
-  });
-
   it('no locale pack still translates it', () => {
     const stale = localePacks
       .filter(([, pack]) => pack?.objects?.crm_opportunity?.fields?.created_date)
@@ -87,10 +84,15 @@ describe('the deal timeline starts from a date that exists', () => {
     expect(timelineViews.length, 'no timeline or calendar view on crm_opportunity').toBeGreaterThan(0);
   });
 
-  it('deal_timeline reads created_at', () => {
+  it('deal_timeline marks each deal on its close date, with no range to run backwards (#2338 item 7)', () => {
+    // It ran `created_at` → `close_date`, and a close date earlier than the
+    // creation stamp drew the bar backwards. `close_date` is required, so the
+    // single mark exists on every deal; no end field means no range at all.
     const timeline = (opportunityView?.listViews ?? {}).deal_timeline as AnyRec | undefined;
     expect(timeline, 'deal_timeline view missing').toBeTruthy();
-    expect(timeline!.timeline?.startDateField).toBe('created_at');
+    expect(timeline!.timeline?.startDateField).toBe('close_date');
+    expect(timeline!.timeline?.endDateField).toBeUndefined();
+    expect(opportunity?.fields?.close_date?.required).toBe(true);
   });
 
   it('no date-driven opportunity view points at a field the object does not have', () => {

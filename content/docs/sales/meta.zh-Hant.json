@@ -4,12 +4,16 @@
   "pages": [
     "index",
     "leads",
+    "lead-approval",
     "accounts",
     "contacts",
+    "buying-centre",
     "opportunities",
+    "opportunity-qualification",
     "pipeline-management",
     "forecasting",
     "quotes",
+    "contracts",
     "activities",
     "meetings-and-calls"
   ]

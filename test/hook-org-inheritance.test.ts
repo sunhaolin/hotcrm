@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL, bindHooksToEngine, applySystemFields } from '@objectstack/objectql';
 import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
+import { registerStackPicklists } from './helpers/stack-picklists';
 
 /**
  * Records this app's HOOKS create inherit the triggering caller's organization
@@ -36,12 +37,12 @@ import stack from '../objectstack.config';
  *
  * ### Why a real engine on a real driver
  *
- * `test/helpers/hook-harness.ts` implements `ctx.api` over plain arrays. It can
- * prove what a hook WRITES; it cannot prove what the engine STAMPS, because it
- * has no tenant column and no driver — a hook could be leaking rows across the
- * wall and every harness-based test in this repo would stay green. So this file
- * stands up ObjectQL on `SqliteWasmDriver` and reads `organization_id` back out
- * of SQL.
+ * A stand-in `ctx.api` over plain arrays — which is what this repo's hook tests
+ * once ran on — can prove what a hook WRITES; it cannot prove what the engine
+ * STAMPS, because it has no tenant column and no driver: a hook could be
+ * leaking rows across the wall and every such test would stay green. So this
+ * file stands up ObjectQL on `SqliteWasmDriver` and reads `organization_id`
+ * back out of SQL.
  *
  * `driver-memory` is not an option and the refusal is the platform's, not a
  * preference: it "has NO row-level tenant isolation" and fails at construction
@@ -127,6 +128,7 @@ beforeAll(async () => {
     datasources: { default: driver as never },
     objects: objectMap as never,
   } as never)) as AnyRec;
+  registerStackPicklists(ql);
 
   await driver.initObjects(
     objects.map((o) => {
@@ -193,7 +195,7 @@ describe('hook-created records inherit the triggering organization', () => {
     );
     expect(task.organization_id).toBe(ORG_A);
     // The row is genuinely the hook's, not any row that happened to be there.
-    expect(String(task.subject)).toContain('工单已升级');
+    expect(String(task.subject)).toContain('Escalated:');
 
     // …and it is inside the wall: the other tenant cannot reach it.
     const seenByB = (await b.object('crm_task').find({ where: { id: task.id } })) as AnyRec[];

@@ -2,11 +2,11 @@
 
 > Examples that match the current single-app HotCRM repository.
 
-HotCRM metadata is registered from `src/` through [`objectstack.config.ts`](../../objectstack.config.ts). File names use the ObjectStack suffix convention: `.object.ts`, `.hook.ts`, `.actions.ts`, `.flow.ts`, `.skill.ts`, `.view.ts`, `.page.ts`, `.dashboard.ts`, and `.report.ts`.
+HotCRM metadata is registered from `src/` by four package stacks — the app package's, built in [`objectstack.composition.ts`](../../objectstack.composition.ts) from the sales barrels, and one per module: [`src/service/index.ts`](../../src/service/index.ts), [`src/revenue/index.ts`](../../src/revenue/index.ts) and [`src/marketing/index.ts`](../../src/marketing/index.ts) — which [`objectstack.config.ts`](../../objectstack.config.ts) composes into one artifact. File names use the ObjectStack suffix convention: `.object.ts`, `.hook.ts`, `.actions.ts`, `.flow.ts`, `.skill.ts`, `.view.ts`, `.page.ts`, `.dashboard.ts`, and `.report.ts`.
 
 ## Define An Object
 
-File: `src/objects/example.object.ts`
+File: `src/*/objects/example.object.ts`
 
 ```typescript
 import { ObjectSchema, Field } from '@objectstack/spec/data';
@@ -56,12 +56,12 @@ Conventions:
 
 - Object names use the `crm_` prefix.
 - Lookup targets use object names such as `crm_account`.
-- Current objects live in `src/objects/*.object.ts`.
-- Export new objects from `src/objects/index.ts`.
+- Current objects live in `src/*/objects/*.object.ts`.
+- Export new objects from `src/*/objects/index.ts`.
 
 ## Add A Hook
 
-File: `src/objects/example.hook.ts`
+File: `src/*/objects/example.hook.ts`
 
 ```typescript
 import type { Hook } from '@objectstack/spec/data';
@@ -86,11 +86,11 @@ const warrantyHook: Hook = {
 export default warrantyHook;
 ```
 
-Register it by importing it in `src/hooks/index.ts` and adding it to the `entries` array. `objectstack.config.ts` already passes `allHooks` into `defineStack()`.
+Register it by re-exporting it from its package's `objects/hooks.ts` and adding it to that package's hook list: `appHooks` in `objectstack.composition.ts` for sales, revenue and marketing, `serviceHooks` in `src/service/index.ts` for the service module. Each list is what its package's `defineStack({ hooks })` receives.
 
 ## Add An Action
 
-File: `src/actions/example.actions.ts`
+File: `src/*/actions/example.actions.ts`
 
 ```typescript
 import type { Action } from '@objectstack/spec/ui';
@@ -153,7 +153,7 @@ export const AddLeadsToCampaignAction: Action = {
 };
 ```
 
-Export actions from `src/actions/index.ts` so `objectstack.config.ts` can register them.
+Export actions from `src/*/actions/index.ts` so the owning package's stack registers them — `objectstack.composition.ts` merges the app package's action barrels, and `src/service/index.ts` names the service module's.
 
 ### Bulk actions: how a multi-row selection reaches the body
 
@@ -171,7 +171,7 @@ The body above handles both, which is why it reads `_selectedIds` first and
 falls back to `ctx.recordId`. Wire it up in the view:
 
 ```typescript
-// src/views/example.view.ts — inside the `list` block
+// src/*/views/example.view.ts — inside the `list` block
 bulkActionDefs: [
   { name: 'add_leads_to_campaign', operation: 'custom', execution: 'aggregate' },
 ],
@@ -207,18 +207,20 @@ Two more rules the shipped code depends on:
 > and shipped the bulk button removed. See objectstack-ai/objectstack#5568.
 
 The live reference implementation is `mass_update_stage` —
-`src/actions/opportunity.actions.ts` (the body) plus the `bulkActionDefs` entry
-in `src/views/opportunity.view.ts` (the declaration), pinned end to end in
-`test/bulk-action-dispatch.test.ts` and `test/action-sandbox.test.ts`. Read
+`src/sales/actions/opportunity.actions.ts` (the body) plus the `bulkActionDefs` entry
+in `src/sales/views/opportunity.view.ts` (the declaration), pinned end to end in
+`test/bulk-action-dispatch.test.ts` and `test/script-bodies.test.ts`. Read
 those two files together: a body reading `_selectedIds` with no aggregate def in
 the view is just as dead as the misspelling, because nothing injects the key.
 
-`create_campaign` in `src/actions/lead.actions.ts` is the other contract — bare
-string, per-record fan-out — and reads `ctx.recordId` only.
+`create_campaign` in `src/sales/actions/lead.actions.ts` is the other contract — bare
+string, per-record fan-out — and it has no body at all: it is a `type: 'flow'` action, so
+each row's call starts the `campaign_lead_member_enroll` flow with that row's `recordId`
+handed over as the flow's `leadId` input (`recordIdParam`).
 
 ## Add A Flow
 
-File: `src/flows/example.flow.ts`
+File: `src/*/flows/example.flow.ts`
 
 ```typescript
 import type * as Automation from '@objectstack/spec/automation';
@@ -264,11 +266,11 @@ export const WarrantyExpirationFlow: Flow = {
 };
 ```
 
-Export flows from `src/flows/index.ts`. Record-change flows require the `triggers` capability, which is already declared in `objectstack.config.ts`.
+Export flows from `src/*/flows/index.ts`. Record-change flows require the `triggers` capability, which every package carrying such flows declares in its own `requires` (`src/sales/index.ts`, `src/service/index.ts`) — `defineStack` checks it per package.
 
 ## Add An AI Skill
 
-File: `src/skills/example.skill.ts`
+File: `src/*/skills/example.skill.ts`
 
 ```typescript
 import { defineSkill } from '@objectstack/spec';
@@ -284,7 +286,7 @@ recommend the next action.`,
 });
 ```
 
-Register the skill in `src/skills/index.ts`. There is no agent to attach it to —
+Register the skill in `src/*/skills/index.ts`. There is no agent to attach it to —
 the AI surface is skills-only ([#512](https://github.com/objectstack-ai/hotcrm/pull/512)),
 and a skill binds to the platform assistant through its `surface` affinity.
 
@@ -298,19 +300,20 @@ sources resolve, and only two:
   guess at. The ones a CRM skill wants are `describe_object`, `list_objects`,
   `query_records`, `query_data`, `get_record`, `aggregate_data`,
   `search_knowledge` and `visualize_data`. From 17.0 the authoritative set is
-  exported as `PLATFORM_PROVIDED_TOOL_NAMES` from `@objectstack/spec/system`;
-  before 17.0 it is transcribed into `test/skills-integrity.test.ts`. Note
+  exported as `PLATFORM_PROVIDED_TOOL_NAMES` from `@objectstack/spec/system`. Note
   `search_knowledge` retrieves over a *declared knowledge source*, and there is
   currently nowhere in a skills-only app to declare one.
 - **`action_<name>`** — materialised from an Action that opts in with
   `ai: { exposed: true, description }` (ADR-0011, default off) *and* has a
-  headless path. See `ConvertLeadAction` in `src/actions/lead.actions.ts`.
+  headless path. See `ConvertLeadAction` in `src/sales/actions/lead.actions.ts`.
 
 Authoring a `defineTool` record does **not** create a third source: `ToolSchema`
 is a read-only projection for Studio discovery with no `implementation` field
 and no executor. Reasoning — scoring, drafting, forecasting — belongs in
-`instructions`, not in a tool (ADR-0109). `test/skills-integrity.test.ts`
-enforces all of this at PR time.
+`instructions`, not in a tool (ADR-0109). At PR time `pnpm lint` resolves every
+tool name (`ai-skill-tool-unresolved`), and `test/skills-integrity.test.ts`
+refuses `stack.tools` records and checks that a referenced Action is AI-exposed
+with a headless path.
 
 Note there is no `permissions` key on a skill — `SkillSchema` has no such field,
 so one is silently stripped ([#511](https://github.com/objectstack-ai/hotcrm/pull/511)).
@@ -325,15 +328,15 @@ explicit context predicate.
 
 | New metadata | Add file under | Export from |
 | --- | --- | --- |
-| Object | `src/objects/` | `src/objects/index.ts` |
-| Hook | `src/objects/` | `src/hooks/index.ts` |
-| Action | `src/actions/` | `src/actions/index.ts` |
-| Flow | `src/flows/` | `src/flows/index.ts` |
-| Skill | `src/skills/` | `src/skills/index.ts` |
-| View | `src/views/` | `src/views/index.ts` |
-| Page | `src/pages/` | `src/pages/index.ts` |
-| Dashboard | `src/dashboards/` | `src/dashboards/index.ts` |
-| Report | `src/reports/` | `src/reports/index.ts` |
+| Object | `src/*/objects/` | `src/*/objects/index.ts` |
+| Hook | `src/*/objects/` | `src/<pkg>/objects/hooks.ts` |
+| Action | `src/*/actions/` | `src/*/actions/index.ts` |
+| Flow | `src/*/flows/` | `src/*/flows/index.ts` |
+| Skill | `src/*/skills/` | `src/*/skills/index.ts` |
+| View | `src/*/views/` | `src/*/views/index.ts` |
+| Page | `src/*/pages/` | `src/*/pages/index.ts` |
+| Dashboard | `src/*/dashboards/` | `src/*/dashboards/index.ts` |
+| Report | `src/*/reports/` | `src/*/reports/index.ts` |
 
 ## Verification
 

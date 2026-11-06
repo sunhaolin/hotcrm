@@ -4,8 +4,15 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL, applySystemFields } from '@objectstack/objectql';
 import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AnalyticsService } from '@objectstack/service-analytics';
-import stack from '../objectstack.config';
-import { CaseDataset } from '../src/datasets/case.dataset';
+import stack from './helpers/composed-stack';
+import { CaseDataset } from '../src/service/datasets/case.dataset';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * ═══ The Service dashboard's Agent filter must SELECT ROWS, not just render ═══
@@ -109,6 +116,8 @@ interface FixtureCase {
   resolved_by_article: string | null;
   /** Days before now; every row is stamped at UTC NOON of that day. */
   offset: number;
+  /** `sla_due_date`, in days from now (negative = past due); `null` = no deadline. */
+  due: number | null;
 }
 
 const c = (owner: string, over: Partial<FixtureCase>): FixtureCase => ({
@@ -122,6 +131,7 @@ const c = (owner: string, over: Partial<FixtureCase>): FixtureCase => ({
   resolution_time_hours: null,
   resolved_by_article: null,
   offset: 3,
+  due: null,
   ...over,
 });
 
@@ -141,9 +151,9 @@ const c = (owner: string, over: Partial<FixtureCase>): FixtureCase => ({
 const CASE_ROWS: FixtureCase[] = [
   // ── Alpha: 10 cases — 6 open, 4 closed ──
   c(ALPHA, { status: 'new', priority: 'critical', origin: 'email', type: 'problem', offset: 1 }),
-  c(ALPHA, { status: 'new', priority: 'low', origin: 'web', type: 'question', offset: 2 }),
-  c(ALPHA, { status: 'in_progress', priority: 'high', origin: 'phone', type: 'bug', is_sla_violated: true, offset: 4 }),
-  c(ALPHA, { status: 'in_progress', priority: 'high', origin: 'web', type: 'problem', offset: 6 }),
+  c(ALPHA, { status: 'new', priority: 'low', origin: 'web', type: 'question', offset: 2, due: -1 }),
+  c(ALPHA, { status: 'in_progress', priority: 'high', origin: 'phone', type: 'bug', is_sla_violated: true, offset: 4, due: -1 }),
+  c(ALPHA, { status: 'in_progress', priority: 'high', origin: 'web', type: 'problem', offset: 6, due: 1 }),
   c(ALPHA, { status: 'waiting_customer', priority: 'medium', origin: 'chat', type: 'question', is_sla_violated: true, offset: 8 }),
   c(ALPHA, { status: 'waiting_customer', priority: 'high', origin: 'email', type: 'feature_request', offset: 11 }),
   c(ALPHA, { status: 'closed', priority: 'medium', origin: 'web', type: 'question', is_closed: true, resolution_time_hours: 4, resolved_by_article: 'KB-1', offset: 13 }),
@@ -155,14 +165,14 @@ const CASE_ROWS: FixtureCase[] = [
   c(BETA, { status: 'new', priority: 'critical', origin: 'web', type: 'bug', is_sla_violated: true, offset: 1 }),
   c(BETA, { status: 'new', priority: 'medium', origin: 'social_media', type: 'question', offset: 2 }),
   c(BETA, { status: 'new', priority: 'low', origin: 'chat', type: 'feature_request', offset: 3 }),
-  c(BETA, { status: 'in_progress', priority: 'high', origin: 'email', type: 'problem', offset: 5 }),
+  c(BETA, { status: 'in_progress', priority: 'high', origin: 'email', type: 'problem', offset: 5, due: -2 }),
   c(BETA, { status: 'in_progress', priority: 'medium', origin: 'phone', type: 'problem', is_sla_violated: true, offset: 7 }),
   c(BETA, { status: 'escalated', priority: 'critical', origin: 'phone', type: 'bug', is_sla_violated: true, offset: 9 }),
   c(BETA, { status: 'escalated', priority: 'high', origin: 'web', type: 'problem', offset: 10 }),
   c(BETA, { status: 'waiting_support', priority: 'medium', origin: 'social_media', type: 'question', offset: 12 }),
-  c(BETA, { status: 'waiting_support', priority: 'low', origin: 'web', type: 'question', offset: 14 }),
+  c(BETA, { status: 'waiting_support', priority: 'low', origin: 'web', type: 'question', offset: 14, due: -1 }),
   c(BETA, { status: 'closed', priority: 'critical', origin: 'email', type: 'bug', is_closed: true, is_sla_violated: true, resolution_time_hours: 96, resolved_by_article: 'KB-3', offset: 16 }),
-  c(BETA, { status: 'closed', priority: 'high', origin: 'web', type: 'problem', is_closed: true, resolution_time_hours: 12, resolved_by_article: 'KB-1', offset: 17 }),
+  c(BETA, { status: 'closed', priority: 'high', origin: 'web', type: 'problem', is_closed: true, resolution_time_hours: 12, resolved_by_article: 'KB-1', offset: 17, due: -3 }),
   c(BETA, { status: 'closed', priority: 'medium', origin: 'chat', type: 'question', is_closed: true, resolution_time_hours: 8, resolved_by_article: 'KB-2', offset: 19 }),
   c(BETA, { status: 'closed', priority: 'medium', origin: 'phone', type: 'question', is_closed: true, resolution_time_hours: 20, offset: 20 }),
   c(BETA, { status: 'closed', priority: 'low', origin: 'web', type: 'question', is_closed: true, resolution_time_hours: 3, resolved_by_article: 'KB-3', offset: 23 }),
@@ -186,17 +196,44 @@ const utcNoonDaysAgo = (offset: number): string => {
 
 /**
  * Does a fixture row satisfy a widget filter? Only the shapes the Service
- * dashboard actually authors are understood — field equality and a
- * `{N_days_ago}` floor on the range field. Anything else THROWS, so a widget
- * filter this function silently mis-models cannot pass by accident.
+ * dashboard actually authors are understood — field equality, a
+ * `{N_days_ago}` floor on the range field, and the SLA Violations tile's `$or`
+ * of the flag with "open and past due" (`$nin` on `status`, `$lt '{now}'` on
+ * `sla_due_date`, #2070), and a `$ne: null` "has a value" key (Top Resolving
+ * Articles, #2338 item 11). Anything else THROWS, so a widget filter this
+ * function silently mis-models cannot pass by accident.
  */
 const truthMatches = (row: FixtureCase, filter: AnyRec | undefined): boolean => {
   for (const [field, cond] of Object.entries(filter ?? {})) {
+    if (field === '$or') {
+      if (!(cond as AnyRec[]).some((branch) => truthMatches(row, branch))) return false;
+      continue;
+    }
+    const ops = cond !== null && typeof cond === 'object' ? Object.keys(cond as AnyRec).join() : '';
+    if (field === 'status' && ops === '$nin') {
+      if (((cond as AnyRec).$nin as string[]).includes(row.status)) return false;
+      continue;
+    }
+    if (field === 'sla_due_date' && ops === '$lt' && (cond as AnyRec).$lt === '{now}') {
+      // A missing deadline never compares: SQL NULL, and no clock to have run out.
+      if (row.due === null || row.due >= 0) return false;
+      continue;
+    }
+    if (ops === '$ne' && (cond as AnyRec).$ne === null) {
+      // The driver reads `$ne: null` as IS NOT NULL (measured on 18.2.0): a null never passes.
+      if ((row as AnyRec)[field] === null) return false;
+      continue;
+    }
     if (field === AGENT_FIELD) {
+      // `{current_user_id}` is resolved by the caller (see `truthFor`), so an
+      // unresolved placeholder here is a mis-modelled filter: throw.
+      if (typeof cond === 'string' && cond.startsWith('{')) {
+        throw new Error(`truthMatches: unresolved owner placeholder ${cond}`);
+      }
       if (row.owner !== cond) return false;
       continue;
     }
-    if (field === 'created_date') {
+    if (field === 'created_at') {
       const spec = cond as AnyRec;
       for (const [op, comparand] of Object.entries(spec)) {
         const m = typeof comparand === 'string' ? comparand.match(/^\{(\d+)_days_ago\}$/) : null;
@@ -206,7 +243,7 @@ const truthMatches = (row: FixtureCase, filter: AnyRec | undefined): boolean => 
           // Every fixture row is in the past; a "<= today" ceiling keeps them all.
           continue;
         } else {
-          throw new Error(`truthMatches: unsupported created_date bound ${op}: ${JSON.stringify(comparand)}`);
+          throw new Error(`truthMatches: unsupported created_at bound ${op}: ${JSON.stringify(comparand)}`);
         }
       }
       continue;
@@ -251,7 +288,7 @@ const keyOf = (v: unknown): string => (v === null || v === undefined || v === ''
 const CASE_COLUMNS = [
   'owner_id', 'subject', 'description', 'status', 'priority', 'origin', 'type',
   'is_closed', 'is_sla_violated', 'resolution', 'resolution_time_hours',
-  'resolved_by_article', 'created_date',
+  'resolved_by_article', 'created_at', 'sla_due_date',
 ];
 
 let ql: AnyRec;
@@ -275,7 +312,7 @@ beforeAll(async () => {
     objects: { crm_case: kase } as never,
   })) as never;
 
-  const api = ql.createContext({ isSystem: true });
+  const api = ql.createContext({ isSystem: true, tenantId: ORG });
   for (const [i, row] of CASE_ROWS.entries()) {
     const record: AnyRec = {
       owner_id: row.owner,
@@ -289,7 +326,9 @@ beforeAll(async () => {
       is_sla_violated: row.is_sla_violated,
       resolution_time_hours: row.resolution_time_hours,
       resolved_by_article: row.resolved_by_article,
-      created_date: utcNoonDaysAgo(row.offset),
+      // The platform's creation stamp, which the dashboard range windows (#1992).
+      created_at: utcNoonDaysAgo(row.offset),
+      sla_due_date: row.due === null ? null : new Date(Date.now() + row.due * DAY).toISOString(),
       // The app's own `resolution_required_for_closed` rule fires on these
       // inserts — a welcome sign the REAL object is under test.
       ...(row.is_closed ? { resolution: 'Resolved by the fixture.' } : {}),
@@ -338,7 +377,7 @@ const widgetFilter = (w: AnyRec, opts: { agent?: string; window?: AnyRec } = {})
 };
 
 /** One widget, run through the real dataset executor exactly as declared. */
-const run = async (w: AnyRec, opts: { agent?: string; window?: AnyRec } = {}): Promise<AnyRec[]> => {
+const run = async (w: AnyRec, opts: { agent?: string; window?: AnyRec; viewer?: string } = {}): Promise<AnyRec[]> => {
   const filter = widgetFilter(w, opts);
   const result = await analytics.queryDataset(
     CaseDataset as never,
@@ -347,7 +386,9 @@ const run = async (w: AnyRec, opts: { agent?: string; window?: AnyRec } = {}): P
       measures: w.values,
       ...(filter ? { runtimeFilter: filter as never } : {}),
     } as never,
-    { isSystem: true } as never,
+    // `viewer` signs the query in, so a `{current_user_id}` widget filter has
+    // someone to resolve to (#510); without one the platform refuses it.
+    { isSystem: true, tenantId: ORG, ...(opts.viewer ? { userId: opts.viewer, tenantId: ORG } : {}) } as never,
   );
   return (result.rows ?? []) as AnyRec[];
 };
@@ -570,7 +611,7 @@ describe('every filter-bound widget on the dashboard partitions the same way', (
         // widgets are compared on their totals rather than on a key format
         // this file would be pinning by accident.
         const dims = (w.dimensions ?? []) as string[];
-        if (dims.length === 1 && dimensionField(dims[0]) !== 'created_date') {
+        if (dims.length === 1 && dimensionField(dims[0]) !== 'created_at') {
           const dim = dims[0];
           const gAll = byGroup(rows.all, dim, measure);
           const gAlpha = byGroup(rows.alpha, dim, measure);
@@ -615,5 +656,45 @@ describe('the Agent filter composes with the dashboard date window', () => {
       if (alpha <= 0 || beta <= 0) wrong.push(`${id}: a shard is empty under the window (${alpha} / ${beta})`);
     }
     expect(wrong, `the two dashboard filters do not compose:\n  ${wrong.join('\n  ')}`).toEqual([]);
+  }, 30_000);
+});
+
+// ═══════════════════ 7 · the personal widget answers for its viewer (#510) ══
+
+describe('My Open Cases by Priority ignores the Agent pick and answers for its viewer', () => {
+  const MY_WIDGET = 'my_open_cases_by_priority';
+
+  /** The widget's own filter with `{current_user_id}` resolved to `viewer`. */
+  const truthFor = (w: AnyRec, viewer: string): number => {
+    const filter = { ...(w.filter as AnyRec) };
+    expect(filter[AGENT_FIELD], `${MY_WIDGET} is not scoped to its viewer`).toBe('{current_user_id}');
+    filter[AGENT_FIELD] = viewer;
+    return COUNT_MEASURES.case_count(CASE_ROWS.filter((r) => truthMatches(r, filter)));
+  };
+
+  it('opts out of the Agent filter by its field name', () => {
+    // Measured in the console (#510): with the opt-out, picking another agent
+    // leaves this widget on the viewer's own cases; without it, the pick is
+    // ANDed in and "mine AND theirs" is empty.
+    const w = widget(MY_WIDGET);
+    expect(w, `service_dashboard has no ${MY_WIDGET} widget`).toBeTruthy();
+    expect(w.filterBindings?.[AGENT_FIELD]).toBe(false);
+  });
+
+  it('shows each viewer their own open cases, whatever agent is picked', async () => {
+    const w = widget(MY_WIDGET);
+    const alpha = total(await run(w, { viewer: ALPHA, agent: BETA }), 'case_count');
+    const beta = total(await run(w, { viewer: BETA, agent: ALPHA }), 'case_count');
+    const all = COUNT_MEASURES.case_count(CASE_ROWS.filter((r) => !r.is_closed));
+
+    expect(alpha).toBe(truthFor(w, ALPHA));
+    expect(beta).toBe(truthFor(w, BETA));
+    // Two viewers, two different answers that together are every open case.
+    expect(alpha).toBeGreaterThan(0);
+    expect(beta).toBeGreaterThan(0);
+    expect(alpha).not.toBe(beta);
+    expect(alpha + beta).toBe(all);
+    // A viewer who owns nothing sees nothing — not the team's numbers.
+    expect(total(await run(w, { viewer: GHOST }), 'case_count')).toBe(0);
   }, 30_000);
 });

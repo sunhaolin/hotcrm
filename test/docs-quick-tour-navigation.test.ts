@@ -4,13 +4,14 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import { CrmApp } from '../src/apps/crm.app';
-import { ExecutiveDashboard } from '../src/dashboards/executive.dashboard';
-import { CrmOverviewDashboard } from '../src/dashboards/crm.dashboard';
-import { ServiceDashboard } from '../src/dashboards/service.dashboard';
-import { ActivityDashboard } from '../src/dashboards/activity.dashboard';
-import { SalesManagerProfile } from '../src/profiles/sales-manager.profile';
-import { CrmPositions } from '../src/sharing/positions';
+import { servedApp } from './helpers/composed-stack';
+import { CrmApp } from '../src/sales/apps/crm.app';
+import { ExecutiveDashboard } from '../src/sales/dashboards/executive.dashboard';
+import { CrmOverviewDashboard } from '../src/sales/dashboards/crm.dashboard';
+import { ServiceDashboard } from '../src/service/dashboards/service.dashboard';
+import { ActivityDashboard } from '../src/sales/dashboards/activity.dashboard';
+import { SalesManagerProfile } from '../src/sales/profiles/sales-manager.profile';
+import { CrmPositions } from '../src/sales/sharing/positions';
 
 /**
  * The quick-tour page's left-nav table, pinned to `src/apps/crm.app.ts` (#960).
@@ -42,7 +43,8 @@ import { CrmPositions } from '../src/sharing/positions';
  *    #927 / PR #932 established. Every retired name must still be named in
  *    italics — the convention is to say where a reader's name really lives, not
  *    to delete it silently — and no phantom may ever appear in bold.
- *  - exists ⇒ listed: the table's rows are compared against `CrmApp.navigation`
+ *  - exists ⇒ listed: the table's rows are compared against the served
+ *    navigation (`CrmApp.navigation` plus the module contributions, see `NAV`)
  *    group-for-group, child-for-child, in source order. Add a nav item without
  *    touching the tour and this file goes red at PR time, in all three locales.
  *
@@ -75,8 +77,20 @@ import { CrmPositions } from '../src/sharing/positions';
 
 type AnyRec = Record<string, any>;
 
-const NAV = ((CrmApp as AnyRec).navigation ?? []) as AnyRec[];
-const GROUPS = NAV.filter((n) => n.type === 'group');
+/**
+ * The sidebar AS SERVED — `CrmApp.navigation` with every package's
+ * `navigationContributions` folded in by the platform (`servedApp()`), because
+ * that is what "here is what the sidebar holds" means. The service module
+ * contributes seven entries into three of the app's groups; a contributed item
+ * lands after the group's own children, which is why *My Cases* is the last
+ * row of *My Work* and the case reports close *Reports*.
+ */
+const NAV = (servedApp((CrmApp as AnyRec).name).navigation ?? []) as AnyRec[];
+// A group with no served entry is not drawn — the console renders no empty
+// group (measured for `group_order_to_cash`, #2315: its module contributes no
+// item until phase 1) — so the tour, which says what the sidebar shows, leaves
+// it out until something fills it.
+const GROUPS = NAV.filter((n) => n.type === 'group' && ((n.children ?? []) as AnyRec[]).length > 0);
 const PINNED = NAV.filter((n) => n.type !== 'group');
 
 const childLabels = (g: AnyRec): string[] =>
@@ -117,7 +131,9 @@ const PHANTOMS = [
   'Approval Requests',
   'Action History',
   'Dashboards',
-  'Reports',
+  // *Reports* left this list in #2073 item 1: it is a real group now, holding
+  // every shipped report, so the page bolds it like any other group.
+  //
   // #1259 retired these four sidebar rows. Every one of their destinations is
   // still shipping — as a tab on the list page of the object it belongs to —
   // so the page owes the reader a re-point, not a deletion. Listing them here
@@ -300,9 +316,12 @@ describe('getting-started/quick-tour names the navigation the app really ships (
 });
 
 describe('the source facts the quick-tour table now rests on (#960)', () => {
-  it('the app has one pinned top-level entry and nine groups', () => {
-    expect(PINNED.map((p) => p.label)).toEqual(['Home']);
+  it('the app has two pinned top-level entries and eleven groups', () => {
+    expect(PINNED.map((p) => p.label)).toEqual(['Home', 'Sales Home']);
+    // Service leads the groups (#2060 item 5): its first entry, Service
+    // Overview, is where a service persona lands — see `crm.app.ts`.
     expect(GROUP_LABELS).toEqual([
+      'Service',
       'Sales',
       'Projects',
       'Project Finance',
@@ -310,8 +329,9 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
       'My Work',
       'Activity',
       'Marketing',
-      'Service',
       'Insights',
+      'Reports',
+      'Help',
     ]);
   });
 
@@ -320,9 +340,9 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
     expect(PINNED[0].dashboardName).toBe(ExecutiveDashboard.name);
   });
 
-  it('Master Data, Marketing and Insights are the groups that stay collapsed', () => {
-    expect(COLLAPSED).toEqual(['Master Data', 'Marketing', 'Insights']);
-    expect(EXPANDED).toEqual(['Sales', 'Projects', 'Project Finance', 'My Work', 'Activity', 'Service']);
+  it('Master Data, Reports and Help are the groups that stay collapsed (#2295, #2327)', () => {
+    expect(COLLAPSED).toEqual(['Master Data', 'Reports', 'Help']);
+    expect(EXPANDED).toEqual(['Service', 'Sales', 'Projects', 'Project Finance', 'My Work', 'Activity', 'Marketing', 'Insights']);
   });
 
   it('carries no navigation label matching any name the page calls a phantom', () => {
@@ -342,9 +362,9 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
     expect(taskOwners).toEqual(['My Work']);
   });
 
-  it('routes CRM Overview through Insights, which is collapsed on load', () => {
+  it('routes CRM Overview through Insights, which is open on load (#2295)', () => {
     const insights = GROUPS.find((g) => g.label === 'Insights');
-    expect(insights?.expanded).not.toBe(true);
+    expect(insights?.expanded).toBe(true);
     const item = ((insights?.children ?? []) as AnyRec[]).find(
       (c) => c.dashboardName === CrmOverviewDashboard.name,
     );
@@ -376,16 +396,16 @@ describe('the source facts the quick-tour table now rests on (#960)', () => {
  *
  * The section described a dashboard that does not exist. Its name came from
  * `crm_overview_dashboard` — a real dashboard, but the one under **Insights**,
- * a group that is collapsed on load, so a new user neither lands on it nor can
- * click it without opening the group first. Its five bullets came from three
+ * far down the sidebar (and, until #2295, in a group collapsed on load), so a
+ * new user does not land on it. Its five bullets came from three
  * different dashboards: exactly one, **Open Leads**, is a tile on the dashboard
  * `nav_home` actually binds.
  *
  * The rewrite is measured against `ExecutiveDashboard.widgets` at runtime, not
  * against the file's text, and that distinction is the whole reason the issue
  * mis-counted. #971 read the source and listed EIGHT tiles, concluding that no
- * pipeline tile existed on this dashboard — but the funnel arrives from the
- * shared factory (`pipelineByStageFunnelWidget`, #539), so it carries no inline
+ * pipeline tile existed on this dashboard — but the tile arrives from the
+ * shared factory (`pipelineByStageWidget`, #539), so it carries no inline
  * `title:` literal to grep. The dashboard ships NINE tiles, and **Pipeline by
  * Stage** is one of them; the four locale bundles register it too. So the
  * page's "opportunities in your pipeline" bullet was the one claim that was
@@ -574,14 +594,14 @@ describe('the source facts the quick-tour landing section now rests on (#971)', 
     ]);
   });
 
-  it('counts the funnel that arrives from the shared factory, which no title grep finds', () => {
+  it('counts the pipeline tile that arrives from the shared factory, which no title grep finds', () => {
     // #971 read `executive.dashboard.ts` and found eight `title:` literals, so it
     // reported that the dashboard carries no pipeline tile. `pipeline_by_stage`
-    // comes from `pipelineByStageFunnelWidget` (#539) and has no inline literal —
+    // comes from `pipelineByStageWidget` (#539) and has no inline literal —
     // it is the ninth tile, and it is the reason the "opportunities in your
     // pipeline" bullet was half-right rather than simply wrong.
     const inlineTitles = (readFileSync(
-      join(REPO_ROOT, 'src/dashboards/executive.dashboard.ts'),
+      join(REPO_ROOT, 'src/sales/dashboards/executive.dashboard.ts'),
       'utf8',
     ).match(/title: '/g) ?? []).length;
     expect(inlineTitles).toBe(EXEC_TILES.length - 1);
@@ -622,9 +642,10 @@ describe('the source facts the quick-tour landing section now rests on (#971)', 
       'industry',
       'stage',
     ]);
+    // No `close_date`: CRM Overview's revenue trend moved to Executive
+    // Overview, its one home (#2370 row 2).
     expect(dims(CrmOverviewDashboard as AnyRec)).toEqual([
       'category',
-      'close_date',
       'lead_source',
       'owner',
       'stage',

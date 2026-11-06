@@ -9,8 +9,8 @@ import {
   SETUP_NAV_CONTRIBUTIONS,
   SetupAppTranslations,
 } from '@objectstack/platform-objects/apps';
-import { CrmApp } from '../src/apps';
-import { CrmTranslations } from '../src/translations';
+import { localePacks, packFor, servedApp } from './helpers/composed-stack';
+import { CrmApp } from '../src/sales/apps';
 import { REPO_ROOT } from './helpers/repo-root';
 
 /**
@@ -266,15 +266,18 @@ type AnyRec = Record<string, any>;
 /** Locale bundles the platform ships for the Setup / Studio / Account apps. */
 const SHIPPED_LOCALES = Object.keys(SetupAppTranslations as AnyRec);
 
-/** Locale bundles THIS app ships for its own navigation (`src/translations/`). */
-const CRM_LOCALES = Object.keys(CrmTranslations as AnyRec);
+/**
+ * Locale bundles THIS app ships for its own navigation: the app package's packs
+ * and each module's, folded per locale (`src/PACKAGE/translations/`, #2352).
+ */
+const CRM_LOCALES = localePacks.map(([locale]) => locale);
 
 /** The app id `src/translations/*` files their navigation overrides under. */
 const CRM_APP_ID = (CrmApp as AnyRec).name as string;
 
 /** One locale's navigation overrides for this app, `id → { label }`. */
 const crmNavOverrides = (locale: string): Record<string, AnyRec> =>
-  ((CrmTranslations as AnyRec)[locale]?.apps?.[CRM_APP_ID]?.navigation ?? {}) as Record<
+  ((packFor(locale) as AnyRec)?.apps?.[CRM_APP_ID]?.navigation ?? {}) as Record<
     string,
     AnyRec
   >;
@@ -385,7 +388,14 @@ const crmPairKey = (group: string, child: string): string => `${group} → ${chi
  * group → child pair, keyed within ONE locale, so a citation cannot pass by
  * naming a group and a child that both exist but sit apart. The label a locale
  * does not override falls back to the shell's own, exactly as the Console does.
+ *
+ * The navigation walked is the SERVED tree (`servedApp()`): the service
+ * module contributes *Cases*, *Knowledge* and *Service Overview* into
+ * **Service** (and two more items elsewhere), so `Service → Knowledge` is a
+ * real pair although `src/sales/apps/crm.app.ts` no longer lists it.
  */
+const CRM_SERVED_APP: AnyRec = servedApp(CRM_APP_ID);
+
 const { CRM_GROUP_LABELS, CRM_PAIRS, CRM_LABELS } = (() => {
   const groups = new Set<string>();
   const pairs = new Set<string>();
@@ -393,7 +403,7 @@ const { CRM_GROUP_LABELS, CRM_PAIRS, CRM_LABELS } = (() => {
   for (const locale of CRM_LOCALES) {
     const nav = crmNavOverrides(locale);
     const labelOf = (id: string, fallback: string): string => nav[id]?.label ?? fallback;
-    for (const entry of ((CrmApp as AnyRec).navigation ?? []) as AnyRec[]) {
+    for (const entry of (CRM_SERVED_APP.navigation ?? []) as AnyRec[]) {
       if (!entry?.label) continue;
       const entryLabel = labelOf(entry.id, entry.label);
       all.add(entryLabel);
@@ -623,19 +633,7 @@ const KNOWN_UNRESOLVED_APP_WORDS: {
   word: string;
   app: 'setup' | 'studio' | null;
   why: string;
-}[] = [
-  {
-    word: '设置',
-    app: 'setup',
-    why:
-      '#1403 — 19 bold citations open with 设置 while the Setup app ships 系统设置 as ' +
-      'its zh-CN label. Whether 设置 is acceptable prose for an app labelled 系统设置 ' +
-      'is a docs-REGISTER question, not a mechanical one, and #1403 was ruled to do ' +
-      'the mechanical half only: the word is quarantined here rather than answered ' +
-      'in passing, and every one of those leaves is still resolved live against ' +
-      'Setup. Rewriting the citations, or deciding they are fine, is its own card.',
-  },
-];
+}[] = [];
 
 /** The quarantine entry for `word`, if it has one. */
 const quarantinedAppWord = (word: string): (typeof KNOWN_UNRESOLVED_APP_WORDS)[number] | undefined =>
@@ -936,7 +934,7 @@ describe('docs cite navigation names the platform actually ships (#853)', () => 
       const runs = boldRuns();
       expect(runs.length).toBeGreaterThan(250);
       expect(runs.some((r) => r.first === 'Studio' && r.leaf === 'Developer')).toBe(true);
-      expect(runs.some((r) => r.first === '设置' && r.leaf === '用户')).toBe(true);
+      expect(runs.some((r) => r.first === '系统设置' && r.leaf === '用户')).toBe(true);
     });
 
     it('names an app the platform ships, or is quarantined', () => {

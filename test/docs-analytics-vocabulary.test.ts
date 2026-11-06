@@ -4,12 +4,13 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import { CrmApp } from '../src/apps/crm.app';
-import * as dashboards from '../src/dashboards/index';
-import * as datasets from '../src/datasets/index';
-import * as reports from '../src/reports/index';
-import { OpportunitiesByStageReport } from '../src/reports/opportunity.report';
-import { pipelineByStageFunnelWidget } from '../src/dashboards/shared-widgets';
+import { servedApp } from './helpers/composed-stack';
+import { CrmApp } from '../src/sales/apps/crm.app';
+import { CrmDashboards as dashboards } from './helpers/src-roster';
+import { CrmDatasets as datasets } from './helpers/src-roster';
+import { CrmReports as reports } from './helpers/src-roster';
+import { OpportunitiesByStageReport } from '../src/sales/reports/opportunity.report';
+import { pipelineByStageWidget } from '../src/sales/dashboards/shared-widgets';
 
 /**
  * The analytics landing page, and the cube vocabulary around it, pinned to
@@ -46,15 +47,21 @@ import { pipelineByStageFunnelWidget } from '../src/dashboards/shared-widgets';
  * typography convention #927 / PR #932 established carries the distinction, and
  * the quick-tour guard leans on the same one: **bold** is reserved for names the
  * app really has, *italic* for a name a reader arrives with that the product
- * does not carry. A phantom must still be NAMED — say where the thing really
- * lives, do not delete it silently — and must never be bolded.
+ * does not carry. The rule is total (#1862): a real name — a report or chart
+ * title, a widget title, a view or tab label, a position name, a field label, a
+ * picklist value — is bold at EVERY occurrence, a later mention or a title
+ * quoted in running prose included, and italic means only "the product does
+ * not have this". A phantom must still be NAMED — say where the thing really
+ * lives, do not delete it silently — and must never be bolded. Stating the
+ * rule as total does not widen what this file checks: no guard reads the
+ * italic half for real names (epic #1579's fence).
  *
  * ## Why the nav rules are scoped to one section
  *
- * *Dashboards*, *Reports* and *Cubes* are phantoms only as NAVIGATION items:
- * nothing in the sidebar carries those labels. They are perfectly real as the
- * three docs pages this page links to, and the "What's included" table bolds
- * them in exactly that sense. So the bold/italic rules run over the "Where to
+ * *Dashboards* and *Cubes* are phantoms only as NAVIGATION items: nothing in
+ * the sidebar carries those labels. They are perfectly real as docs pages this
+ * page links to, and the "What's included" table bolds them in exactly that
+ * sense. (*Reports* was the third until #2073 item 1 made it a real group.) So the bold/italic rules run over the "Where to
  * find things" block alone, the way `docs-quick-tour-navigation.test.ts` scopes
  * its rules to the left-nav block, rather than over the whole page.
  *
@@ -85,10 +92,18 @@ const REPORT_LABELS: string[] = Object.values(reports as Record<string, AnyRec>)
 );
 const DATASET_LIST = Object.values(datasets as Record<string, AnyRec>);
 
-const NAV = ((CrmApp as AnyRec).navigation ?? []) as AnyRec[];
+// The SERVED navigation: the service module contributes *Service Overview* and
+// *SLA on Closed Cases* into the app's groups (`servedApp()` folds them in the
+// way the console does), so they are navigation labels like any other.
+const NAV = (servedApp((CrmApp as AnyRec).name).navigation ?? []) as AnyRec[];
 const GROUPS = NAV.filter((n) => n.type === 'group');
 const INSIGHTS = GROUPS.find((g) => g.label === 'Insights') as AnyRec | undefined;
 const INSIGHTS_CHILDREN: string[] = ((INSIGHTS?.children ?? []) as AnyRec[]).map(
+  (c) => c.label as string,
+);
+/** The group holding every shipped report (#2073 item 1), contributed entries included. */
+const REPORTS_GROUP = GROUPS.find((g) => g.id === 'group_reports') as AnyRec | undefined;
+const REPORTS_CHILDREN: string[] = ((REPORTS_GROUP?.children ?? []) as AnyRec[]).map(
   (c) => c.label as string,
 );
 
@@ -137,11 +152,31 @@ const PAGES = [
   },
 ] as const;
 
-/** Names the old nav section carried that resolve to no navigation label. */
-const PHANTOMS = ['Analytics', 'Dashboards', 'Reports', 'Cubes'] as const;
+/**
+ * Names the old nav section carried that resolve to no navigation label.
+ * *Reports* left the list in #2073 item 1, when it became a real group.
+ */
+const PHANTOMS = ['Analytics', 'Dashboards', 'Cubes'] as const;
 
 /** The four cube names the page advertised. None exists anywhere in the app. */
 const RETIRED_CUBES = ['Sales', 'Pipeline', 'Service', 'Marketing'] as const;
+
+/**
+ * The directories the nine datasets really live in — READ FROM `src/`, like
+ * every other product fact in this file.
+ *
+ * This assertion used to be `toContain('src/datasets/')`, a literal. ADR-0130
+ * made a directory under `src/` a package, so there has been no top-level
+ * `src/datasets/` since — and a guard that requires a page to state a path
+ * which does not exist is holding the page to the wrong fact, not to source
+ * (#1922). Deriving it keeps the check pointed at the thing it was written to
+ * check: give a package a `datasets/` directory and the page has to name it;
+ * take one away and the page has to stop.
+ */
+const DATASET_DIRS = readdirSync(join(REPO_ROOT, 'src'), { withFileTypes: true })
+  .filter((e) => e.isDirectory() && existsSync(join(REPO_ROOT, 'src', e.name, 'datasets')))
+  .map((e) => `src/${e.name}/datasets/`)
+  .sort();
 
 /**
  * The CJK range as escapes rather than literal characters, so this file stays
@@ -194,7 +229,17 @@ describe('analytics/index states the counts and names the app really ships (#976
     it('says eleven datasets and points at the directory they live in', () => {
       const text = read(file);
       expect(text, `${file}: the dataset count is not stated as "${nine}"`).toContain(nine);
-      expect(text, `${file}: the page does not name src/datasets/`).toContain('src/datasets/');
+      expect(
+        DATASET_DIRS.length,
+        'no package under src/ has a datasets/ directory — this check has gone vacuous. ' +
+          'Either the datasets moved (teach DATASET_DIRS the new shape) or they are gone.',
+      ).toBeGreaterThan(0);
+      const missing = DATASET_DIRS.filter((dir) => !text.includes(dir));
+      expect(
+        missing,
+        `${file}: the page does not name the directories the datasets live in: ${missing.join(', ')}. ` +
+          'A reader sent to find a dataset needs the path that exists, not the one that used to.',
+      ).toEqual([]);
     });
 
     it('names the Insights group and every child the app pins to it', () => {
@@ -204,6 +249,16 @@ describe('analytics/index states the counts and names the app really ships (#976
       expect(
         missing,
         `${file}: Insights child/children not named in bold: ${missing.join(', ')}`,
+      ).toEqual([]);
+    });
+
+    it('names the Reports group and every report entry in it', () => {
+      const block = blockOf(read(file), navHeading);
+      expect(block, `${file}: the Reports group is not named`).toContain('**Reports**');
+      const missing = REPORTS_CHILDREN.filter((l) => !block.includes(`**${l}**`));
+      expect(
+        missing,
+        `${file}: Reports entry/entries not named in bold: ${missing.join(', ')}`,
       ).toEqual([]);
     });
 
@@ -238,7 +293,7 @@ describe('analytics/index states the counts and names the app really ships (#976
       ).toEqual([]);
     });
 
-    it('names the real report behind the funnel everyone calls Pipeline by Stage', () => {
+    it('names the real report behind the tile everyone calls Pipeline by Stage', () => {
       const text = read(file);
       expect(
         text,
@@ -392,17 +447,15 @@ describe('the source facts these pages now rest on (#976, #977)', () => {
     expect(DATASET_LIST.map((d) => d.object as string)).not.toContain('crm_contract');
   });
 
-  it('the navigation group is Insights, and no group is called Analytics', () => {
+  it('the navigation groups are Insights and Reports, and no group is called Analytics', () => {
     const labels = GROUPS.map((g) => g.label as string);
     expect(labels).toContain('Insights');
     expect(labels).not.toContain('Analytics');
-    expect(INSIGHTS_CHILDREN).toEqual([
-      'CRM Overview',
-      'Forecasts',
-      'Pipeline Coverage',
-      'Lead Inflow',
-      'SLA Performance',
-    ]);
+    expect(INSIGHTS_CHILDREN).toEqual(['CRM Overview', 'Forecasts']);
+    // One entry per report; `app-navigation-shape.test.ts` holds that against
+    // the registered roster, so only the vacuity half is asserted here.
+    expect(REPORTS_GROUP?.label).toBe('Reports');
+    expect(REPORTS_CHILDREN).toHaveLength(REPORT_LABELS.length);
   });
 
   it('carries no navigation label matching any name the page calls a phantom', () => {
@@ -410,7 +463,7 @@ describe('the source facts these pages now rest on (#976, #977)', () => {
   });
 
   it('Pipeline by Stage is a tile title and a chart title, and no report answers to it', () => {
-    const title = pipelineByStageFunnelWidget({ x: 0, y: 0, w: 6, h: 4 }).title;
+    const title = pipelineByStageWidget({ x: 0, y: 0, w: 6, h: 4 }).title;
     expect(title).toBe('Pipeline by Stage');
     expect(OpportunitiesByStageReport.chart?.title).toBe(title);
     expect(REPORT_LABELS).not.toContain(title);

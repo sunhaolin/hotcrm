@@ -2,11 +2,18 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { ObjectQL } from '@objectstack/objectql';
-import { InMemoryDriver } from '@objectstack/driver-memory';
+import { SqliteWasmDriver } from '@objectstack/driver-sqlite-wasm';
 import { AnalyticsService } from '@objectstack/service-analytics';
 import { resolveSeedRecord } from '@objectstack/formula';
-import stack from '../objectstack.config';
-import { CrmSeedData } from '../src/data/index';
+import stack from './helpers/composed-stack';
+import { CrmSeedData } from '../objectstack.composition';
+
+/**
+ * The organization every write here carries: since 18.1.0 the driver creates
+ * the tenant column `NOT NULL`, so a write that names none is refused at the
+ * database (objectstack#24940).
+ */
+const ORG = 'org_1';
 
 /**
  * `customer_churn_signals` reads `crm_account.health_score` (#1186).
@@ -161,9 +168,9 @@ const objectByName = new Map(objects.map((o) => [String(o.name), o]));
 const accountIsActiveDefault = (): boolean =>
   (objectByName.get('crm_account')?.fields?.is_active as AnyRec | undefined)?.defaultValue === true;
 
-const makeEngine = () =>
-  ObjectQL.create({
-    datasources: { default: new InMemoryDriver({ persistence: false }) },
+const makeEngine = async () => {
+  const ql = await ObjectQL.create({
+    datasources: { default: new SqliteWasmDriver({ filename: ':memory:' }) },
     objects: {
       // Only the columns the four churn blocks read. The object suite owns the
       // full schema; the contract here is "which rows does each block select".
@@ -183,6 +190,9 @@ const makeEngine = () =>
       },
     } as never,
   });
+  await ql.syncSchemas();
+  return ql;
+};
 
 /** The synthetic row that isolates the claim from the seeds — header, point 3. */
 const ACTIVE_AND_CHURNING = 'Zzz Actively-Worked Churning Account';
@@ -193,7 +203,7 @@ describe('the health_score block returns rows over the shipped seeds (#1186)', (
 
   beforeAll(async () => {
     ql = await makeEngine();
-    const api = ql.createContext({ isSystem: true });
+    const api = ql.createContext({ isSystem: true, tenantId: ORG });
     const isActive = accountIsActiveDefault();
 
     for (const a of accountRows) {
@@ -252,7 +262,7 @@ describe('the health_score block returns rows over the shipped seeds (#1186)', (
         measures: block.values,
         ...(block.runtimeFilter ? { runtimeFilter: block.runtimeFilter as never } : {}),
       },
-      { isSystem: true } as never,
+      { isSystem: true, tenantId: ORG } as never,
     );
     return result.rows as AnyRec[];
   };
@@ -304,7 +314,7 @@ describe('the health_score block returns rows over the shipped seeds (#1186)', (
             name: ACTIVE_AND_CHURNING,
           } as never,
         },
-        { isSystem: true } as never,
+        { isSystem: true, tenantId: ORG } as never,
       );
       return countOf(result.rows as AnyRec[]) > 0;
     };

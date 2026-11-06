@@ -6,6 +6,8 @@ import { DefaultDatasourcePlugin, AppPlugin } from '@objectstack/runtime';
 import { ObjectQLPlugin } from '@objectstack/objectql';
 import { MetadataPlugin } from '@objectstack/metadata';
 import stack from '../objectstack.config';
+import { createIdentityObjectsPlugin } from '@objectstack/plugin-auth';
+import { withoutOwnershipQueues } from './helpers/bare-kernel-stack';
 
 /**
  * A lead flagged as a duplicate must not make the record it duplicates
@@ -175,17 +177,32 @@ const uniq = (): string => `${++seq}`;
 
 beforeAll(async () => {
   kernel = new ObjectKernel({ logger: { level: 'silent' } } as never);
-  await kernel.use(new DefaultDatasourcePlugin({ driver: 'memory', config: {} } as never));
+  // The SQL in-memory driver: `driver-memory` refuses every tenant-scoped call
+  // on 18.0.0-next.0, and a system write here now carries the install's one
+  // organization (below), so this kernel left it (`@objectstack/verify` 34dba5a
+  // names the same move for its own boots).
+  await kernel.use(new DefaultDatasourcePlugin({ driver: 'sqlite-wasm', config: { filename: ':memory:' } } as never));
   await kernel.use(new MetadataPlugin({ watch: false, artifactWatch: false, environmentId: 'proj_1072' } as never));
   await kernel.use(new ObjectQLPlugin({ environmentId: 'proj_1072' } as never));
+  // 17.7.0 refuses an object name the registry does not hold (objectstack#21545):
+  // register the identity objects `plugin-auth` would, through its own preset
+  // (`createIdentityObjectsPlugin`, objectstack#22074).
+  await kernel.use(createIdentityObjectsPlugin() as never);
   // The app's own metadata is the subject — objects and hooks exactly as
   // `objectstack.config.ts` declares them. A unit test of the handler cannot
   // show any of this: only the engine decides that `set_null` reaches the lead
   // as a `beforeUpdate` at all, and the value of the change is that these
   // DELETEs complete.
-  await kernel.use(new AppPlugin(stack as never, undefined as never, { skipSeedData: true } as never));
+  await kernel.use(new AppPlugin(withoutOwnershipQueues(stack) as never, undefined as never, { skipSeedData: true } as never));
   await kernel.bootstrap();
   ql = kernel.getService('objectql');
+  // The install's one organization. Since 18.0.0-next.0 a system write on a
+  // tenant-scoped object takes its organization from the install's ONE
+  // organization and is refused when there is none (ADR-0131 D3/D9,
+  // `SystemWriteOrganizationRequiredError`). Since 18.0.0-next.1
+  // `createIdentityObjectsPlugin()` creates it at boot under the `single`
+  // posture (objectstack 917b1a0), so this kernel no longer writes the row
+  // itself: a second one would make every system write ambiguous.
 
   const user = await insert('sys_user', { name: 'Erasure Rep', email: 'rep@dupe-cleanup.test' });
   userCtx = { userId: user.id, isSystem: true } as AnyRec;
@@ -297,9 +314,17 @@ describe('a lead stops claiming a duplicate once the record it named is gone', (
     // `duplicate_status` are neither — so if the retirement block ran before
     // that lock instead of after it (priority 300), the lock would refuse the
     // very cleanup #720 fixed it to allow, and this delete would fail.
-    const { contact, lead } = await buildContactCase();
+    const { n, account, contact, lead } = await buildContactCase();
+    // Converted as the conversion leaves it, onto an account and a contact of
+    // its own (#2219: the flag stands only with both). The contact is not the
+    // one it was flagged against, so the delete below clears the duplicate
+    // link alone.
+    const became = await insert('crm_contact', {
+      first_name: 'Dee', last_name: 'Became', crm_account: account.id, email: `dee.became.${n}@dupe-cleanup.test`,
+    });
     await ql.update('crm_lead', {
       id: lead.id, is_converted: true, status: 'converted', converted_date: '2026-02-01',
+      converted_account: account.id, converted_contact: became.id,
     }, { context: SYS });
 
     expect(await deleteAndCatch('crm_contact', contact.id)).toBeNull();

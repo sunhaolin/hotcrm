@@ -5,14 +5,14 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { AutomationEngine } from '@objectstack/service-automation';
 import { REPO_ROOT } from './helpers/repo-root';
-import stack from '../objectstack.config';
+import stack from './helpers/composed-stack';
 
 /**
  * ═══ HOUSE RULE: there is exactly ONE definition of a "hot" lead ═══════════
  *
  * The `lead_assignment` flow is the SEMANTICS PRODUCER. Its `check_hot`
  * decision (edge `e2`) is what stamps a 1-day follow-up SLA on a new lead and
- * fires "Hot lead — assign within 24h" at the owner. The `hot_leads` list view
+ * fires "Hot lead — follow up within 24h" at the owner. The `hot_leads` list view
  * is the queue that alert sends that owner to. If the two disagree on where
  * the line sits, the product tells a rep a lead is hot and then hides it.
  *
@@ -45,8 +45,8 @@ import stack from '../objectstack.config';
 
 type AnyRec = Record<string, any>;
 
-const VIEWS_DIR = join(REPO_ROOT, 'src', 'views');
-const HOOK_SOURCE = readFileSync(join(REPO_ROOT, 'src', 'objects', 'lead.hook.ts'), 'utf8');
+const VIEWS_DIR = join(REPO_ROOT, 'src', 'sales', 'views');
+const HOOK_SOURCE = readFileSync(join(REPO_ROOT, 'src', 'sales', 'objects', 'lead.hook.ts'), 'utf8');
 
 // ── The view side ──────────────────────────────────────────────────────────
 
@@ -241,7 +241,7 @@ describe('a lead routing calls hot is a lead in the Hot Leads queue', () => {
       expect(
         row.queued,
         row.hot
-          ? `rating ${row.rating} is routed HOT (1-day SLA + "assign within 24h" alert) ` +
+          ? `rating ${row.rating} is routed HOT (1-day SLA + "follow up within 24h" alert) ` +
             `but is NOT in the 🔥 Hot Leads queue that alert points at`
           : `rating ${row.rating} is NOT routed hot but sits in the 🔥 Hot Leads queue`,
       ).toBe(row.hot);

@@ -4,8 +4,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { REPO_ROOT } from './helpers/repo-root';
-import { allHooks } from '../src/hooks';
-import * as flows from '../src/flows';
+import { allHooks } from '../objectstack.composition';
+import { CrmFlows as flows } from './helpers/src-roster';
 
 /**
  * Runtime-coverage guard.
@@ -40,6 +40,9 @@ const RUNTIME_TEST_FILES = [
   'flow-followup.test.ts',
   'flow-scheduled.test.ts',
   'flow-record-change.test.ts',
+  // The nine PSA approval flows (fork): one template, driven through the real
+  // engine on a system submit, parked at the approval node.
+  'flow-psa-approvals.test.ts',
   'flow-case-actions.test.ts',
   'flow-campaign-enrollment.test.ts',
   // #597 — the campaign_member hooks (response lockstep, the opt-out
@@ -50,6 +53,12 @@ const RUNTIME_TEST_FILES = [
   // #600 — the two outbound billing hand-off flows, driven through the real
   // engine and the real builtin `http` executor's durable branch.
   'flow-billing-handoff.test.ts',
+  // #2312 — printing a quote presents it: the print archive's attachment write
+  // fires `quote_print_presented`, and nothing else does.
+  'flow-quote-print-presented.test.ts',
+  // #2317 — filing a contract's signed copy dates the signature
+  // (`contract_signed_copy_date`), beside the two signed-copy gates it serves.
+  'contract-signed-copy.test.ts',
   // #592 — the activity model's own runtime file: both `crm_event` hooks, the
   // parity check that keeps the duplicated bubble body from drifting, and the
   // readonly-strip regression proof against a real engine.
@@ -69,14 +78,12 @@ const RUNTIME_TEST_FILES = [
   // measures through the real analytics executor on both drivers.
   'knowledge-feedback.test.ts',
   'knowledge-deflection.test.ts',
-  // #1096 — the triage claim seam. Same precedent as the lines above, and a
-  // stronger case for it than most: `case_self_claim` cannot be exercised by a
-  // hook harness at all, because the behaviour under test is what the PLATFORM
-  // does either side of the hook (the transfer gate refusing a hand-written
-  // `owner_id` upstream of the hook phase, and accepting the hook's own stamp).
-  // Only a boot of the real stack can ask that, so the hook's runtime evidence
-  // lives beside the sharing rule it completes.
-  'unassigned-case-triage-reach.test.ts',
+  // #2395 — the ownership queues. Same precedent as the lines above: the
+  // behaviour under test is what the PLATFORM does with the app's declared
+  // queues and assignment rules (routing on insert, the queue's read path, the
+  // claim through the transfer gate), so only a boot of the real stack can ask
+  // it, and the evidence lives beside the declarations it measures.
+  'ownership-queues.test.ts',
   // #1180 — the `do_not_call` guards on `crm_task` and `crm_event`. Same
   // precedent as the feature files above: one field's enforcement is one story,
   // and it is only legible with both halves side by side — the refusals AND the
@@ -85,6 +92,58 @@ const RUNTIME_TEST_FILES = [
   // hooks run their SHIPPED lowered bodies through the real QuickJS runner
   // there, not their handlers.
   'do-not-call-enforcement.test.ts',
+  // REQ-0009 phases 2–3 (#2318) — a quote prices from its price book:
+  // `quote_price_book` (the default book, the refusals), the quote-line price
+  // fill reading the book, `product_standard_price` keeping the standard
+  // book whole, and the Add Products screen flow, run as the console runs it.
+  'quote-price-book.test.ts',
+  'flow-price-book-add-products.test.ts',
+  // REQ-0005 — the lead conversion approval gate. Same precedent as the feature
+  // files above, and the same reason: the gate is authored on four surfaces
+  // (the field default, `convert_lead.visible`, `lead_conversion`'s
+  // `decision_approval` edges and the `beforeUpdate` refusal) that have to
+  // agree about what OFF means, and the evidence is only legible with all four
+  // side by side. `lead_conversion_approval`'s own runtime evidence is its
+  // start condition driven through the real engine there.
+  'account-approval-gate.test.ts',
+  'opportunity-account-capability-gate.test.ts',
+  'lead-conversion-approval-gate.test.ts',
+  // REQ-0006 — the status-change gate: its start condition, both approval
+  // branches, the `opportunity_lifecycle` refusal and the user-less run.
+  'opportunity-status-change-approval-gate.test.ts',
+  // REQ-0006 step 11 — the 立项 gate: its start condition, both approval
+  // branches, the `opportunity_lifecycle` refusal, the two-gate interaction
+  // matrix and the user-less run.
+  'opportunity-qualification-approval-gate.test.ts',
+  // #1828 — the `line_number` assigner on both line items. Same precedent: its
+  // evidence is an ENGINE fact (a hook-written readonly key survives the
+  // non-system strip, a caller-supplied one does not) measured on a real
+  // ObjectQL with the strip's own control beside it, plus the lowered body.
+  'line-item-line-number.test.ts',
+  // #2077 — the closed-deal line freeze: the refusals, the open-deal and
+  // system-write controls, and the lowered body.
+  'opportunity-line-freeze.test.ts',
+  // #2086 — the line items' `product_title`: the line-side writer on both
+  // objects (in-process and the lowered body) and `product_title_mirror`, the
+  // rename writer on `crm_product`.
+  'line-item-product-title.test.ts',
+  // #2073 item 3 — `case_close_escalation_task`: both doors that close an
+  // escalated case (Close Case and the owner's own edit), for the agent who
+  // keeps it and the manager it is handed to, and the tasks the close must
+  // leave alone.
+  'escalation-task-on-close.test.ts',
+  // #2313 — the two price-book hooks (one standard book, one entry per
+  // product per book) and who may write the books, one feature's runtime
+  // evidence in one file, as the lines above.
+  'price-book-hooks.test.ts',
+  // #2344 — `campaign_member_enrollment_gate`: the direct doors against the
+  // flow door over every campaign status, the system-write and no-move
+  // controls, the moving edits, and the lowered body.
+  'campaign-member-direct-create-gates.test.ts',
+  // #2371 row 6 — `contract_drafted_notice`: a quote accepted on the booted
+  // app drafts a contract and the accepting rep gets one inbox notice; a
+  // contract written by hand gets none.
+  'contract-drafted-notice.test.ts',
 ];
 
 /**

@@ -10,60 +10,104 @@
 // surfaces. Nothing here ships in the artifact: `objectstack.config.ts` never
 // imports this file or the table it reads, which is what makes "a real
 // deployment installs none of these people" structural rather than hopeful
-// (see the header of `src/sharing/demo-staffing.ts`).
+// (see the header of `src/sales/sharing/demo-staffing.ts`).
 //
-// Four steps, all idempotent — rerun it any time, including against a
-// half-staffed org:
+// Six steps, all idempotent — rerun it any time, including against a
+// half-staffed org. They start once the seed has SETTLED (#2206): a fresh
+// `pnpm dev` answers sign-in well before its seed finishes writing, and every
+// step below reads what the seed left. See `awaitSeedSettled`.
 //
+//   0. GIVE THE DEV ADMIN THE APP'S ADMIN SET (#2061): the sets
+//      `DemoAdminPermissionSets` names, as `sys_user_permission_set` rows on
+//      the signed-in admin. Since 18.0.0 the platform's administrator sets
+//      carry no export, so without an app set the dev admin cannot export a
+//      list at all (the reasons and the reading are in
+//      `src/sales/sharing/demo-staffing.ts`);
 //   1. create each person in `DemoOrgStaffing` via
 //      POST /api/v1/auth/admin/create-user (better-auth: a REAL, loginable
 //      account with a credential and a `sys_member` row — not a raw `sys_user`
 //      insert, which ADR-0092's write guard refuses and which would produce an
 //      un-loginable row anyway);
 //   2. assign the positions they hold (`sys_user_position`);
-//   3. HAND THE DEMO BOOK TO THEM (#1759). `demo_bootstrap` claims every
-//      ownerless seeded row for the FIRST user — it has to; a seed cannot name
-//      a user and that flow ships in the artifact — which leaves the whole
-//      book on the dev admin. Invisible over an API key (it runs as the human,
+//   3. HAND THE DEMO BOOK TO THEM (#1759). The platform's seed-ownership claim
+//      hands every ownerless seeded row to the FIRST administrator — nothing
+//      else can; a seed cannot name a user and the artifact must not know these
+//      people — which leaves the whole book on the dev admin. Invisible over an API key (it runs as the human,
 //      so `viewAllRecords` applies) and fatal over OAuth, where the agent
 //      ceiling admits only what the caller OWNS or holds a share on
 //      (objectstack-ai/objectstack#16549). So a demo salesperson asking their
 //      agent about the pipeline got 0 opportunities and 0 tasks. This step
-//      re-stamps `owner_id` per the routes in `src/sharing/demo-staffing.ts`;
-//      `crm_account` is deliberately NOT among them (see step 5). A row an
-//      approval holds locked is REPORTED AND SKIPPED, never fatal — that is
-//      what makes the "rerun it any time" line above true (see
-//      `Api.patchUnlessLocked`);
+//      re-stamps `owner_id` per the routes in `src/sales/sharing/demo-staffing.ts`;
+//      `crm_account` is deliberately NOT among them (see step 5), every row goes
+//      over through the same write with every control in force — so on a large
+//      open deal it opens `opportunity_approval`, submitted by the dev admin —
+//      and a row a pending approval locks is held where it is (see
+//      `handBookToRoster`); a lock that pre-read missed answers 409 at the
+//      write and is REPORTED AND SKIPPED, never fatal — that is what keeps
+//      the "rerun it any time" line above true (see `Api.patchUnlessLocked`);
 //   4. RE-EVALUATE every active sharing rule. This step is not optional and is
 //      the reason staffing alone was never enough: `plugin-sharing` materialises
 //      grants from a record-write hook that returns early on `isSystem` writes,
 //      and every seeded row is written with `isSystem: true`. So the seeded
 //      accounts carry no grants no matter who holds a position, until a rule is
-//      re-evaluated (boot backfill does it too — this just avoids the restart);
+//      re-evaluated (boot backfill does it too — this just avoids the restart).
+//      The rules are listed through `GET /api/v1/sharing/rules`: since
+//      18.0.0-next.4 a rule the app declares has no `sys_sharing_rule` row, and
+//      its id is its name (objectstack#23952);
 //   5. VERIFY, as each demo user, that the three layers actually connect —
 //      plus an OWNERSHIP CENSUS over the routed objects, which is the only
 //      evidence that speaks to step 3: the reps must still OWN NO ACCOUNT (a
 //      share to an owner proves nothing under a `private` OWD, so owning them
 //      would delete the territory demonstration), while every routed row must
-//      sit on a demo persona and none of them may hold the lot. Exits non-zero
-//      if any of that fails.
+//      sit on a demo persona (held rows aside) and none of them may hold the lot. It also
+//      re-reads the dev admin's resolved sets, which must name every set step 0
+//      granted. Exits non-zero if any of that fails.
 //
 // Flags: --url (default http://localhost:4001, the port `pnpm dev` binds),
 //        --admin-email / --admin-password (default the platform's dev-admin
-//        seed, which only exists when NODE_ENV=development).
+//        seed, which only exists when NODE_ENV=development),
+//        --seed-wait SECONDS (default 180): how long to wait for the seed to
+//        settle before routing what is there.
 
 import {
+  CASE_DESK,
+  CASE_DESK_FIELDS,
+  caseDeskOf,
+  DemoAdminPermissionSets,
   DemoOrgStaffing,
   DemoPipelineOwnership,
   TERRITORY_OWNER,
   type DemoOwnershipRoute,
   type DemoStaffMember,
-} from '../src/sharing/demo-staffing.js';
-import { TERRITORY, type Territory } from '../src/objects/_territory.js';
+} from '../src/sales/sharing/demo-staffing.js';
+import { TERRITORY, type Territory } from '../src/sales/objects/_territory.js';
+import { OpportunityApprovalFlow } from '../src/sales/flows/opportunity-approval.flow.js';
+import * as salesSeeds from '../src/sales/data/index.js';
+import * as serviceSeeds from '../src/service/data/index.js';
 
 type Json = Record<string, any>;
 
+/**
+ * The routed object whose SAVE can open an approval (#2129), read off
+ * `opportunity_approval`'s own start node rather than spelled again here.
+ *
+ * That flow fires on ANY update of an open deal at or above the large-deal
+ * line that is not yet in approval, and the request it opens names the WRITER
+ * as its submitter. So for this one object, the first write after the seed
+ * decides who asked for the approval, and that write is step 3's hand-over:
+ * the requests it opens name the dev admin (see `handBookToRoster`). The
+ * closing banner reads them back.
+ */
+const APPROVAL_GATED_OBJECT = String(
+  (OpportunityApprovalFlow.nodes.find((n) => n.type === 'start')?.config as { objectName?: unknown } | undefined)
+    ?.objectName ?? '',
+);
+
 const DEFAULT_URL = 'http://localhost:4001';
+/** Seconds `awaitSeedSettled` waits by default. A fresh boot measured ~40 s of seeding after sign-in first answered. */
+const DEFAULT_SEED_WAIT_SECONDS = 180;
+/** How often `awaitSeedSettled` re-reads the routed objects. */
+const SEED_POLL_MS = 2_000;
 
 /** `--flag value` / `--flag=value`, else the env var, else the fallback. */
 function arg(name: string, envName: string, fallback: string): string {
@@ -162,6 +206,11 @@ class Api {
    * included. That is the platform behaving correctly, and ⛔ not something to
    * route around by clearing the lock: the decision is the approver's.
    *
+   * The `sys_approval_request` pre-read in `handBookToRoster` steps over the
+   * rows it can see; this is the net under it, for a row the re-stamp itself
+   * pushes into approval mid-run, or one whose request landed between the
+   * pre-read and the write.
+   *
    * Left unhandled it made the "rerun it any time" promise at the head of this
    * file false. ONE such row — a $100K deal the dev admin opened while playing
    * with the demo, or a row this script's own re-stamp pushed into approval on
@@ -182,10 +231,18 @@ class Api {
     throw new Error(`PATCH ${object}/${id} → ${status}: ${msg}`);
   }
 
-  /** Rows of `object` matching `filters` (the data API's own query verb). */
+  /**
+   * Rows of `object` matching `filters` (the data API's own query verb).
+   *
+   * An empty `filters` is sent as NO `filters` key: the query door validates
+   * the body against `FindDataRequestSchema`, which refuses `filters: []`
+   * (`query.filters` min_items) with 400 "Invalid query request" — the same
+   * shape #1999 removed from the back-fill scripts (#2029).
+   * `test/backfill-query-bodies.test.ts` runs this script against that schema.
+   */
   async query(object: string, filters: unknown[][], fields?: string[]): Promise<Json[]> {
     const json = await this.postOk(`/api/v1/data/${object}/query`, {
-      filters,
+      ...(filters.length ? { filters } : {}),
       ...(fields ? { fields } : {}),
       top: 500,
     });
@@ -199,7 +256,8 @@ class Api {
    * crash to die on.
    */
   async tryQuery(object: string, fields: string[]): Promise<{ rows: Json[] } | { denied: string }> {
-    const { status, json } = await this.post(`/api/v1/data/${object}/query`, { filters: [], fields, top: 500 });
+    // No `filters` key: every row, which is what an empty filter meant (see `query`).
+    const { status, json } = await this.post(`/api/v1/data/${object}/query`, { fields, top: 500 });
     if (status >= 200 && status < 300) return { rows: (json.records ?? []) as Json[] };
     const msg = json?.error?.message ?? json?.error ?? json?.message ?? JSON.stringify(json);
     return { denied: `${status} ${String(json?.code ?? '')} ${msg}`.trim() };
@@ -217,6 +275,99 @@ class Api {
       );
     }
     return json.user as Json;
+  }
+}
+
+/**
+ * The natural keys the app SEEDS into each routed object, read off the seed
+ * datasets themselves, never counted by hand. They are taken from the seed
+ * barrels of the two packages that own every routed object (`src/sales/data`,
+ * `src/service/data`) rather than from `CrmSeedData`: that roster sits in
+ * `objectstack.composition.ts`, which loads the whole app, and importing it
+ * made this script ~5x slower to start. `test/demo-staffing.test.ts` pins that
+ * every routed object is seeded from one of the two. Only datasets keyed by one
+ * field take part; every routed object's is.
+ */
+function seededKeysByObject(): Map<string, { field: string; keys: Set<string> }> {
+  const routed = new Set(DemoPipelineOwnership.map((r) => r.object));
+  const out = new Map<string, { field: string; keys: Set<string> }>();
+  for (const exported of Object.values({ ...salesSeeds, ...serviceSeeds })) {
+    const dataset = exported as { object?: unknown; externalId?: unknown; records?: ReadonlyArray<Json> };
+    if (typeof dataset.object !== 'string' || !routed.has(dataset.object)) continue;
+    if (typeof dataset.externalId !== 'string') continue;
+    const entry = out.get(dataset.object) ?? { field: dataset.externalId, keys: new Set<string>() };
+    for (const record of dataset.records ?? []) entry.keys.add(String(record[dataset.externalId]));
+    out.set(dataset.object, entry);
+  }
+  return out;
+}
+
+/**
+ * Wait until the seed has settled, then let staffing start (#2206).
+ *
+ * ### Why the run cannot start the moment sign-in answers
+ *
+ * Measured on 18.0.0, fresh `pnpm dev`: sign-in answered ~30 s into the boot,
+ * but the seed overran the platform's inline budget and kept writing in the
+ * background ("Seeds: pending — 1 source still writing" on the banner) for
+ * ~40 s more — `crm_task` landed at +26 s, `crm_event` at +31 s, `crm_case` at
+ * +36 s, and the platform's seed-ownership claim stamped the dev admin on all
+ * of it at +39 s. A run started inside that window routed what had landed and
+ * nothing else: `crm_task` and `crm_event` "routed no rows at all" (exit 1),
+ * and the cases, inserted after the staffing, were round-robined onto the
+ * service agent by `case_auto_assign` (the intake round-robin hook then; the
+ * platform's `case_intake_assignment` rule since #2395) instead of routed. That is why this wait
+ * comes BEFORE step 0, not just before the hand-over.
+ *
+ * ### What "settled" means here
+ *
+ * The platform announces settlement only over the IPC channel of a process that
+ * spawned `os dev`; a script in a second terminal has no such channel and no
+ * HTTP door says it. So the run reads the app's OWN fact instead: every row
+ * the app seeds into a routed object is present, and each has an owner.
+ * The second half is the platform's claim having run, which happens only when
+ * the seed source settles — so a row still ownerless means the claim is yet to
+ * come and could re-stamp a row this run is about to hand over.
+ *
+ * ### Bounded, never fatal on its own
+ *
+ * On an old box a seeded row may have been deleted or renamed, and then the
+ * keys never all turn up. So the wait is bounded by `--seed-wait`, and on
+ * timeout it says what is missing and goes on to route what is there; the
+ * ownership census at the end still judges the outcome.
+ */
+async function awaitSeedSettled(api: Api, waitSeconds: number): Promise<void> {
+  const seeded = seededKeysByObject();
+  const deadline = Date.now() + waitSeconds * 1000;
+  const started = Date.now();
+  let lastLine = '';
+  for (;;) {
+    const lines: string[] = [];
+    for (const [object, { field, keys }] of seeded) {
+      const rows = await api.query(object, [], ['id', field, 'owner_id']);
+      const present = rows.filter((r) => keys.has(String(r[field])));
+      const ownerless = present.filter((r) => String(r.owner_id ?? '') === '').length;
+      const seen = new Set(present.map((r) => String(r[field]))).size;
+      if (seen < keys.size || ownerless > 0) {
+        lines.push(`${object} ${seen}/${keys.size} seeded rows present${ownerless ? `, ${ownerless} not yet claimed` : ''}`);
+      }
+    }
+    if (lines.length === 0) {
+      const waited = Math.round((Date.now() - started) / 1000);
+      console.log(`🌱 seed settled${waited ? ` (waited ${waited}s)` : ''}\n`);
+      return;
+    }
+    const line = lines.join(' · ');
+    if (Date.now() >= deadline) {
+      console.log(
+        `⚠️  seed not settled after ${waitSeconds}s: ${line}. Routing what is there; the ownership ` +
+        `census below judges the outcome. (A seeded row deleted or renamed on this box looks the same.)\n`,
+      );
+      return;
+    }
+    if (line !== lastLine) console.log(`⏳ waiting for the seed to settle: ${line}`);
+    lastLine = line;
+    await new Promise((resolve) => setTimeout(resolve, SEED_POLL_MS));
   }
 }
 
@@ -272,16 +423,60 @@ async function ensurePositions(api: Api, userId: string, member: DemoStaffMember
 }
 
 /**
+ * Step 0 (#2061): grant the dev admin every set `DemoAdminPermissionSets`
+ * names, skipping ones it already holds.
+ *
+ * The row names the set and the user, nothing else: the server stamps the
+ * writer's organization on it, as it does on the platform's own admin grants.
+ */
+async function ensureAdminPermissionSets(api: Api, adminId: string) {
+  const held = await api.query('sys_user_permission_set', [['user_id', '=', adminId]], ['id', 'permission_set']);
+  const heldNames = new Set(held.map((r) => String(r.permission_set)));
+  const wanted = DemoAdminPermissionSets.map((g) => g.permissionSet);
+  const added: string[] = [];
+  for (const permissionSet of wanted) {
+    if (heldNames.has(permissionSet)) continue;
+    await api.postOk('/api/v1/data/sys_user_permission_set', { user_id: adminId, permission_set: permissionSet });
+    added.push(permissionSet);
+  }
+  return { added, already: wanted.filter((p) => heldNames.has(p)) };
+}
+
+/**
+ * The dev admin's sets as the server RESOLVES them, re-read rather than taken
+ * from step 0's writes: a grant row that resolves to nothing (a misspelt name,
+ * a set the activation ledger switched off) is stored fine and grants nothing.
+ */
+async function verifyAdminSets(api: Api): Promise<string[]> {
+  const { status, json } = await api.get('/api/v1/auth/me/permissions');
+  if (status !== 200) return [`GET /api/v1/auth/me/permissions → ${status} for the dev admin`];
+  const resolved = new Set(((json.permissionSets ?? []) as unknown[]).map(String));
+  console.log(`   the dev admin resolves [${[...resolved].join(', ')}]`);
+  return DemoAdminPermissionSets.filter((g) => !resolved.has(g.permissionSet)).map(
+    (g) => `the dev admin's ${g.permissionSet} grant does not resolve, so this stays off: ${g.demonstrates}`,
+  );
+}
+
+/**
  * Re-materialise the grants of every active rule.
  *
- * `POST /sharing/rules/:id/evaluate` is diff-based: it grants what now matches,
- * revokes what no longer does, and is safe to run repeatedly.
+ * The rules come from the sharing door, `GET /api/v1/sharing/rules`, which
+ * lists the rules the app declares beside any the organization authored.
+ * `sys_sharing_rule` holds only the latter: since 18.0.0-next.4 plugin-sharing
+ * reads a declared rule from the registry and writes no row for it, and its id
+ * is its name (objectstack#23952). `POST /sharing/rules/:idOrName/evaluate` is
+ * diff-based: it grants what now matches, revokes what no longer does, and is
+ * safe to run repeatedly.
  */
 async function evaluateRules(api: Api) {
-  const rules = await api.query('sys_sharing_rule', [['active', '=', true]], ['id', 'name']);
+  const { status, json } = await api.get('/api/v1/sharing/rules?activeOnly=true');
+  if (status !== 200 || !Array.isArray(json.data)) {
+    throw new Error(`GET /api/v1/sharing/rules → ${status}: ${JSON.stringify(json).slice(0, 300)}`);
+  }
+  const rules = json.data as Json[];
   const results: Array<{ name: string; matched: number; users: number; created: number; revoked: number }> = [];
   for (const rule of rules) {
-    const out = await api.postOk(`/api/v1/sharing/rules/${rule.id}/evaluate`);
+    const out = await api.postOk(`/api/v1/sharing/rules/${encodeURIComponent(String(rule.id ?? rule.name))}/evaluate`);
     results.push({
       name: String(rule.name),
       matched: Number(out.matchedRecords ?? 0),
@@ -298,6 +493,8 @@ type OwnershipOutcome = {
   route: DemoOwnershipRoute;
   /** rowId → the owner this run settled on: the routed one, or the one it left alone. */
   settled: Map<string, string>;
+  /** rowId → the owner it keeps: rows under a PENDING APPROVAL, which no edit may reach (see below). */
+  held: Map<string, string>;
   written: number;
   leftAlone: number;
   /**
@@ -316,21 +513,54 @@ type OwnershipOutcome = {
  * the agent ceiling that produced the zeros is the platform behaving
  * correctly. A row goes to whoever owns its account's TERRITORY, and a row
  * whose account cannot be resolved goes to the manager — so each identity ends
- * up with a SUBSET, which is the demonstration. `crm_account` is not routed at
- * all; see `DemoPipelineOwnership`.
+ * up with a SUBSET, which is the demonstration. A case goes to its service
+ * desk instead (`CASE_DESK`, #2206). `crm_account` is not routed at all; see
+ * `DemoPipelineOwnership`.
  *
  * ### What it claims, and what it deliberately does not
  *
  * Only rows sitting on the DEV ADMIN or on nobody. Those two states are the
- * seed book: `demo_bootstrap` stamps the first user onto everything it finds
- * ownerless, and anything it has not reached yet is still null. A row some LIVE
+ * seed book: the platform's seed-ownership claim stamps the first administrator
+ * onto everything it finds ownerless once the seed settles, and anything it has
+ * not reached yet is still null. A row some LIVE
  * WORKFLOW has already assigned is left exactly where it is — measured on a
  * staffed box, the SLA sweep escalates cases and the escalation hook hands the
  * resulting tasks to the service manager, and re-routing those by territory
  * would overwrite the app demonstrating itself.
  *
+ * ### Every row goes over with its controls on, so the dev admin submits the large deals
+ *
+ * The seed prices exactly two open deals over the large-deal line on purpose
+ * (`Acme Platform Upgrade`, `Wayne Enterprise License`, see
+ * `src/sales/data/sales.seed.ts`). A seeded row opens no approval: the seed
+ * loader writes with `skipTriggers`, so a fresh box has 0
+ * `sys_approval_request` rows when this runs. `opportunity_approval` then
+ * fires on the FIRST later update of such a deal, whatever it changes, and
+ * the request it opens names the writer as submitter. This step's PATCH is
+ * that write, so each of the two requests names the dev admin as submitter,
+ * waits on the sales manager at `manager_review`, and locks the deal.
+ *
+ * Until 18.0.0-next.3 these deals went over through the import door with
+ * `runAutomations: false`, and each new owner then saved their deal, so the
+ * request named the rep (#2129). Since 18.0.0-next.4 the import door refuses
+ * that opt-out to every caller but the system principal, administrators
+ * included (objectstack#24348). A recall does not restore the old outcome
+ * either. Measured on 18.0.0-next.5: after the dev admin recalls the request
+ * the hand-over opened, the deal is unlocked, but its `approval_status` reads
+ * `recalled`, and `opportunity_approval` enters only from `not_required`, so
+ * the rep's next save opens nothing. The rep cannot take the deal themselves:
+ * before the hand-off they cannot read it (`crm_opportunity` is `private`, no
+ * rule shares it with a rep), and reps hold no `allowTransfer`.
+ *
+ * A row under a PENDING APPROVAL is left where it is, and reported as held
+ * rather than routed (#2029). On a rerun before the request is decided, the
+ * approval node's `lockRecord: true` makes the platform refuse every edit to
+ * the record, the dev admin's ownership write included (409, "locked while an
+ * approval is in progress"). Decide the approval and run the script again to
+ * hand the row over.
+ *
  * That also makes the run idempotent and order-independent: correct whether
- * `demo_bootstrap` has already claimed the rows or has not run yet, and a
+ * that claim has already run or has not run yet, and a
  * second pass over a converged org writes nothing.
  *
  * ### The one row this cannot move, and why that is not a failure
@@ -351,25 +581,34 @@ async function handBookToRoster(
   adminId: string,
 ): Promise<OwnershipOutcome[]> {
   // The account hook stores a declared `territory` (never a country string —
-  // `src/objects/_territory.ts`), so this reads the same value the sharing
+  // `src/sales/objects/_territory.ts`), so this reads the same value the sharing
   // rules match on rather than re-deriving one.
   const accountRows = await api.query('crm_account', [], ['id', 'territory']);
   const territoryOf = new Map(accountRows.map((a) => [String(a.id), String(a.territory ?? '')]));
 
-  const ownerFor = (territory: string | undefined): string => {
-    const key = TERRITORY_OWNER[(territory ?? '') as Territory] ?? TERRITORY_OWNER[TERRITORY.OTHER];
+  /** The user id of a demo staff `key`, which every route ends on. */
+  const staffKeyFor = (key: string): string => {
     const userId = userIdByKey.get(key);
-    if (!userId) {
-      throw new Error(`ownership routing names demo staff key "${key}", who is not in DemoOrgStaffing`);
-    }
+    if (!userId) throw new Error(`ownership routing names demo staff key "${key}", who is not in DemoOrgStaffing`);
     return userId;
   };
+  const ownerFor = (territory: string | undefined): string =>
+    staffKeyFor(TERRITORY_OWNER[(territory ?? '') as Territory] ?? TERRITORY_OWNER[TERRITORY.OTHER]);
+
+  // The records a pending approval holds, as `object:id` (see the note above).
+  const pending = await api.query('sys_approval_request', [['status', '=', 'pending']], ['object_name', 'record_id']);
+  const underApproval = new Set(pending.map((r) => `${String(r.object_name)}:${String(r.record_id)}`));
 
   const outcomes: OwnershipOutcome[] = [];
   for (const route of DemoPipelineOwnership) {
-    const fields = ['id', 'owner_id', ...(route.accountField ? [route.accountField] : [])];
+    const fields = [
+      'id',
+      'owner_id',
+      ...(route.by === 'territory' ? (route.accountField ? [route.accountField] : []) : CASE_DESK_FIELDS),
+    ];
     const rows = await api.query(route.object, [], fields);
     const settled = new Map<string, string>();
+    const held = new Map<string, string>();
     const locked: string[] = [];
     let written = 0;
     let leftAlone = 0;
@@ -381,8 +620,17 @@ async function handBookToRoster(
         leftAlone++;
         continue;
       }
-      const accountId = route.accountField ? row[route.accountField] : undefined;
-      const wanted = ownerFor(accountId ? territoryOf.get(String(accountId)) : undefined);
+      if (underApproval.has(`${route.object}:${id}`)) {
+        held.set(id, current);
+        continue;
+      }
+      let wanted: string;
+      if (route.by === 'territory') {
+        const accountId = route.accountField ? row[route.accountField] : undefined;
+        wanted = ownerFor(accountId ? territoryOf.get(String(accountId)) : undefined);
+      } else {
+        wanted = staffKeyFor(CASE_DESK[caseDeskOf(row)]);
+      }
       const outcome = await api.patchUnlessLocked(route.object, id, { owner_id: wanted });
       if (outcome === 'locked') {
         locked.push(id);
@@ -391,9 +639,22 @@ async function handBookToRoster(
       settled.set(id, wanted);
       written++;
     }
-    outcomes.push({ route, settled, written, leftAlone, locked });
+    outcomes.push({ route, settled, held, written, leftAlone, locked });
   }
   return outcomes;
+}
+
+/**
+ * The PENDING approval requests on {@link APPROVAL_GATED_OBJECT}, re-read from
+ * the server for the closing banner: this run's (step 3's hand-over opened
+ * them) and an earlier run's alike. Nothing here approves or rejects one.
+ */
+async function readPendingApprovals(api: Api): Promise<Json[]> {
+  return api.query(
+    'sys_approval_request',
+    [['status', '=', 'pending'], ['object_name', '=', APPROVAL_GATED_OBJECT]],
+    ['id', 'object_name', 'record_id', 'submitter_id', 'pending_approvers', 'current_step'],
+  );
 }
 
 /**
@@ -411,7 +672,9 @@ async function handBookToRoster(
  * It judges only the rows this run settled, by id. Rows that APPEAR while it
  * runs — the scheduled sweeps do create some — are reported on their own line
  * and never counted as a disagreement, because a census that failed on the app
- * doing its job would be a broken instrument, not a finding.
+ * doing its job would be a broken instrument, not a finding. Rows held by a
+ * pending approval (`held`) are counted on their own column for the same
+ * reason: the approval is the app doing its job.
  */
 async function ownershipCensus(
   api: Api,
@@ -429,10 +692,10 @@ async function ownershipCensus(
   console.log(
     `   ${'object'.padEnd(18)}${'routed'.padStart(7)}` +
     `${roster.map((r) => r.email.split('@')[0].padStart(w)).join('')}` +
-    `${'dev admin'.padStart(w)}${'nobody'.padStart(8)}${'new'.padStart(6)}`,
+    `${'dev admin'.padStart(w)}${'nobody'.padStart(8)}${'held'.padStart(6)}${'new'.padStart(6)}`,
   );
 
-  for (const { route, settled, locked } of outcomes) {
+  for (const { route, settled, held, locked } of outcomes) {
     const rows = await api.query(route.object, [], ['id', 'owner_id']);
     const ownerById = new Map(rows.map((r) => [String(r.id), String(r.owner_id ?? '')]));
     const observed = new Map<string, number>();
@@ -454,7 +717,8 @@ async function ownershipCensus(
     console.log(
       `   ${route.object.padEnd(18)}${String(settled.size).padStart(7)}` +
       `${roster.map((r) => String(observed.get(r.userId) ?? 0).padStart(w)).join('')}` +
-      `${String(admin).padStart(w)}${String(ownerless).padStart(8)}${String(rows.length - settled.size).padStart(6)}`,
+      `${String(admin).padStart(w)}${String(ownerless).padStart(8)}${String(held.size).padStart(6)}` +
+      `${String(rows.filter((r) => !settled.has(String(r.id)) && !held.has(String(r.id))).length).padStart(6)}`,
     );
 
     // Guard the guard: an object with no routed rows balances trivially and
@@ -548,7 +812,7 @@ async function verify(base: URL, outcomes: StaffOutcome[], adminAccounts: Json[]
       failures.push(
         `${member.email} OWNS ${owned.join(', ')} — a share to a record's owner demonstrates ` +
         `nothing, because the private OWD baseline already admits the owner. Ownership belongs ` +
-        `to demo_bootstrap's first user; staffing must not move it.`,
+        `to the seed-ownership claim's first administrator; staffing must not move it.`,
       );
     }
     if (member.positions.includes('na_sales_team') || member.positions.includes('eu_sales_team')) {
@@ -581,6 +845,12 @@ async function verify(base: URL, outcomes: StaffOutcome[], adminAccounts: Json[]
 
 async function main(): Promise<number> {
   const base = assertLocal(arg('url', 'OS_DEMO_URL', DEFAULT_URL));
+  if (!APPROVAL_GATED_OBJECT) {
+    throw new Error(
+      "opportunity_approval's start node names no objectName, so the closing banner cannot tell which " +
+      'approval requests the hand-over opened (#2129).',
+    );
+  }
   const adminEmail = arg('admin-email', 'OS_SEED_ADMIN_EMAIL', 'admin@objectos.ai');
   const adminPassword = arg('admin-password', 'OS_SEED_ADMIN_PASSWORD', 'admin123');
 
@@ -594,6 +864,15 @@ async function main(): Promise<number> {
   const membership = await api.query('sys_member', [['user_id', '=', String(admin.id)]], ['organization_id']);
   const organizationId = membership[0]?.organization_id ? String(membership[0].organization_id) : null;
   console.log(`🏢 organization: ${organizationId ?? '(none — single-tenant boot)'}\n`);
+
+  await awaitSeedSettled(api, Number(arg('seed-wait', 'OS_DEMO_SEED_WAIT', String(DEFAULT_SEED_WAIT_SECONDS))));
+
+  const adminSets = await ensureAdminPermissionSets(api, String(admin.id));
+  console.log(
+    `${adminSets.added.length ? '➕' : '✓ '} ${'the dev admin'.padEnd(26)} ` +
+    `${adminSets.added.length ? `+[${adminSets.added.join(', ')}]` : ''}` +
+    `${adminSets.already.length ? ` (already: ${adminSets.already.join(', ')})` : ''}`,
+  );
 
   const outcomes: StaffOutcome[] = [];
   for (const member of DemoOrgStaffing) {
@@ -617,7 +896,15 @@ async function main(): Promise<number> {
   for (const o of ownership) {
     console.log(
       `   ${o.route.object.padEnd(18)} re-stamped ${String(o.written).padStart(3)}, left ` +
-      `${String(o.leftAlone).padStart(3)} with a live owner — ${o.route.why}`,
+      `${String(o.leftAlone).padStart(3)} with a live owner` +
+      `${o.held.size ? `, held ${o.held.size} under a pending approval` : ''} — ${o.route.why}`,
+    );
+  }
+  const heldTotal = ownership.reduce((n, o) => n + o.held.size, 0);
+  if (heldTotal > 0) {
+    console.log(
+      `   ↳ ${heldTotal} row(s) stay with their current owner: a pending approval locks each one ` +
+      `against every edit, ownership included. Decide the approval, then run demo:staff again.`,
     );
   }
   const lockedRows = ownership.reduce((n, o) => n + o.locked.length, 0);
@@ -643,10 +930,25 @@ async function main(): Promise<number> {
     );
   }
 
+  // What the hand-over opened (#2129): re-read, never inferred from the writes.
+  console.log(`\n── Pending ${APPROVAL_GATED_OBJECT} approval requests ──`);
+  const waiting = await readPendingApprovals(api);
+  const emailOf = (userId: string) =>
+    outcomes.find((o) => o.userId === userId)?.member.email ?? (userId === String(admin.id) ? 'the dev admin' : userId);
+  const approversOf = (r: Json) => String(r.pending_approvers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  for (const r of waiting) {
+    console.log(
+      `   ${String(r.record_id)}  ${String(r.current_step ?? '')}  submitter=${emailOf(String(r.submitter_id ?? ''))}  ` +
+      `waiting on=[${approversOf(r).map(emailOf).join(', ')}]`,
+    );
+  }
+  if (waiting.length === 0) console.log('   none');
+
   const shares = await api.query('sys_record_share', [['source', '=', 'rule']], ['id']);
   const accounts = await api.query('crm_account', [], ['name', 'territory', 'billing_country']);
   console.log(`\n── Verifying (sys_record_share: ${shares.length} rule-materialised grants) ──`);
   const failures = await verify(base, outcomes, accounts);
+  failures.push(...(await verifyAdminSets(api)));
 
   // The reading #1759 turns on: what each identity OWNS, which is what an agent
   // session can reach. Printed whether or not it passes — a census nobody can
@@ -667,17 +969,22 @@ async function main(): Promise<number> {
     return 1;
   }
   // The banner names the accounts but never their passwords. Nothing is hidden
-  // by that — the passwords are declared in `src/sharing/demo-staffing.ts`, one
+  // by that — the passwords are declared in `src/sales/sharing/demo-staffing.ts`, one
   // file away — but a run's stdout ends up in terminals, CI logs and pasted
   // snippets, and "echo the credential you just used" is the one shape this
   // reference app should not be teaching. (CodeQL says the same thing:
   // js/clear-text-logging of sensitive information.)
+  const manager = DemoOrgStaffing.find((m) => m.positions.includes('sales_manager'))?.email;
+  const listOf = (ids: string[]) => [...new Set(ids)].map(emailOf).join(' · ') || 'nobody';
   console.log(
     `\n🎉 demo org staffed. Sign in as any of: ` +
     `${DemoOrgStaffing.map((m) => m.email).join(' · ')}\n` +
-    `   Passwords are declared in src/sharing/demo-staffing.ts.\n` +
-    `   Submit an opportunity of $100K or more to see manager_review route to ` +
-    `${DemoOrgStaffing.find((m) => m.positions.includes('sales_manager'))?.email}.\n`,
+    `   Passwords are declared in src/sales/sharing/demo-staffing.ts.\n` +
+    (waiting.length
+      ? `   ${waiting.length} ${APPROVAL_GATED_OBJECT} approval request(s) pending, submitted by ` +
+        `${listOf(waiting.map((r) => String(r.submitter_id ?? '')))}, in the Approvals inbox of ` +
+        `${listOf(waiting.flatMap(approversOf))}.\n`
+      : `   Save an open opportunity of $100K or more as its owner to see manager_review route to ${manager}.\n`),
   );
   return 0;
 }

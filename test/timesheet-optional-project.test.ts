@@ -1,18 +1,9 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { ObjectKernel } from '@objectstack/core';
-import { DefaultDatasourcePlugin, AppPlugin } from '@objectstack/runtime';
-import { ObjectQLPlugin } from '@objectstack/objectql';
-import { MetadataPlugin } from '@objectstack/metadata';
-import {
-  SecurityPlugin,
-  appDefaultPermissionSetName,
-  buildContextForUser,
-} from '@objectstack/plugin-security';
-import { SharingServicePlugin } from '@objectstack/plugin-sharing';
-import { tenancyProbe } from './helpers/tenancy-probe';
-import stack from '../objectstack.config';
+import { bootStack, type VerifyStack } from '@objectstack/verify';
+import { signUpPerson, type Person } from './helpers/verify-stack';
+import artifact from '../objectstack.config';
 
 /**
  * 「交付项目 不要必填」 — a timesheet without a delivery project, measured
@@ -56,71 +47,70 @@ import stack from '../objectstack.config';
  * sheets the rep FILED. `test/parent-derived-reach.test.ts` is the sibling
  * measurement for the objects that DID keep the derivation; this file is
  * deliberately in the same shape, boot and all.
+ *
+ * ### The boot, since 18.x
+ *
+ * Through 17.4.0 this file assembled its own reduced kernel on `driver-memory`
+ * and granted the rep a `sys_permission_set` row by id. Neither exists on the
+ * 18.x platform (`@objectstack/driver-memory` is gone, #2104; the grant names
+ * the set since ADR-0131 D4), so the boot is now `@objectstack/verify`'s
+ * `bootStack` over the shipped artifact on the SQL in-memory datasource — the
+ * same leg `parent-derived-reach` moved to — and the rep's own writes go
+ * through `hooks.run`, the engine's write door, under the rep's token.
  */
 
 type AnyRec = Record<string, any>;
 
 process.env.OS_REGISTRY_LOG ??= 'silent';
 
-const SYS = { isSystem: true } as AnyRec;
-
-let kernel: AnyRec;
-let ql: AnyRec;
+let verify: VerifyStack;
 /** ids, by role in the fixture. */
 const id: Record<string, string> = {};
-/** The `sales_rep` execution context under test. */
-let repCtx: AnyRec;
+/** The `sales_rep` under test. */
+let rep: Person;
 
 /** Insert as the system, returning the new row's id. */
 const insert = async (object: string, doc: AnyRec): Promise<string> => {
-  const row = await ql.insert(object, doc, { context: SYS });
-  return String(row?.id ?? row?.record?.id);
+  const [row] = await verify.seed(object, [doc]);
+  return String(row?.id);
 };
 
-/** Insert as the rep — the path the write gate judges. */
+/**
+ * Insert as the rep — the path the write gate judges: required-field
+ * validation, every hook on the object, and the record-level security check,
+ * all under the rep's own grants rather than the system's.
+ */
 const repInserts = async (object: string, doc: AnyRec): Promise<string> => {
-  const row = await ql.insert(object, doc, { context: repCtx });
-  return String(row?.id ?? row?.record?.id);
+  const row = await verify.hooks.run(object, 'insert', doc, { as: rep.token });
+  return String((row as AnyRec)?.id);
 };
 
-/** Ids of `object` visible to the rep, as fixture labels. */
+/**
+ * Ids of `object` visible to the rep, as labels of THIS fixture's rows. The
+ * boot replays the app's seed data, whose timesheets belong to seeded staff
+ * and are not the population this file pins.
+ */
 const repSees = async (object: string): Promise<string[]> => {
-  const rows = await ql.find(object, { where: {} }, { context: repCtx });
+  const rows = await verify.rows(object, {}, { as: rep.token });
   const byId = new Map(Object.entries(id).map(([label, value]) => [value, label]));
-  return (Array.isArray(rows) ? rows : [])
-    .map((r: AnyRec) => byId.get(String(r.id)) ?? String(r.id))
+  return rows
+    .map((r: AnyRec) => byId.get(String(r.id)))
+    .filter((label): label is string => label !== undefined)
     .sort();
 };
 
 beforeAll(async () => {
-  kernel = new ObjectKernel({ logger: { level: 'silent' } } as never);
-  await kernel.use(new DefaultDatasourcePlugin({ driver: 'memory', config: {} } as never));
-  await kernel.use(new MetadataPlugin({ watch: false, artifactWatch: false, environmentId: 'proj_test' } as never));
-  await kernel.use(new ObjectQLPlugin({ environmentId: 'proj_test' } as never));
-  await kernel.use(new AppPlugin(stack as never, undefined as never, { skipSeedData: true } as never));
-  await kernel.use(
-    new SecurityPlugin({
-      fallbackPermissionSet: appDefaultPermissionSetName((stack as AnyRec).permissions),
-    } as never),
-  );
-  await kernel.use(tenancyProbe('single') as never);
-  await kernel.use(new SharingServicePlugin());
-  await kernel.bootstrap();
-  ql = kernel.getService('objectql');
+  verify = await bootStack(artifact);
 
   // ── principals ────────────────────────────────────────────────────────
-  // The first human user is auto-promoted to platform admin at boot, and an
-  // admin bypasses every filter this file measures — burn that on a throwaway.
-  await insert('sys_user', { name: 'Platform Admin', email: 'admin@timesheet-optional.test' });
-  id.rep = await insert('sys_user', { name: 'Consultant', email: 'rep@timesheet-optional.test' });
+  // Fresh sign-ups are ordinary members (the stack's first user is its own
+  // platform admin, and an admin bypasses every filter this file measures).
+  // `sys_user_position.position` holds the position NAME — see `signUpPerson`.
+  rep = await signUpPerson(verify, 'rep@timesheet-optional.test', {
+    name: 'Consultant', positions: ['sales_rep'], permissionSets: ['sales_rep'],
+  });
+  id.rep = rep.id;
   id.other = await insert('sys_user', { name: 'Colleague', email: 'other@timesheet-optional.test' });
-
-  await insert('sys_user_position', { user_id: id.rep, position: 'sales_rep' });
-  const sets = await ql.find('sys_permission_set', { where: {} }, { context: SYS });
-  const salesRepSet = (sets as AnyRec[]).find((s) => s.name === 'sales_rep');
-  await insert('sys_user_permission_set', { user_id: id.rep, permission_set_id: salesRepSet?.id });
-
-  repCtx = await buildContextForUser(ql, id.rep);
 
   // ── a delivery project the rep does NOT own ───────────────────────────
   // Owned by the colleague on purpose: under the old derivation this project
@@ -143,7 +133,7 @@ beforeAll(async () => {
   });
 
   // ── the sheets ────────────────────────────────────────────────────────
-  // Filed BY THE REP, through the rep's own context, so that every gate the
+  // Filed BY THE REP, through the rep's own token, so that every gate the
   // change touches is on the path: required-field validation, which is what
   // refuses a sheet with no project on the old metadata, and — for the sheet on
   // someone else's project — the record-level write gate. A system insert would
@@ -166,13 +156,13 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await kernel?.shutdown?.();
+  await verify?.stop();
 });
 
 describe('a sheet no longer needs a delivery project', () => {
   it('the rep filed all three of their sheets, two of them with no delivery project', () => {
     // The fixture inserts are the assertion: each ran through the rep's own
-    // context, and the two without a project are the writes that answered
+    // token, and the two without a project are the writes that answered
     // `ValidationError: Delivery Project is required` while the field was a
     // master-detail — with or without the `required` flag (see the ablation in
     // the header). Guard the guard: an insert that silently returned nothing
@@ -186,7 +176,7 @@ describe('a sheet no longer needs a delivery project', () => {
 
   it('the stored sheets keep the project the caller gave them, NULL included', async () => {
     const read = async (label: string): Promise<unknown> => {
-      const row = await ql.findOne('crm_timesheet', { where: { id: id[label] } }, { context: SYS });
+      const [row] = await verify.rows('crm_timesheet', { id: id[label] });
       return (row as AnyRec)?.crm_delivery_project ?? null;
     };
     expect(await read('sheet_attendance'), 'an attendance-only sheet acquired a project').toBeNull();

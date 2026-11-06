@@ -1,8 +1,8 @@
 // Copyright (c) 2025 ObjectStack. Licensed under the Apache-2.0 license.
 
 import { describe, it, expect } from 'vitest';
-import { PresalesProject } from '../src/objects/presales_project.object';
-import { Opportunity } from '../src/objects/opportunity.object';
+import { PresalesProject } from '../src/sales/objects/presales_project.object';
+import { Opportunity } from '../src/sales/objects/opportunity.object';
 import type { Rec } from './helpers/hook-harness';
 
 /**
