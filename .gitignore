@@ -55,3 +55,6 @@ playwright-report/
 
 # Office-suite lock files: WPS/LibreOffice drop a `.~<name>` beside an open document
 .~*
+
+# Claude Code worktrees the desktop app checks out beside the main tree — not project content
+.claude/worktrees/
